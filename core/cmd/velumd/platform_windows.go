@@ -58,8 +58,11 @@ func preparePaths(paths config.Paths, allowSIDs []string) (config.Paths, error) 
 	if err := secureDataDir(dir, allowSIDs); err != nil {
 		return paths, err
 	}
+	user := paths
 	paths = paths.WithData(dir)
 	paths.Socket = config.ServicePipe
+	// 从用户模式接手时带上缓存与策略组选择：否则首次以服务启动要同步拉取全部订阅内容，且节点选择回到默认
+	config.SeedData(user, paths)
 	return paths, nil
 }
 

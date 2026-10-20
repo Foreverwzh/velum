@@ -6,6 +6,7 @@
 package userfs
 
 import (
+	"errors"
 	"io/fs"
 	"os"
 )
@@ -48,4 +49,24 @@ func WriteFileAtomic(path string, data []byte, perm fs.FileMode) error {
 		}
 		return os.Rename(tmp, path)
 	})
+}
+
+// ReadDir 列出目录中的条目信息（不跟随符号链接；不存在时返回空列表）。
+func ReadDir(path string) (infos []fs.FileInfo, err error) {
+	err = do(func() error {
+		entries, e := os.ReadDir(path)
+		if errors.Is(e, fs.ErrNotExist) {
+			return nil
+		}
+		if e != nil {
+			return e
+		}
+		for _, en := range entries {
+			if fi, e := en.Info(); e == nil {
+				infos = append(infos, fi)
+			}
+		}
+		return nil
+	})
+	return
 }
