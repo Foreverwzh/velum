@@ -1,0 +1,98 @@
+name: desktop
+
+on:
+  push:
+    branches: ["**"] # 只按分支触发；推送版本标签由 release.yml 调用
+    paths: ["desktop/**", "core/**", "mise.toml", ".github/workflows/desktop.yml"]
+  workflow_dispatch: # 手动触发：打包安装包
+  workflow_call: # release.yml 调用：打包发布产物
+    inputs:
+      version:
+        type: string
+        required: true
+  pull_request:
+    paths: ["desktop/**", "core/**", "mise.toml", ".github/workflows/desktop.yml"]
+
+jobs:
+  check:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: desktop
+        shell: bash
+    env:
+      GOPROXY: https://proxy.golang.org,direct
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: core/go.mod
+          cache-dependency-path: core/go.sum
+      # 与本地一致：bun 版本由 mise.toml 固定
+      - uses: jdx/mise-action@v5
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri
+      - run: bun install --frozen-lockfile
+      - name: typecheck + build frontend
+        run: bun run typecheck && bun run build
+      # tauri-build 会检查 externalBin 是否存在，需先构建 Go 核心
+      - name: sidecars
+        run: sh scripts/sidecars.sh
+      - name: clippy + test
+        working-directory: desktop/src-tauri
+        run: cargo clippy -- -D warnings && cargo test --lib
+
+  # 打包安装包供测试机安装（未签名）。只在推送到 main 或手动触发时运行，PR 不打包。
+  package:
+    if: github.event_name != 'pull_request'
+    needs: check
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest # Apple 芯片
+            artifact: velum-macos-arm64
+          - os: windows-latest
+            artifact: velum-windows-x64
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: desktop
+        shell: bash
+    env:
+      GOPROXY: https://proxy.golang.org,direct
+      VELUM_VERSION: ${{ inputs.version }} # 仅发布时非空
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: core/go.mod
+          cache-dependency-path: core/go.sum
+      - uses: jdx/mise-action@v5
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri
+      - run: bun install --frozen-lockfile
+      # beforeBuildCommand 会构建 Go 核心（sidecars）与前端
+      - run: bun tauri build
+      # upload-artifact 打 zip 时会丢掉可执行权限：.app 先用 ditto 打包（保留权限与签名）
+      - name: collect (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          mkdir -p ../dist-pkg
+          ditto -c -k --keepParent src-tauri/target/release/bundle/macos/Velum.app ../dist-pkg/Velum-${VELUM_VERSION:-dev}-macos-arm64.zip
+      - name: collect (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          mkdir -p ../dist-pkg
+          cp src-tauri/target/release/bundle/nsis/*.exe ../dist-pkg/Velum-${VELUM_VERSION:-dev}-windows-x64-setup.exe
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.artifact }}
+          path: dist-pkg/*
+          retention-days: 14

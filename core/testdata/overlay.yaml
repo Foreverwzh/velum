@@ -1,0 +1,19 @@
+# 测试用 overlay（数据为示例，不代表任何内置策略）
+dev_bypass:
+  domains:
+    - corp.example.com
+    - .svc.example.test
+    - =exact.example.test
+  cidrs:
+    - 10.12.0.0/16
+    - 192.0.2.7
+  hosts:
+    staging.corp.example.com: 10.12.34.56
+    api.local.test: "fd00::1"
+  processes:
+    - SomeVPNClient
+system_proxy:
+  bypass:
+    - localhost
+    - 127.0.0.1
+    - 192.168.0.0/16

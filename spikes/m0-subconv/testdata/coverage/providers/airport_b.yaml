@@ -1,0 +1,4 @@
+proxies:
+  - { name: "SG 01", type: tuic, server: sg1.example.com, port: 443, uuid: 85dff723-6b85-4787-b888-445599ed4bd0, password: fake-password }
+  - { name: "TW 01", type: vless, server: tw1.example.com, port: 443, uuid: 85dff723-6b85-4787-b888-445599ed4bd0, tls: true }
+  - { name: "过期时间：2099-01-01", type: ss, server: 127.0.0.1, port: 1, cipher: aes-128-gcm, password: x }

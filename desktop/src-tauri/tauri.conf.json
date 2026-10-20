@@ -1,0 +1,55 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Velum",
+  "version": "0.1.0",
+  "identifier": "dev.velum.desktop",
+  "build": {
+    "beforeDevCommand": "bun run sidecars && bun run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "bun run sidecars && bun run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Velum",
+        "width": 980,
+        "height": 700,
+        "minWidth": 480,
+        "minHeight": 560,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true,
+        "visible": false
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": [
+      "app"
+    ],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.png"
+    ],
+    "resources": {
+      "tray-template.png": "tray-template.png"
+    },
+    "externalBin": [
+      "binaries/velumd",
+      "binaries/velum-helper",
+      "binaries/vlu"
+    ],
+    "macOS": {
+      "signingIdentity": "-",
+      "minimumSystemVersion": "12.0"
+    }
+  }
+}

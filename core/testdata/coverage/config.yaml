@@ -1,0 +1,120 @@
+# 覆盖型合成样本：覆盖机场订阅中常见、但本机样本没有的语法。
+# 所有服务器均为 example.com / 保留地址，凭据均为假数据，可安全提交。
+mode: rule
+ipv6: true
+
+dns:
+  enable: true
+  ipv6: true
+  enhanced-mode: fake-ip
+  fake-ip-range: 198.18.0.1/16
+  fake-ip-filter:
+    - "*.lan"
+    - "+.local"
+    - "geosite:private"
+  default-nameserver:
+    - 223.5.5.5
+  nameserver:
+    - https://dns.alidns.com/dns-query
+    - tls://dot.pub:853
+  fallback:
+    - https://1.1.1.1/dns-query
+  fallback-filter:
+    geoip: true
+    geoip-code: CN
+  nameserver-policy:
+    "geosite:cn": https://doh.pub/dns-query
+    "+.corp.example,+.intra.example": system
+    "rule-set:corp_domains": quic://dns.adguard-dns.com
+
+proxies:
+  - { name: "vmess-ws-tls", type: vmess, server: v1.example.com, port: 443, uuid: 85dff723-6b85-4787-b888-445599ed4bd0, alterId: 0, cipher: auto, tls: true, servername: v1.example.com, network: ws, ws-opts: { path: /ray, headers: { Host: v1.example.com } }, udp: true }
+  - { name: "vmess-grpc", type: vmess, server: v2.example.com, port: 443, uuid: 85dff723-6b85-4787-b888-445599ed4bd0, alterId: 0, cipher: auto, tls: true, network: grpc, grpc-opts: { grpc-service-name: svc } }
+  - { name: "vmess-h2", type: vmess, server: v3.example.com, port: 443, uuid: 85dff723-6b85-4787-b888-445599ed4bd0, alterId: 0, cipher: auto, tls: true, network: h2, h2-opts: { host: [v3.example.com], path: /h2 } }
+  - { name: "trojan-tcp", type: trojan, server: t1.example.com, port: 443, password: fake-password, sni: t1.example.com, skip-cert-verify: true, udp: true }
+  - { name: "trojan-ws", type: trojan, server: t2.example.com, port: 443, password: fake-password, network: ws, ws-opts: { path: /tj } }
+  - { name: "vless-reality-grpc", type: vless, server: r1.example.com, port: 443, uuid: 85dff723-6b85-4787-b888-445599ed4bd0, network: grpc, tls: true, servername: www.example.com, client-fingerprint: chrome, reality-opts: { public-key: Vak6wtCfasJQz9s1c68hZW9vd1kgQOWDkrtODm9YEtg, short-id: 00b20e3c }, grpc-opts: { grpc-service-name: grpc } }
+  - { name: "vless-ws", type: vless, server: r2.example.com, port: 443, uuid: 85dff723-6b85-4787-b888-445599ed4bd0, tls: true, network: ws, ws-opts: { path: /vl, max-early-data: 2048, early-data-header-name: Sec-WebSocket-Protocol } }
+  - { name: "hy2-hop", type: hysteria2, server: h2.example.com, port: 443, ports: "20000-30000,40000", hop-interval: 30, password: fake-password, up: "50 Mbps", down: "200 Mbps", obfs: salamander, obfs-password: fake-obfs, sni: h2.example.com }
+  - { name: "hy1", type: hysteria, server: h1.example.com, port: 443, auth-str: fake-auth, up: "30 Mbps", down: "100 Mbps", protocol: udp, sni: h1.example.com }
+  - { name: "hy1-faketcp", type: hysteria, server: h1.example.com, port: 443, auth-str: fake-auth, up: 30, down: 100, protocol: faketcp }
+  - { name: "tuic-v5", type: tuic, server: tu.example.com, port: 443, uuid: 85dff723-6b85-4787-b888-445599ed4bd0, password: fake-password, congestion-controller: bbr, udp-relay-mode: native, reduce-rtt: true, alpn: [h3] }
+  - { name: "ss-2022", type: ss, server: s1.example.com, port: 8388, cipher: 2022-blake3-aes-128-gcm, password: "0W0/kh8yYmF3AJ4+Mf8UDQ==", udp-over-tcp: true }
+  - { name: "ss-obfs", type: ss, server: s2.example.com, port: 8388, cipher: aes-256-gcm, password: fake-password, plugin: obfs, plugin-opts: { mode: http, host: bing.com } }
+  - { name: "ss-shadowtls", type: ss, server: s3.example.com, port: 443, cipher: aes-128-gcm, password: fake-password, client-fingerprint: chrome, plugin: shadow-tls, plugin-opts: { host: cloud.tencent.com, password: fake-stls, version: 3 } }
+  - { name: "ss-restls", type: ss, server: s4.example.com, port: 443, cipher: aes-128-gcm, password: fake-password, plugin: restls, plugin-opts: { host: www.example.com, password: x, version-hint: tls13 } }
+  - { name: "ssr", type: ssr, server: sr.example.com, port: 8388, cipher: chacha20-ietf, password: fake-password, obfs: tls1.2_ticket_auth, protocol: auth_sha1_v4 }
+  - { name: "snell-v3", type: snell, server: sn.example.com, port: 44046, psk: fake-psk, version: 3, obfs-opts: { mode: http, host: bing.com } }
+  - { name: "snell-v4", type: snell, server: sn.example.com, port: 44047, psk: fake-psk, version: 4 }
+  - { name: "socks", type: socks5, server: 192.0.2.10, port: 1080, username: u, password: p }
+  - { name: "http-proxy", type: http, server: 192.0.2.11, port: 8080, username: u, password: p, tls: true }
+  - { name: "wg", type: wireguard, server: wg.example.com, port: 51820, ip: 172.16.0.2, ipv6: "fd01::2", private-key: 2RNn6lqIzhJXaMDFP5mKiDNg3LRGYYIuggNL6L9cmkM=, public-key: KfHxQyM9bth3fF3oJ5kT3ijgHhsJodYVvMUxzInXBEk=, mtu: 1280, reserved: [1, 2, 3], udp: true }
+  - { name: "vmess-smux", type: vmess, server: v4.example.com, port: 443, uuid: 85dff723-6b85-4787-b888-445599ed4bd0, alterId: 0, cipher: auto, smux: { enabled: true, protocol: h2mux } }
+
+proxy-providers:
+  airport_a:
+    type: http
+    url: https://sub.example.com/a
+    path: ./providers/airport_a.yaml
+    interval: 3600
+    filter: "(?i)港|hk|日本|jp"
+    health-check: { enable: true, url: https://www.gstatic.com/generate_204, interval: 300 }
+  airport_b:
+    type: file
+    path: ./providers/airport_b.yaml
+    exclude-filter: "过期|剩余"
+    override: { additional-prefix: "[B] " }
+
+proxy-groups:
+  - { name: "Proxy", type: select, proxies: ["Auto", "Fallback", "LB", "Chain", "DIRECT"], use: [airport_a] }
+  - { name: "Auto", type: url-test, include-all: true, filter: "(?i)hk|港", url: https://www.gstatic.com/generate_204, interval: 300, tolerance: 50 }
+  - { name: "Fallback", type: fallback, proxies: ["vmess-ws-tls", "trojan-tcp", "hy2-hop"], url: https://www.gstatic.com/generate_204, interval: 300 }
+  - { name: "LB", type: load-balance, include-all-providers: true, strategy: round-robin, url: https://www.gstatic.com/generate_204, interval: 300 }
+  - { name: "Chain", type: relay, proxies: ["Auto", "trojan-tcp", "vless-ws"] }
+  - { name: "BadChain", type: relay, proxies: ["trojan-tcp", "Auto"] }
+  - { name: "NoUDP", type: select, proxies: ["socks"], exclude-type: "Shadowsocks|Http", include-all-proxies: true }
+  - { name: "Lookahead", type: select, include-all: true, filter: "^(?!.*过期).*$" }
+  - { name: "Media", type: select, proxies: ["Proxy", "DIRECT", "REJECT"] }
+
+rule-providers:
+  corp_domains:
+    type: file
+    behavior: domain
+    format: yaml
+    path: ./rules/corp_domains.yaml
+  mixed_classical:
+    type: file
+    behavior: classical
+    format: yaml
+    path: ./rules/mixed_classical.yaml
+  lan_cidr:
+    type: file
+    behavior: ipcidr
+    format: text
+    path: ./rules/lan_cidr.txt
+
+rules:
+  - DOMAIN,ad.example.com,REJECT
+  - DOMAIN-SUFFIX,tracker.example,REJECT-DROP
+  - DOMAIN-KEYWORD,openai,Proxy
+  - DOMAIN-REGEX,^api[0-9]+\.example\.org$,Proxy
+  - DOMAIN-WILDCARD,cdn-*.example.net,DIRECT
+  - AND,((DOMAIN-SUFFIX,youtube.com),(NETWORK,UDP)),REJECT
+  - OR,((DOMAIN-KEYWORD,bilibili),(DOMAIN-SUFFIX,hdslb.com),(IP-CIDR,203.0.113.0/24,no-resolve)),DIRECT
+  - NOT,((DOMAIN-SUFFIX,cn)),Media
+  - AND,((OR,((DOMAIN-SUFFIX,steamcontent.com),(DOMAIN-SUFFIX,steamserver.net))),(DST-PORT,443)),DIRECT
+  - PROCESS-NAME,Telegram,Proxy
+  - DST-PORT,22,DIRECT
+  - SRC-IP-CIDR,192.168.50.0/24,DIRECT
+  - RULE-SET,corp_domains,DIRECT
+  - RULE-SET,mixed_classical,Proxy
+  - RULE-SET,lan_cidr,DIRECT,no-resolve
+  - GEOSITE,category-ads-all,REJECT
+  - GEOSITE,cn,DIRECT
+  - GEOIP,LAN,DIRECT,no-resolve
+  - IP-CIDR,198.51.100.0/24,Proxy
+  - IP-ASN,13335,Proxy
+  - GEOIP,CN,DIRECT
+  - SCRIPT,quic,REJECT
+  - SUB-RULE,(NETWORK,tcp),sub-rule-1
+  - MATCH,Proxy

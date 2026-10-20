@@ -1,0 +1,6 @@
+payload:
+  - "+.corp.example"
+  - ".svc.corp.example"
+  - "*.edge.corp.example"
+  - "gitlab.corp.example"
+  - "jira-*.intra.example"

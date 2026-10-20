@@ -1,0 +1,49 @@
+name: release
+
+# 推送版本标签（如 v0.1.0-rc.1）时打包各平台安装包并创建 GitHub Release；带 - 的标签发布为预发布版本。
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - id: v
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+  desktop:
+    needs: version
+    uses: ./.github/workflows/desktop.yml
+    with:
+      version: ${{ needs.version.outputs.version }}
+
+  mobile:
+    needs: version
+    uses: ./.github/workflows/mobile.yml
+    with:
+      version: ${{ needs.version.outputs.version }}
+
+  publish:
+    needs: [desktop, mobile]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist
+          merge-multiple: true
+      - name: create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ls -l dist
+          pre=""
+          case "$GITHUB_REF_NAME" in *-*) pre="--prerelease" ;; esac
+          gh release create "$GITHUB_REF_NAME" dist/* $pre --verify-tag \
+            --title "Velum $GITHUB_REF_NAME" --notes-file .github/release/notes.md --generate-notes

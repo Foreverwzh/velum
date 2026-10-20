@@ -1,0 +1,1194 @@
+{
+  "dns": {
+    "final": "ns",
+    "rules": [
+      {
+        "action": "predefined",
+        "answer": [
+          "staging.corp.example.com. IN A 10.12.34.56"
+        ],
+        "domain": [
+          "staging.corp.example.com"
+        ]
+      },
+      {
+        "action": "predefined",
+        "answer": [
+          "api.local.test. IN AAAA fd00::1"
+        ],
+        "domain": [
+          "api.local.test"
+        ]
+      },
+      {
+        "action": "route",
+        "domain_suffix": [
+          "corp.example.com"
+        ],
+        "server": "velum-local"
+      },
+      {
+        "action": "route",
+        "domain_suffix": [
+          ".svc.example.test"
+        ],
+        "server": "velum-local"
+      },
+      {
+        "action": "route",
+        "domain": [
+          "exact.example.test"
+        ],
+        "server": "velum-local"
+      },
+      {
+        "action": "route",
+        "rule_set": [
+          "geosite-cn"
+        ],
+        "server": "policy-0-0"
+      },
+      {
+        "action": "route",
+        "domain_suffix": [
+          "corp.example",
+          "intra.example"
+        ],
+        "server": "policy-1-0"
+      },
+      {
+        "action": "route",
+        "rule_set": [
+          "rs:corp_domains"
+        ],
+        "server": "policy-2-0"
+      },
+      {
+        "action": "route",
+        "domain_regex": [
+          "^[^.]+\\.lan$"
+        ],
+        "domain_suffix": [
+          "local"
+        ],
+        "server": "ns"
+      },
+      {
+        "action": "route",
+        "rule_set": [
+          "geosite-private"
+        ],
+        "server": "ns"
+      }
+    ],
+    "servers": [
+      {
+        "server": "223.5.5.5",
+        "tag": "bootstrap-0",
+        "type": "udp"
+      },
+      {
+        "domain_resolver": "bootstrap-0",
+        "server": "dns.alidns.com",
+        "tag": "ns-0",
+        "type": "https"
+      },
+      {
+        "domain_resolver": "bootstrap-0",
+        "server": "dot.pub",
+        "server_port": 853,
+        "tag": "ns-1",
+        "type": "tls"
+      },
+      {
+        "servers": [
+          "ns-0",
+          "ns-1"
+        ],
+        "tag": "ns",
+        "type": "velum-race"
+      },
+      {
+        "domain_resolver": "bootstrap-0",
+        "server": "doh.pub",
+        "tag": "policy-0-0",
+        "type": "https"
+      },
+      {
+        "tag": "policy-1-0",
+        "type": "local"
+      },
+      {
+        "domain_resolver": "bootstrap-0",
+        "server": "dns.adguard-dns.com",
+        "tag": "policy-2-0",
+        "type": "quic"
+      },
+      {
+        "tag": "velum-local",
+        "type": "local"
+      }
+    ]
+  },
+  "endpoints": [
+    {
+      "address": [
+        "172.16.0.2/32",
+        "fd01::2/128"
+      ],
+      "domain_resolver": "ns-0",
+      "mtu": 1280,
+      "peers": [
+        {
+          "address": "wg.example.com",
+          "allowed_ips": [
+            "0.0.0.0/0",
+            "::/0"
+          ],
+          "port": 51820,
+          "public_key": "KfHxQyM9bth3fF3oJ5kT3ijgHhsJodYVvMUxzInXBEk=",
+          "reserved": [
+            1,
+            2,
+            3
+          ]
+        }
+      ],
+      "private_key": "2RNn6lqIzhJXaMDFP5mKiDNg3LRGYYIuggNL6L9cmkM=",
+      "tag": "wg",
+      "type": "wireguard"
+    }
+  ],
+  "inbounds": [
+    {
+      "listen": "127.0.0.1",
+      "listen_port": 7899,
+      "tag": "mixed-in",
+      "type": "mixed"
+    }
+  ],
+  "log": {
+    "level": "info"
+  },
+  "outbounds": [
+    {
+      "tag": "DIRECT",
+      "type": "direct"
+    },
+    {
+      "tag": "REJECT",
+      "type": "block"
+    },
+    {
+      "alter_id": 0,
+      "domain_resolver": "ns-0",
+      "security": "auto",
+      "server": "v1.example.com",
+      "server_port": 443,
+      "tag": "vmess-ws-tls",
+      "tls": {
+        "enabled": true,
+        "server_name": "v1.example.com"
+      },
+      "transport": {
+        "headers": {
+          "Host": "v1.example.com"
+        },
+        "path": "/ray",
+        "type": "ws"
+      },
+      "type": "vmess",
+      "uuid": "85dff723-6b85-4787-b888-445599ed4bd0"
+    },
+    {
+      "alter_id": 0,
+      "domain_resolver": "ns-0",
+      "security": "auto",
+      "server": "v2.example.com",
+      "server_port": 443,
+      "tag": "vmess-grpc",
+      "tls": {
+        "enabled": true
+      },
+      "transport": {
+        "service_name": "svc",
+        "type": "grpc"
+      },
+      "type": "vmess",
+      "uuid": "85dff723-6b85-4787-b888-445599ed4bd0"
+    },
+    {
+      "alter_id": 0,
+      "domain_resolver": "ns-0",
+      "security": "auto",
+      "server": "v3.example.com",
+      "server_port": 443,
+      "tag": "vmess-h2",
+      "tls": {
+        "enabled": true
+      },
+      "transport": {
+        "host": [
+          "v3.example.com"
+        ],
+        "path": "/h2",
+        "type": "http"
+      },
+      "type": "vmess",
+      "uuid": "85dff723-6b85-4787-b888-445599ed4bd0"
+    },
+    {
+      "domain_resolver": "ns-0",
+      "password": "fake-password",
+      "server": "t1.example.com",
+      "server_port": 443,
+      "tag": "trojan-tcp",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "t1.example.com"
+      },
+      "type": "trojan"
+    },
+    {
+      "domain_resolver": "ns-0",
+      "password": "fake-password",
+      "server": "t2.example.com",
+      "server_port": 443,
+      "tag": "trojan-ws",
+      "tls": {
+        "enabled": true
+      },
+      "transport": {
+        "path": "/tj",
+        "type": "ws"
+      },
+      "type": "trojan"
+    },
+    {
+      "domain_resolver": "ns-0",
+      "server": "r1.example.com",
+      "server_port": 443,
+      "tag": "vless-reality-grpc",
+      "tls": {
+        "enabled": true,
+        "reality": {
+          "enabled": true,
+          "public_key": "Vak6wtCfasJQz9s1c68hZW9vd1kgQOWDkrtODm9YEtg",
+          "short_id": "00b20e3c"
+        },
+        "server_name": "www.example.com",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      },
+      "transport": {
+        "service_name": "grpc",
+        "type": "grpc"
+      },
+      "type": "vless",
+      "uuid": "85dff723-6b85-4787-b888-445599ed4bd0"
+    },
+    {
+      "domain_resolver": "ns-0",
+      "server": "r2.example.com",
+      "server_port": 443,
+      "tag": "vless-ws",
+      "tls": {
+        "enabled": true
+      },
+      "transport": {
+        "early_data_header_name": "Sec-WebSocket-Protocol",
+        "max_early_data": 2048,
+        "path": "/vl",
+        "type": "ws"
+      },
+      "type": "vless",
+      "uuid": "85dff723-6b85-4787-b888-445599ed4bd0"
+    },
+    {
+      "domain_resolver": "ns-0",
+      "down_mbps": 200,
+      "hop_interval": "30s",
+      "obfs": {
+        "password": "fake-obfs",
+        "type": "salamander"
+      },
+      "password": "fake-password",
+      "server": "h2.example.com",
+      "server_port": 443,
+      "server_ports": [
+        "20000:30000",
+        "40000:40000"
+      ],
+      "tag": "hy2-hop",
+      "tls": {
+        "enabled": true,
+        "server_name": "h2.example.com"
+      },
+      "type": "hysteria2",
+      "up_mbps": 50
+    },
+    {
+      "auth_str": "fake-auth",
+      "domain_resolver": "ns-0",
+      "down_mbps": 100,
+      "server": "h1.example.com",
+      "server_port": 443,
+      "tag": "hy1",
+      "tls": {
+        "enabled": true,
+        "server_name": "h1.example.com"
+      },
+      "type": "hysteria",
+      "up_mbps": 30
+    },
+    {
+      "auth_str": "fake-auth",
+      "domain_resolver": "ns-0",
+      "down_mbps": 100,
+      "server": "h1.example.com",
+      "server_port": 443,
+      "tag": "hy1-faketcp",
+      "tls": {
+        "enabled": true
+      },
+      "type": "hysteria",
+      "up_mbps": 30
+    },
+    {
+      "congestion_control": "bbr",
+      "domain_resolver": "ns-0",
+      "password": "fake-password",
+      "server": "tu.example.com",
+      "server_port": 443,
+      "tag": "tuic-v5",
+      "tls": {
+        "alpn": [
+          "h3"
+        ],
+        "enabled": true
+      },
+      "type": "tuic",
+      "udp_relay_mode": "native",
+      "uuid": "85dff723-6b85-4787-b888-445599ed4bd0",
+      "zero_rtt_handshake": true
+    },
+    {
+      "domain_resolver": "ns-0",
+      "method": "2022-blake3-aes-128-gcm",
+      "password": "0W0/kh8yYmF3AJ4+Mf8UDQ==",
+      "server": "s1.example.com",
+      "server_port": 8388,
+      "tag": "ss-2022",
+      "type": "shadowsocks",
+      "udp_over_tcp": true
+    },
+    {
+      "domain_resolver": "ns-0",
+      "method": "aes-256-gcm",
+      "password": "fake-password",
+      "plugin": "obfs-local",
+      "plugin_opts": "obfs=http;obfs-host=bing.com",
+      "server": "s2.example.com",
+      "server_port": 8388,
+      "tag": "ss-obfs",
+      "type": "shadowsocks"
+    },
+    {
+      "domain_resolver": "ns-0",
+      "password": "fake-stls",
+      "server": "s3.example.com",
+      "server_port": 443,
+      "tag": "ss-shadowtls/shadow-tls",
+      "tls": {
+        "enabled": true,
+        "server_name": "cloud.tencent.com",
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      },
+      "type": "shadowtls",
+      "version": 3
+    },
+    {
+      "detour": "ss-shadowtls/shadow-tls",
+      "method": "aes-128-gcm",
+      "password": "fake-password",
+      "tag": "ss-shadowtls",
+      "type": "shadowsocks"
+    },
+    {
+      "domain_resolver": "ns-0",
+      "psk": "fake-psk",
+      "server": "sn.example.com",
+      "server_port": 44047,
+      "tag": "snell-v4",
+      "type": "snell",
+      "version": 4
+    },
+    {
+      "password": "p",
+      "server": "192.0.2.10",
+      "server_port": 1080,
+      "tag": "socks",
+      "type": "socks",
+      "username": "u"
+    },
+    {
+      "password": "p",
+      "server": "192.0.2.11",
+      "server_port": 8080,
+      "tag": "http-proxy",
+      "tls": {
+        "enabled": true
+      },
+      "type": "http",
+      "username": "u"
+    },
+    {
+      "alter_id": 0,
+      "domain_resolver": "ns-0",
+      "security": "auto",
+      "server": "v4.example.com",
+      "server_port": 443,
+      "tag": "vmess-smux",
+      "type": "vmess",
+      "uuid": "85dff723-6b85-4787-b888-445599ed4bd0"
+    },
+    {
+      "domain_resolver": "ns-0",
+      "password": "fake-password",
+      "server": "hk1.example.com",
+      "server_port": 443,
+      "tag": "🇭🇰 香港 01",
+      "tls": {
+        "enabled": true,
+        "server_name": "hk1.example.com"
+      },
+      "type": "trojan"
+    },
+    {
+      "alter_id": 0,
+      "domain_resolver": "ns-0",
+      "security": "auto",
+      "server": "hk2.example.com",
+      "server_port": 443,
+      "tag": "🇭🇰 HK 02 IPLC",
+      "tls": {
+        "enabled": true
+      },
+      "transport": {
+        "path": "/a",
+        "type": "ws"
+      },
+      "type": "vmess",
+      "uuid": "85dff723-6b85-4787-b888-445599ed4bd0"
+    },
+    {
+      "domain_resolver": "ns-0",
+      "method": "aes-128-gcm",
+      "password": "fake-password",
+      "server": "jp1.example.com",
+      "server_port": 8388,
+      "tag": "🇯🇵 日本 01",
+      "type": "shadowsocks"
+    },
+    {
+      "domain_resolver": "ns-0",
+      "password": "fake-password",
+      "server": "sg1.example.com",
+      "server_port": 443,
+      "tag": "SG 01",
+      "tls": {
+        "enabled": true
+      },
+      "type": "tuic",
+      "uuid": "85dff723-6b85-4787-b888-445599ed4bd0"
+    },
+    {
+      "domain_resolver": "ns-0",
+      "server": "tw1.example.com",
+      "server_port": 443,
+      "tag": "TW 01",
+      "tls": {
+        "enabled": true
+      },
+      "type": "vless",
+      "uuid": "85dff723-6b85-4787-b888-445599ed4bd0"
+    },
+    {
+      "detour": "Auto",
+      "password": "fake-password",
+      "server": "t1.example.com",
+      "server_port": 443,
+      "tag": "Chain/hop2",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "t1.example.com"
+      },
+      "type": "trojan"
+    },
+    {
+      "detour": "Chain/hop2",
+      "server": "r2.example.com",
+      "server_port": 443,
+      "tag": "Chain",
+      "tls": {
+        "enabled": true
+      },
+      "transport": {
+        "early_data_header_name": "Sec-WebSocket-Protocol",
+        "max_early_data": 2048,
+        "path": "/vl",
+        "type": "ws"
+      },
+      "type": "vless",
+      "uuid": "85dff723-6b85-4787-b888-445599ed4bd0"
+    },
+    {
+      "bind_interface": "utun7",
+      "tag": "VPN:utun7",
+      "type": "direct"
+    },
+    {
+      "outbounds": [
+        "Auto",
+        "Fallback",
+        "LB",
+        "Chain",
+        "DIRECT",
+        "🇭🇰 香港 01",
+        "🇭🇰 HK 02 IPLC",
+        "🇯🇵 日本 01"
+      ],
+      "tag": "Proxy",
+      "type": "selector"
+    },
+    {
+      "interval": "5m0s",
+      "outbounds": [
+        "🇭🇰 香港 01",
+        "🇭🇰 HK 02 IPLC"
+      ],
+      "tag": "Auto",
+      "tolerance": 50,
+      "type": "urltest",
+      "url": "https://www.gstatic.com/generate_204"
+    },
+    {
+      "interval": "5m0s",
+      "outbounds": [
+        "vmess-ws-tls",
+        "trojan-tcp",
+        "hy2-hop"
+      ],
+      "tag": "Fallback",
+      "type": "urltest",
+      "url": "https://www.gstatic.com/generate_204"
+    },
+    {
+      "interval": "5m0s",
+      "outbounds": [
+        "🇭🇰 香港 01",
+        "🇭🇰 HK 02 IPLC",
+        "🇯🇵 日本 01",
+        "SG 01",
+        "TW 01"
+      ],
+      "tag": "LB",
+      "type": "urltest",
+      "url": "https://www.gstatic.com/generate_204"
+    },
+    {
+      "outbounds": [
+        "socks",
+        "vmess-ws-tls",
+        "vmess-grpc",
+        "vmess-h2",
+        "trojan-tcp",
+        "trojan-ws",
+        "vless-reality-grpc",
+        "vless-ws",
+        "hy2-hop",
+        "hy1",
+        "hy1-faketcp",
+        "tuic-v5",
+        "snell-v4",
+        "wg",
+        "vmess-smux"
+      ],
+      "tag": "NoUDP",
+      "type": "selector"
+    },
+    {
+      "outbounds": [
+        "vmess-ws-tls",
+        "vmess-grpc",
+        "vmess-h2",
+        "trojan-tcp",
+        "trojan-ws",
+        "vless-reality-grpc",
+        "vless-ws",
+        "hy2-hop",
+        "hy1",
+        "hy1-faketcp",
+        "tuic-v5",
+        "ss-2022",
+        "ss-obfs",
+        "ss-shadowtls",
+        "snell-v4",
+        "socks",
+        "http-proxy",
+        "wg",
+        "vmess-smux",
+        "🇭🇰 香港 01",
+        "🇭🇰 HK 02 IPLC",
+        "🇯🇵 日本 01",
+        "SG 01",
+        "TW 01"
+      ],
+      "tag": "Lookahead",
+      "type": "selector"
+    },
+    {
+      "outbounds": [
+        "Proxy",
+        "DIRECT",
+        "REJECT"
+      ],
+      "tag": "Media",
+      "type": "selector"
+    }
+  ],
+  "route": {
+    "auto_detect_interface": false,
+    "default_domain_resolver": "ns",
+    "final": "Proxy",
+    "rule_set": [
+      {
+        "download_detour": "DIRECT",
+        "format": "binary",
+        "tag": "geoip-cn",
+        "type": "remote",
+        "url": "https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-cn.srs"
+      },
+      {
+        "download_detour": "DIRECT",
+        "format": "binary",
+        "tag": "geosite-category-ads-all",
+        "type": "remote",
+        "url": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-category-ads-all.srs"
+      },
+      {
+        "download_detour": "DIRECT",
+        "format": "binary",
+        "tag": "geosite-cn",
+        "type": "remote",
+        "url": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-cn.srs"
+      },
+      {
+        "download_detour": "DIRECT",
+        "format": "binary",
+        "tag": "geosite-private",
+        "type": "remote",
+        "url": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-private.srs"
+      },
+      {
+        "rules": [
+          {
+            "domain": [
+              "gitlab.corp.example"
+            ],
+            "domain_regex": [
+              "^[^.]+\\.edge\\.corp\\.example$",
+              "^jira-.*\\.intra\\.example$"
+            ],
+            "domain_suffix": [
+              "corp.example",
+              ".svc.corp.example"
+            ]
+          }
+        ],
+        "tag": "rs:corp_domains",
+        "type": "inline"
+      },
+      {
+        "rules": [
+          {
+            "ip_cidr": [
+              "10.0.0.0/8",
+              "172.16.0.0/12",
+              "192.168.0.0/16",
+              "fd00::/8"
+            ]
+          }
+        ],
+        "tag": "rs:lan_cidr",
+        "type": "inline"
+      },
+      {
+        "rules": [
+          {
+            "domain": [
+              "api.example.dev"
+            ],
+            "domain_keyword": [
+              "google"
+            ],
+            "domain_regex": [
+              "^.*\\.s3\\..*\\.amazonaws\\.com$"
+            ],
+            "domain_suffix": [
+              "github.com"
+            ],
+            "ip_cidr": [
+              "91.108.4.0/22",
+              "2001:b28:f23d::/48",
+              "149.154.160.0/20"
+            ]
+          },
+          {
+            "process_name": [
+              "Telegram",
+              "Discord"
+            ]
+          },
+          {
+            "port": [
+              5222
+            ]
+          },
+          {
+            "network": [
+              "udp"
+            ]
+          }
+        ],
+        "tag": "rs:mixed_classical",
+        "type": "inline"
+      }
+    ],
+    "rules": [
+      {
+        "action": "sniff"
+      },
+      {
+        "action": "route",
+        "domain": [
+          "staging.corp.example.com"
+        ],
+        "outbound": "DIRECT",
+        "override_address": "10.12.34.56"
+      },
+      {
+        "action": "route",
+        "domain": [
+          "api.local.test"
+        ],
+        "outbound": "DIRECT",
+        "override_address": "fd00::1"
+      },
+      {
+        "action": "resolve",
+        "domain_suffix": [
+          "corp.example.com"
+        ]
+      },
+      {
+        "action": "route",
+        "domain_suffix": [
+          "corp.example.com"
+        ],
+        "outbound": "DIRECT"
+      },
+      {
+        "action": "resolve",
+        "domain_suffix": [
+          ".svc.example.test"
+        ]
+      },
+      {
+        "action": "route",
+        "domain_suffix": [
+          ".svc.example.test"
+        ],
+        "outbound": "DIRECT"
+      },
+      {
+        "action": "resolve",
+        "domain": [
+          "exact.example.test"
+        ]
+      },
+      {
+        "action": "route",
+        "domain": [
+          "exact.example.test"
+        ],
+        "outbound": "DIRECT"
+      },
+      {
+        "action": "resolve",
+        "ip_cidr": [
+          "10.12.0.0/16"
+        ]
+      },
+      {
+        "action": "route",
+        "ip_cidr": [
+          "10.12.0.0/16"
+        ],
+        "outbound": "DIRECT"
+      },
+      {
+        "action": "resolve",
+        "ip_cidr": [
+          "192.0.2.7/32"
+        ]
+      },
+      {
+        "action": "route",
+        "ip_cidr": [
+          "192.0.2.7/32"
+        ],
+        "outbound": "DIRECT"
+      },
+      {
+        "action": "resolve",
+        "process_name": [
+          "SomeVPNClient"
+        ]
+      },
+      {
+        "action": "route",
+        "outbound": "DIRECT",
+        "process_name": [
+          "SomeVPNClient"
+        ]
+      },
+      {
+        "action": "resolve",
+        "ip_cidr": [
+          "172.20.0.0/16"
+        ]
+      },
+      {
+        "action": "route",
+        "ip_cidr": [
+          "172.20.0.0/16"
+        ],
+        "outbound": "VPN:utun7"
+      },
+      {
+        "action": "resolve",
+        "domain_suffix": [
+          "corp.example"
+        ]
+      },
+      {
+        "action": "route",
+        "domain_suffix": [
+          "corp.example"
+        ],
+        "outbound": "VPN:utun7"
+      },
+      {
+        "action": "route",
+        "domain": [
+          "ad.example.com"
+        ],
+        "outbound": "REJECT"
+      },
+      {
+        "action": "reject",
+        "domain_suffix": [
+          "tracker.example"
+        ],
+        "method": "drop"
+      },
+      {
+        "action": "route",
+        "domain_keyword": [
+          "openai"
+        ],
+        "outbound": "Proxy"
+      },
+      {
+        "action": "route",
+        "domain_regex": [
+          "^api[0-9]+\\.example\\.org$"
+        ],
+        "outbound": "Proxy"
+      },
+      {
+        "action": "resolve",
+        "domain_regex": [
+          "^cdn-.*\\.example\\.net$"
+        ]
+      },
+      {
+        "action": "route",
+        "domain_regex": [
+          "^cdn-.*\\.example\\.net$"
+        ],
+        "outbound": "DIRECT"
+      },
+      {
+        "action": "route",
+        "mode": "and",
+        "outbound": "REJECT",
+        "rules": [
+          {
+            "domain_suffix": [
+              "youtube.com"
+            ]
+          },
+          {
+            "network": [
+              "udp"
+            ]
+          }
+        ],
+        "type": "logical"
+      },
+      {
+        "action": "resolve",
+        "mode": "or",
+        "rules": [
+          {
+            "domain_keyword": [
+              "bilibili"
+            ]
+          },
+          {
+            "domain_suffix": [
+              "hdslb.com"
+            ]
+          },
+          {
+            "ip_cidr": [
+              "203.0.113.0/24"
+            ]
+          }
+        ],
+        "type": "logical"
+      },
+      {
+        "action": "route",
+        "mode": "or",
+        "outbound": "DIRECT",
+        "rules": [
+          {
+            "domain_keyword": [
+              "bilibili"
+            ]
+          },
+          {
+            "domain_suffix": [
+              "hdslb.com"
+            ]
+          },
+          {
+            "ip_cidr": [
+              "203.0.113.0/24"
+            ]
+          }
+        ],
+        "type": "logical"
+      },
+      {
+        "action": "route",
+        "invert": true,
+        "mode": "and",
+        "outbound": "Media",
+        "rules": [
+          {
+            "domain_suffix": [
+              "cn"
+            ]
+          }
+        ],
+        "type": "logical"
+      },
+      {
+        "action": "resolve",
+        "mode": "and",
+        "rules": [
+          {
+            "mode": "or",
+            "rules": [
+              {
+                "domain_suffix": [
+                  "steamcontent.com"
+                ]
+              },
+              {
+                "domain_suffix": [
+                  "steamserver.net"
+                ]
+              }
+            ],
+            "type": "logical"
+          },
+          {
+            "port": [
+              443
+            ]
+          }
+        ],
+        "type": "logical"
+      },
+      {
+        "action": "route",
+        "mode": "and",
+        "outbound": "DIRECT",
+        "rules": [
+          {
+            "mode": "or",
+            "rules": [
+              {
+                "domain_suffix": [
+                  "steamcontent.com"
+                ]
+              },
+              {
+                "domain_suffix": [
+                  "steamserver.net"
+                ]
+              }
+            ],
+            "type": "logical"
+          },
+          {
+            "port": [
+              443
+            ]
+          }
+        ],
+        "type": "logical"
+      },
+      {
+        "action": "route",
+        "outbound": "Proxy",
+        "process_name": [
+          "Telegram"
+        ]
+      },
+      {
+        "action": "resolve",
+        "port": [
+          22
+        ]
+      },
+      {
+        "action": "route",
+        "outbound": "DIRECT",
+        "port": [
+          22
+        ]
+      },
+      {
+        "action": "resolve",
+        "source_ip_cidr": [
+          "192.168.50.0/24"
+        ]
+      },
+      {
+        "action": "route",
+        "outbound": "DIRECT",
+        "source_ip_cidr": [
+          "192.168.50.0/24"
+        ]
+      },
+      {
+        "action": "resolve",
+        "rule_set": [
+          "rs:corp_domains"
+        ]
+      },
+      {
+        "action": "route",
+        "outbound": "DIRECT",
+        "rule_set": [
+          "rs:corp_domains"
+        ]
+      },
+      {
+        "action": "resolve"
+      },
+      {
+        "action": "route",
+        "outbound": "Proxy",
+        "rule_set": [
+          "rs:mixed_classical"
+        ]
+      },
+      {
+        "action": "resolve",
+        "rule_set": [
+          "rs:lan_cidr"
+        ]
+      },
+      {
+        "action": "route",
+        "outbound": "DIRECT",
+        "rule_set": [
+          "rs:lan_cidr"
+        ]
+      },
+      {
+        "action": "route",
+        "outbound": "REJECT",
+        "rule_set": [
+          "geosite-category-ads-all"
+        ]
+      },
+      {
+        "action": "resolve",
+        "rule_set": [
+          "geosite-cn"
+        ]
+      },
+      {
+        "action": "route",
+        "outbound": "DIRECT",
+        "rule_set": [
+          "geosite-cn"
+        ]
+      },
+      {
+        "action": "resolve",
+        "ip_is_private": true
+      },
+      {
+        "action": "route",
+        "ip_is_private": true,
+        "outbound": "DIRECT"
+      },
+      {
+        "action": "route",
+        "ip_cidr": [
+          "198.51.100.0/24"
+        ],
+        "outbound": "Proxy"
+      },
+      {
+        "action": "resolve",
+        "rule_set": [
+          "geoip-cn"
+        ]
+      },
+      {
+        "action": "route",
+        "outbound": "DIRECT",
+        "rule_set": [
+          "geoip-cn"
+        ]
+      }
+    ]
+  }
+}

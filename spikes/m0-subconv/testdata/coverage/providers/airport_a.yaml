@@ -1,0 +1,6 @@
+proxies:
+  - { name: "🇭🇰 香港 01", type: trojan, server: hk1.example.com, port: 443, password: fake-password, sni: hk1.example.com }
+  - { name: "🇭🇰 HK 02 IPLC", type: vmess, server: hk2.example.com, port: 443, uuid: 85dff723-6b85-4787-b888-445599ed4bd0, alterId: 0, cipher: auto, tls: true, network: ws, ws-opts: { path: /a } }
+  - { name: "🇯🇵 日本 01", type: ss, server: jp1.example.com, port: 8388, cipher: aes-128-gcm, password: fake-password }
+  - { name: "🇺🇸 美国 01", type: hysteria2, server: us1.example.com, port: 443, password: fake-password }
+  - { name: "剩余流量：100GB", type: ss, server: 127.0.0.1, port: 1, cipher: aes-128-gcm, password: x }

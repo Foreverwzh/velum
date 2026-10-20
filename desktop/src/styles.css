@@ -1,0 +1,18 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+}
+
+html, body, #root { height: 100%; }
+body {
+  margin: 0;
+  @apply bg-neutral-100 text-neutral-900 antialiased dark:bg-neutral-900 dark:text-neutral-100;
+  font-size: 13px;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.selectable, input, textarea { -webkit-user-select: text; user-select: text; }
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-thumb { @apply rounded-full bg-neutral-300 dark:bg-neutral-700; }
