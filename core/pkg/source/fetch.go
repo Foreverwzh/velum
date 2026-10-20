@@ -4,6 +4,7 @@ package source
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -31,7 +32,10 @@ type Fetcher struct {
 	// 用于启动：先用缓存立即可用，过期的内容随后在后台更新（与 Clash / Stash 一致）。
 	Stale bool
 	// Log 非空时记录较慢（超过 3 秒）或失败的远程请求，只含主机名（订阅地址可能带 token）。
-	Log       func(format string, args ...any)
+	Log func(format string, args ...any)
+	// Fallback 非空时，直连失败（网络错误，不含 HTTP 错误码）后经这个代理重试，一般是 Velum 自己的本地端口：
+	// 首次设置时还没有可用的代理，GitHub 上的规则集等可能直连不通。
+	Fallback  *url.URL
 	usedStale atomic.Bool
 }
 
@@ -52,17 +56,21 @@ func New(cacheDir, ua string) *Fetcher {
 		CacheDir:  cacheDir,
 		UserAgent: ua,
 		// 遵循 HTTP(S)_PROXY 环境变量；Velum 不写死任何上游。
-		// 连接、握手、等待响应头分别限时：被墙或不通的地址（常见于还没有代理可用的首次设置）尽快失败，
-		// 整体 30 秒只留给下载较大的内容。
-		Client: &http.Client{Timeout: 30 * time.Second, Transport: &http.Transport{
-			Proxy:                 http.ProxyFromEnvironment,
-			DialContext:           (&net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
-			TLSHandshakeTimeout:   10 * time.Second,
-			ResponseHeaderTimeout: 15 * time.Second,
-			ForceAttemptHTTP2:     true,
-		}},
-		TTL: time.Hour,
+		Client: newClient(http.ProxyFromEnvironment),
+		TTL:    time.Hour,
 	}
+}
+
+// newClient 的连接、握手、等待响应头分别限时：被墙或不通的地址（常见于还没有代理可用的首次设置）尽快失败，
+// 整体 30 秒只留给下载较大的内容。
+func newClient(proxy func(*http.Request) (*url.URL, error)) *http.Client {
+	return &http.Client{Timeout: 30 * time.Second, Transport: &http.Transport{
+		Proxy:                 proxy,
+		DialContext:           (&net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ResponseHeaderTimeout: 15 * time.Second,
+		ForceAttemptHTTP2:     true,
+	}}
 }
 
 // CachePath 返回某个 url 在缓存中的文件路径。
@@ -86,7 +94,12 @@ func (f *Fetcher) Get(kind, rawURL string, ttl time.Duration) ([]byte, Result, e
 		}
 	}
 	start := time.Now()
-	data, err := f.fetch(rawURL)
+	data, err := f.fetch(f.Client, rawURL)
+	if err != nil && f.Fallback != nil && !errors.As(err, new(statusError)) {
+		if data, err = f.fetch(newClient(http.ProxyURL(f.Fallback)), rawURL); err == nil && f.Log != nil {
+			f.Log("直连拉取 %s 失败，已经 Velum 代理拉取", kind)
+		}
+	}
 	if took := time.Since(start); f.Log != nil && (err != nil || took > slowFetch) {
 		host := rawURL
 		if u, perr := url.Parse(rawURL); perr == nil {
@@ -118,7 +131,11 @@ func redactErr(err error, rawURL, host string) string {
 	return err.Error()
 }
 
-func (f *Fetcher) fetch(rawURL string) ([]byte, error) {
+type statusError int
+
+func (e statusError) Error() string { return fmt.Sprintf("HTTP %d", int(e)) }
+
+func (f *Fetcher) fetch(client *http.Client, rawURL string) ([]byte, error) {
 	req, err := http.NewRequest(http.MethodGet, rawURL, nil)
 	if err != nil {
 		return nil, err
@@ -126,13 +143,13 @@ func (f *Fetcher) fetch(rawURL string) ([]byte, error) {
 	if f.UserAgent != "" {
 		req.Header.Set("User-Agent", f.UserAgent)
 	}
-	resp, err := f.Client.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
+		return nil, statusError(resp.StatusCode)
 	}
 	return io.ReadAll(io.LimitReader(resp.Body, 64<<20))
 }

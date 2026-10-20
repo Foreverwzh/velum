@@ -47,6 +47,7 @@ type state struct {
 	sysOn, tunOn     bool   // 实际生效（可能因 NetworkSense 暂停而不同）
 	paused           string // 暂停原因
 	stale            bool   // 使用了过期缓存（启动时），需要在后台更新
+	retryViaProxy    bool   // 有远程规则集直连下载失败且无缓存，引擎起来后应经 Velum 代理重试
 	plan             *compiler.Plan
 	rendered         *render.Rendered
 	sub              rpc.SubscriptionStatus
@@ -103,6 +104,7 @@ type Daemon struct {
 	starting  bool // 首次加载配置、启动引擎尚未完成
 	lastErr   string
 	reloadMu  sync.Mutex // 串行化重新加载（定时更新、网络变化、界面操作可能同时触发）
+	runCtx    context.Context
 	stop      chan struct{}
 	stopOnce  sync.Once
 }
@@ -122,6 +124,9 @@ func (d *Daemon) build(force, stale bool) (*state, error) {
 	f := source.New(d.Paths.Cache, cfg.Subscription.UserAgent)
 	f.PreferLocal = cfg.Subscription.PreferLocalProviders
 	f.Log = d.Logger.Printf
+	if d.Engine.Running() {
+		f.Fallback = &url.URL{Scheme: "http", Host: cfg.ListenAddr().String()}
+	}
 	subTTL, rsTTL := cfg.Subscription.UpdateInterval, cfg.Subscription.RuleSetUpdateInterval
 	if force {
 		f.TTL, subTTL, rsTTL = 0, 0, 0
@@ -159,6 +164,11 @@ func (d *Daemon) build(force, stale bool) (*state, error) {
 	var rsWarnings []ir.Warning
 	if sub != nil {
 		rsWarnings = f.ResolveRemoteRuleSets(sub, rsTTL)
+		for _, w := range rsWarnings {
+			if w.Level == ir.Unsupported && f.Fallback == nil {
+				st.retryViaProxy = true
+			}
+		}
 	}
 	ov, err := overlay.Load(cfg.Overlay)
 	if err != nil {
@@ -327,6 +337,7 @@ func (d *Daemon) reload(ctx context.Context, force bool) error {
 		d.st, d.lastErr = st, ""
 		d.mu.Unlock()
 		d.syncSysProxy(st)
+		d.retryMissing(st)
 		return nil
 	}
 	if err := d.Engine.Restart(ctx, d.engineConfig(st)); err != nil {
@@ -344,7 +355,25 @@ func (d *Daemon) reload(ctx context.Context, force bool) error {
 	d.mu.Unlock()
 	d.syncSysProxy(st)
 	d.Logger.Printf("配置已加载：%d 节点 / %d 策略组 / %d 规则，%d 条告警", st.sub.Nodes, st.sub.Groups, st.sub.Rules, len(st.plan.Warnings))
+	d.retryMissing(st)
 	return nil
+}
+
+// retryMissing：引擎没起来时（首次设置订阅、启动）直连下载失败的规则集，在引擎起来后于后台经 Velum 代理重试一次，
+// 避免它们一直缺失，也避免之后每次切换开关都同步重试、卡住界面。
+func (d *Daemon) retryMissing(st *state) {
+	d.mu.RLock()
+	ctx := d.runCtx
+	d.mu.RUnlock()
+	if !st.retryViaProxy || !d.Engine.Running() || ctx == nil {
+		return
+	}
+	go func() {
+		d.Logger.Printf("有规则集直连下载失败，经 Velum 代理重试")
+		if err := d.Reload(ctx); err != nil {
+			d.Logger.Printf("经代理重试规则集失败：%v", err)
+		}
+	}()
 }
 
 func (d *Daemon) setErr(err error) {
@@ -368,7 +397,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 	}
 
 	d.mu.Lock()
-	d.startedAt, d.starting = time.Now(), true
+	d.startedAt, d.starting, d.runCtx = time.Now(), true, ctx
 	d.mu.Unlock()
 	// 先开始响应本地接口：首次加载（拉取订阅、规则集，启动引擎）可能需要十几秒，期间界面应显示「正在启动」而不是「无法连接」
 	srv := &http.Server{Handler: d.handler(), ReadHeaderTimeout: 10 * time.Second}
@@ -398,7 +427,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 		d.mu.Unlock()
 		d.syncSysProxy(st)
 		d.Logger.Printf("velumd %s 已启动：listen=%s 系统代理=%v TUN=%v，%d 节点 / %d 规则", Version, st.cfg.Listen, st.sysOn, st.tunOn, st.sub.Nodes, st.sub.Rules)
-		if st.stale {
+		if st.stale || st.retryViaProxy {
 			// 过期的订阅 / provider / 规则集在后台更新；内容未变化时不重启引擎
 			go func() {
 				if err := d.Reload(ctx); err != nil {
@@ -948,6 +977,9 @@ func (d *Daemon) putSubscription(w http.ResponseWriter, r *http.Request) {
 		}
 		f := source.New(d.Paths.Cache, ua)
 		f.TTL, f.Log = 0, d.Logger.Printf
+		if d.Engine.Running() {
+			f.Fallback = &url.URL{Scheme: "http", Host: cfg.ListenAddr().String()}
+		}
 		start := time.Now()
 		defer func() { d.Logger.Printf("设置订阅：用时 %.1fs", time.Since(start).Seconds()) }()
 		data, res, err := f.Get("subscription", req.URL, 0)

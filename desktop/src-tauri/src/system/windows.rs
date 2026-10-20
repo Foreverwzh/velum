@@ -108,7 +108,12 @@ fn run_elevated(args: &[&str]) -> Result<(), String> {
 pub fn helper_install() -> Result<(), String> {
     let sid = crate::winpipe::current_sid()?;
     let home = velum::home();
-    run_elevated(&["service", "install", "--home", &home.to_string_lossy(), "--allow-sid", &sid])
+    let res = run_elevated(&["service", "install", "--home", &home.to_string_lossy(), "--allow-sid", &sid]);
+    if res.is_err() {
+        // 安装过程可能已经停掉了以用户身份运行的 velumd：重新拉起（服务已装上则启动服务），App 继续可用
+        let _ = velum::ensure_running();
+    }
+    res
 }
 
 /// 卸载 Velum 服务，然后以用户身份重新启动 velumd（只有系统代理），App 继续可用。
