@@ -266,7 +266,8 @@ func useSocket(domain, typ int, fn func(int) error) error {
 	return fn(s)
 }
 
-// EnsureScopedDefaults 见 System。只处理非隧道网卡上带网关的默认路由；已存在作用域默认路由时不重复添加。
+// EnsureScopedDefaults 见 System。只处理非隧道网卡上带网关的默认路由；已存在同一网关的作用域默认路由时不重复添加，
+// 网关不同（旧网络留下的）则替换。
 // IPv4 与 IPv6 各自独立：一个失败不影响另一个（返回已补上的部分与错误）。
 func (DarwinSystem) EnsureScopedDefaults() ([]string, func() error, error) {
 	var added []string
@@ -278,17 +279,27 @@ func (DarwinSystem) EnsureScopedDefaults() ([]string, func() error, error) {
 			errs = append(errs, err)
 			continue
 		}
-		if def.unscoped == nil || def.scoped[def.unscoped.ifIndex] {
+		r, stale, ok := def.plan()
+		if !ok {
 			continue
 		}
-		r := *def.unscoped
+		note := ""
+		if stale != nil {
+			// 换了网络但网卡没断（典型是合盖睡眠后在另一处唤醒）：旧网络的作用域默认路由还在，
+			// 绑定物理网卡的连接会沿用它的旧源地址，一律 can't assign requested address
+			if err := execScopedDefault(unix.RTM_DELETE, *stale); err != nil && !errors.Is(err, unix.ESRCH) {
+				errs = append(errs, fmt.Errorf("删除 %s 过期的作用域默认路由（经 %s）：%w", stale.ifName, stale.gw, err))
+				continue
+			}
+			note = fmt.Sprintf("（替换经 %s 的旧路由）", stale.gw)
+		}
 		if err := execScopedDefault(unix.RTM_ADD, r); err != nil {
 			if !errors.Is(err, unix.EEXIST) {
 				errs = append(errs, fmt.Errorf("添加 %s 作用域默认路由（经 %s）：%w", r.ifName, r.gw, err))
 			}
 			continue
 		}
-		added = append(added, fmt.Sprintf("default via %s ifscope %s", r.gw, r.ifName))
+		added = append(added, fmt.Sprintf("default via %s ifscope %s%s", r.gw, r.ifName, note))
 		undo = append(undo, func() error {
 			err := execScopedDefault(unix.RTM_DELETE, r)
 			if errors.Is(err, unix.ESRCH) {
@@ -316,13 +327,31 @@ type defaultRoute struct {
 }
 
 type defaultRoutes struct {
-	unscoped *defaultRoute // 物理网卡上带网关的非作用域默认路由
-	scoped   map[int]bool  // 已有作用域默认路由的网卡
+	unscoped *defaultRoute          // 物理网卡上带网关的非作用域默认路由
+	scoped   map[int][]defaultRoute // 各网卡已有的作用域默认路由
+}
+
+// plan 决定要补的作用域默认路由：没有非作用域默认路由，或该网卡已有同一网关的作用域默认路由时 ok 为 false；
+// 该网卡已有的作用域默认路由网关不同时，stale 是要先删掉的那条。
+func (d defaultRoutes) plan() (add defaultRoute, stale *defaultRoute, ok bool) {
+	if d.unscoped == nil {
+		return add, nil, false
+	}
+	add = *d.unscoped
+	for _, r := range d.scoped[add.ifIndex] {
+		if r.gw == add.gw {
+			return add, nil, false
+		}
+	}
+	if old := d.scoped[add.ifIndex]; len(old) > 0 {
+		stale = &old[0]
+	}
+	return add, stale, true
 }
 
 // findDefaultRoutes 读取路由表中 af 的默认路由。隧道网卡（utun 等）上的默认路由不算物理网卡。
 func findDefaultRoutes(af int) (defaultRoutes, error) {
-	out := defaultRoutes{scoped: map[int]bool{}}
+	out := defaultRoutes{scoped: map[int][]defaultRoute{}}
 	rib, err := route.FetchRIB(af, route.RIBTypeRoute, 0)
 	if err != nil {
 		return out, err
@@ -339,17 +368,6 @@ func findDefaultRoutes(af int) (defaultRoutes, error) {
 		if !isZero(rm.Addrs[unix.RTAX_DST]) || (rm.Addrs[unix.RTAX_NETMASK] != nil && !isZero(rm.Addrs[unix.RTAX_NETMASK])) {
 			continue
 		}
-		if rm.Flags&unix.RTF_IFSCOPE != 0 {
-			out.scoped[rm.Index] = true
-			continue
-		}
-		if out.unscoped != nil {
-			continue
-		}
-		ifi, err := net.InterfaceByIndex(rm.Index)
-		if err != nil || isTunnelName(ifi.Name) {
-			continue
-		}
 		var gw netip.Addr
 		switch a := rm.Addrs[unix.RTAX_GATEWAY].(type) {
 		case *route.Inet4Addr:
@@ -359,7 +377,18 @@ func findDefaultRoutes(af int) (defaultRoutes, error) {
 		default:
 			continue
 		}
-		out.unscoped = &defaultRoute{ifIndex: rm.Index, ifName: ifi.Name, gw: gw}
+		ifi, err := net.InterfaceByIndex(rm.Index)
+		if err != nil || isTunnelName(ifi.Name) {
+			continue
+		}
+		r := defaultRoute{ifIndex: rm.Index, ifName: ifi.Name, gw: gw}
+		if rm.Flags&unix.RTF_IFSCOPE != 0 {
+			out.scoped[rm.Index] = append(out.scoped[rm.Index], r)
+			continue
+		}
+		if out.unscoped == nil {
+			out.unscoped = &r
+		}
 	}
 	return out, nil
 }

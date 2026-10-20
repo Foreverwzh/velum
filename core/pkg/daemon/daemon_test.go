@@ -204,7 +204,7 @@ func TestEmptyConfigStillServes(t *testing.T) {
 	var st *rpc.Status
 	var err error
 	for i := 0; i < 100; i++ {
-		if st, err = c.Status(); err == nil {
+		if st, err = c.Status(); err == nil && !st.Starting {
 			break
 		}
 		time.Sleep(20 * time.Millisecond)
@@ -268,7 +268,7 @@ func TestDaemonSysProxyLifecycle(t *testing.T) {
 	go func() { done <- d.Run(context.Background()) }()
 	c := rpc.NewClient(paths.Socket)
 	for i := 0; i < 100; i++ {
-		if _, err := c.Status(); err == nil {
+		if s, err := c.Status(); err == nil && !s.Starting {
 			break
 		}
 		time.Sleep(20 * time.Millisecond)
@@ -329,7 +329,7 @@ func TestDaemonTUNMode(t *testing.T) {
 	defer d.Shutdown()
 	c := rpc.NewClient(paths.Socket)
 	for i := 0; i < 100; i++ {
-		if _, err := c.Status(); err == nil {
+		if s, err := c.Status(); err == nil && !s.Starting {
 			break
 		}
 		time.Sleep(20 * time.Millisecond)
@@ -378,7 +378,7 @@ func TestDaemonTUNUnavailable(t *testing.T) {
 	defer d.Shutdown()
 	c := rpc.NewClient(paths.Socket)
 	for i := 0; i < 100; i++ {
-		if _, err := c.Status(); err == nil {
+		if s, err := c.Status(); err == nil && !s.Starting {
 			break
 		}
 		time.Sleep(20 * time.Millisecond)
@@ -420,7 +420,7 @@ func TestDaemonNetworkSense(t *testing.T) {
 		t.Helper()
 		var st *rpc.Status
 		for i := 0; i < 200; i++ {
-			if s, err := c.Status(); err == nil {
+			if s, err := c.Status(); err == nil && !s.Starting {
 				st = s
 				if ok(s) {
 					return s
@@ -489,7 +489,7 @@ func TestDaemonTUNSystemDNS(t *testing.T) {
 	c := rpc.NewClient(paths.Socket)
 	var st *rpc.Status
 	for i := 0; i < 100; i++ {
-		if s, err := c.Status(); err == nil && s.TUN != nil {
+		if s, err := c.Status(); err == nil && !s.Starting && s.TUN != nil {
 			st = s
 			break
 		}
@@ -540,7 +540,7 @@ func TestDaemonWhyLoadsRuleSetsAndResolves(t *testing.T) {
 	defer d.Shutdown()
 	c := rpc.NewClient(paths.Socket)
 	for i := 0; i < 100; i++ {
-		if _, err := c.Status(); err == nil {
+		if s, err := c.Status(); err == nil && !s.Starting {
 			break
 		}
 		time.Sleep(20 * time.Millisecond)
@@ -646,7 +646,7 @@ func TestSwitchesIndependent(t *testing.T) {
 	c := rpc.NewClient(paths.Socket)
 	var st *rpc.Status
 	for i := 0; i < 100; i++ {
-		if s, err := c.Status(); err == nil {
+		if s, err := c.Status(); err == nil && !s.Starting {
 			st = s
 			break
 		}
@@ -712,7 +712,7 @@ func TestSetSubscription(t *testing.T) {
 	defer d.Shutdown()
 	c := rpc.NewClient(paths.Socket)
 	for i := 0; i < 100; i++ {
-		if _, err := c.Status(); err == nil {
+		if s, err := c.Status(); err == nil && !s.Starting {
 			break
 		}
 		time.Sleep(20 * time.Millisecond)
@@ -764,7 +764,7 @@ func TestDaemonTUNApps(t *testing.T) {
 	defer d.Shutdown()
 	c := rpc.NewClient(paths.Socket)
 	for i := 0; i < 100; i++ {
-		if _, err := c.Status(); err == nil {
+		if s, err := c.Status(); err == nil && !s.Starting {
 			break
 		}
 		time.Sleep(20 * time.Millisecond)
@@ -811,7 +811,7 @@ rules:
 	defer d.Shutdown()
 	c := rpc.NewClient(paths.Socket)
 	for i := 0; i < 100; i++ {
-		if _, err := c.Status(); err == nil {
+		if s, err := c.Status(); err == nil && !s.Starting {
 			break
 		}
 		time.Sleep(20 * time.Millisecond)

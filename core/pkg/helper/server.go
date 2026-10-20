@@ -43,7 +43,7 @@ type Server struct {
 	Logger   *log.Logger
 	// PeerCred 返回对端 uid / pid；默认用 LOCAL_PEERCRED，测试可替换。
 	PeerCred func(*net.UnixConn) (uid, pid int, err error)
-	// RouteSettle 是路由变化后等待其稳定再补作用域默认路由的时间（默认 1 秒）。
+	// RouteSettle 是路由变化后等待其稳定再补作用域默认路由的时间（默认 0.3 秒）。
 	RouteSettle time.Duration
 
 	mu       sync.Mutex
@@ -130,7 +130,7 @@ func (s *Server) watchRoutes() {
 	}()
 	settle := s.RouteSettle
 	if settle <= 0 {
-		settle = time.Second
+		settle = 300 * time.Millisecond
 	}
 	for range kick {
 		time.Sleep(settle) // 等这一波变化结束（DHCP 拿到地址、系统装好默认路由）

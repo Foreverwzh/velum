@@ -33,7 +33,7 @@ func TestHelperStatus(t *testing.T) {
 	defer d.Shutdown()
 	c := rpc.NewClient(paths.Socket)
 	for i := 0; i < 100; i++ {
-		if _, err := c.Status(); err == nil {
+		if s, err := c.Status(); err == nil && !s.Starting {
 			break
 		}
 		time.Sleep(20 * time.Millisecond)
