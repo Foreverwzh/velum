@@ -43,6 +43,21 @@ async fn helper_status() -> Result<Option<serde_json::Value>, String> {
 }
 
 #[tauri::command]
+fn cli_status() -> serde_json::Value {
+    system::cli_status()
+}
+
+#[tauri::command]
+async fn cli_install() -> Result<(), String> {
+    blocking(system::cli_install).await?
+}
+
+#[tauri::command]
+async fn cli_uninstall() -> Result<(), String> {
+    blocking(system::cli_uninstall).await?
+}
+
+#[tauri::command]
 fn autostart_get() -> bool {
     system::autostart_get()
 }
@@ -104,7 +119,7 @@ fn toggle(which: &str) {
 
 pub fn run() {
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![velum_call, helper_install, helper_uninstall, helper_status, autostart_get, autostart_set])
+        .invoke_handler(tauri::generate_handler![velum_call, helper_install, helper_uninstall, helper_status, cli_status, cli_install, cli_uninstall, autostart_get, autostart_set])
         .setup(|app| {
             let handle = app.handle().clone();
             // 开机启动（--hidden）时只在托盘运行，不弹出窗口

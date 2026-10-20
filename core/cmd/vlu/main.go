@@ -236,6 +236,10 @@ func waitReady(paths config.Paths, c *rpc.Client) error {
 
 func velumdPath() (string, error) {
 	if self, err := os.Executable(); err == nil {
+		// 经 /usr/local/bin/vlu 链接调用时，velumd 在链接目标（App 包内）旁边
+		if real, err := filepath.EvalSymlinks(self); err == nil {
+			self = real
+		}
 		p := filepath.Join(filepath.Dir(self), "velumd"+exeSuffix)
 		if _, err := os.Stat(p); err == nil {
 			return p, nil

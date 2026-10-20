@@ -133,6 +133,108 @@ pub fn helper_status() -> Option<serde_json::Value> {
     }))
 }
 
+/// 命令行工具 vlu 的安装状态：vlu.exe 所在的安装目录是否在当前用户的 PATH 中。
+pub fn cli_status() -> serde_json::Value {
+    let dir = velum::bin_path("vlu").and_then(|p| p.parent().map(|d| d.to_path_buf()));
+    let installed = match (&dir, user_path::read()) {
+        (Some(d), Ok((path, _))) => user_path::contains(&path, &d.to_string_lossy()),
+        _ => false,
+    };
+    serde_json::json!({ "installed": installed, "path": dir.map(|d| d.display().to_string()) })
+}
+
+/// 把安装目录加入当前用户的 PATH（不需要管理员权限；新打开的终端生效）。
+pub fn cli_install() -> Result<(), String> {
+    let dir = velum::bin_path("vlu").and_then(|p| p.parent().map(|d| d.to_string_lossy().into_owned())).ok_or("找不到内置的 vlu")?;
+    let (path, ty) = user_path::read()?;
+    if user_path::contains(&path, &dir) {
+        return Ok(());
+    }
+    let new = if path.trim_end_matches(';').is_empty() { dir } else { format!("{};{dir}", path.trim_end_matches(';')) };
+    user_path::write(&new, ty)
+}
+
+pub fn cli_uninstall() -> Result<(), String> {
+    let Some(dir) = velum::bin_path("vlu").and_then(|p| p.parent().map(|d| d.to_string_lossy().into_owned())) else { return Ok(()) };
+    let (path, ty) = user_path::read()?;
+    if !user_path::contains(&path, &dir) {
+        return Ok(());
+    }
+    let kept: Vec<&str> = path.split(';').filter(|e| !e.is_empty() && !user_path::same_dir(e, &dir)).collect();
+    user_path::write(&kept.join(";"), ty)
+}
+
+/// 读写 HKCU\Environment 的 Path，保留原有的值类型（通常是 REG_EXPAND_SZ，其中的 %USERPROFILE% 等不能被展开写死）。
+mod user_path {
+    use super::wide;
+    use windows_sys::Win32::Foundation::ERROR_FILE_NOT_FOUND;
+    use windows_sys::Win32::System::Registry::{
+        RegCloseKey, RegOpenKeyExW, RegQueryValueExW, RegSetValueExW, HKEY, HKEY_CURRENT_USER, KEY_QUERY_VALUE, KEY_SET_VALUE, REG_EXPAND_SZ,
+        REG_VALUE_TYPE,
+    };
+    use windows_sys::Win32::UI::WindowsAndMessaging::{SendMessageTimeoutW, HWND_BROADCAST, SMTO_ABORTIFHUNG, WM_SETTINGCHANGE};
+
+    pub fn same_dir(a: &str, b: &str) -> bool {
+        a.trim().trim_end_matches('\\').eq_ignore_ascii_case(b.trim().trim_end_matches('\\'))
+    }
+
+    pub fn contains(path: &str, dir: &str) -> bool {
+        path.split(';').any(|e| same_dir(e, dir))
+    }
+
+    fn open(access: u32) -> Result<HKEY, String> {
+        let mut key: HKEY = std::ptr::null_mut();
+        // SAFETY：子键名为以 0 结尾的 UTF-16；成功时由调用方关闭 key。
+        let rc = unsafe { RegOpenKeyExW(HKEY_CURRENT_USER, wide("Environment").as_ptr(), 0, access, &mut key) };
+        if rc != 0 {
+            return Err(format!("打开用户环境变量失败（{rc}）"));
+        }
+        Ok(key)
+    }
+
+    /// 返回 (Path 原始值, 值类型)；不存在时为空串与 REG_EXPAND_SZ。
+    pub fn read() -> Result<(String, REG_VALUE_TYPE), String> {
+        let key = open(KEY_QUERY_VALUE)?;
+        let name = wide("Path");
+        let (mut ty, mut size) = (0u32, 0u32);
+        // SAFETY：先取大小再按大小分配缓冲区；key 在返回前关闭。
+        unsafe {
+            let rc = RegQueryValueExW(key, name.as_ptr(), std::ptr::null(), &mut ty, std::ptr::null_mut(), &mut size);
+            if rc == ERROR_FILE_NOT_FOUND {
+                RegCloseKey(key);
+                return Ok((String::new(), REG_EXPAND_SZ));
+            }
+            let mut buf = vec![0u16; (size as usize).div_ceil(2)];
+            let rc = if rc == 0 { RegQueryValueExW(key, name.as_ptr(), std::ptr::null(), &mut ty, buf.as_mut_ptr().cast(), &mut size) } else { rc };
+            RegCloseKey(key);
+            if rc != 0 {
+                return Err(format!("读取用户 PATH 失败（{rc}）"));
+            }
+            while buf.last() == Some(&0) {
+                buf.pop();
+            }
+            Ok((String::from_utf16_lossy(&buf), ty))
+        }
+    }
+
+    /// 写入并广播环境变化（新启动的终端、资源管理器随即生效）。
+    pub fn write(value: &str, ty: REG_VALUE_TYPE) -> Result<(), String> {
+        let key = open(KEY_SET_VALUE)?;
+        let data = wide(value);
+        // SAFETY：data 为以 0 结尾的 UTF-16，长度按字节计；key 在返回前关闭。
+        let rc = unsafe { RegSetValueExW(key, wide("Path").as_ptr(), 0, ty, data.as_ptr().cast(), (data.len() * 2) as u32) };
+        unsafe { RegCloseKey(key) };
+        if rc != 0 {
+            return Err(format!("写入用户 PATH 失败（{rc}）"));
+        }
+        let env = wide("Environment");
+        let mut result = 0usize;
+        // SAFETY：lParam 指向以 0 结尾的 UTF-16 字符串，调用期间有效。
+        unsafe { SendMessageTimeoutW(HWND_BROADCAST, WM_SETTINGCHANGE, 0, env.as_ptr() as isize, SMTO_ABORTIFHUNG, 2000, &mut result) };
+        Ok(())
+    }
+}
+
 pub fn autostart_get() -> bool {
     Command::new("reg").args(["query", RUN_KEY, "/v", RUN_VALUE]).creation_flags(CREATE_NO_WINDOW).output().map(|o| o.status.success()).unwrap_or(false)
 }
@@ -153,6 +255,13 @@ pub fn autostart_set(on: bool) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn path_entries() {
+        let p = r"%USERPROFILE%\bin;C:\Program Files\Velum\;C:\x";
+        assert!(user_path::contains(p, r"c:\program files\velum"));
+        assert!(!user_path::contains(p, r"C:\Program Files\Vel"));
+    }
 
     #[test]
     fn quoting() {

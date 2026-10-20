@@ -115,6 +115,8 @@ async function nativeCall<T>(cmd: string, args?: Record<string, unknown>): Promi
   return invoke<T>(cmd, args);
 }
 
+export interface CliStatus { installed: boolean; path?: string; conflict?: string }
+
 /** 只在 App 中可用的系统操作（由 Rust 壳实现）。 */
 export const native = {
   available: inTauri,
@@ -123,6 +125,10 @@ export const native = {
   helperUninstall: () => nativeCall<void>("helper_uninstall"),
   /** 平台自行判断的 TUN 组件状态（Windows：Velum 服务）；null 表示直接查询 velumd（macOS）。 */
   helperStatus: () => nativeCall<HelperStatus | null>("helper_status"),
+  /** 命令行工具 vlu：macOS 链接到 /usr/local/bin（需管理员权限），Windows 把安装目录加入用户 PATH。 */
+  cliStatus: () => nativeCall<CliStatus>("cli_status"),
+  cliInstall: () => nativeCall<void>("cli_install"),
+  cliUninstall: () => nativeCall<void>("cli_uninstall"),
   autostartGet: () => nativeCall<boolean>("autostart_get"),
   autostartSet: (on: boolean) => nativeCall<void>("autostart_set", { on }),
 };

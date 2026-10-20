@@ -33,7 +33,7 @@
 
 ## 命令行
 
-桌面 App 内置命令行工具 `vlu`（macOS 位于 `Velum.app/Contents/MacOS/vlu`）：
+桌面 App 内置命令行工具 `vlu`。在专业模式的「概览 → 系统组件」中点「命令行工具 vlu → 安装」后，终端里即可直接使用（macOS 链接到 `/usr/local/bin/vlu`，Windows 把安装目录加入用户 PATH）：
 
 ```sh
 vlu status                     # 当前状态

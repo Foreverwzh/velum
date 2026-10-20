@@ -110,6 +110,37 @@ pub fn helper_status() -> Option<serde_json::Value> {
     None
 }
 
+const CLI_LINK: &str = "/usr/local/bin/vlu";
+
+/// 命令行工具 vlu 的安装状态：/usr/local/bin/vlu 是否指向本 App 内置的 vlu（链接到 App 包内，更新 App 后无需重装）。
+pub fn cli_status() -> serde_json::Value {
+    let ours = velum::bin_path("vlu");
+    let target = std::fs::read_link(CLI_LINK).ok();
+    let exists = std::fs::symlink_metadata(CLI_LINK).is_ok();
+    let installed = matches!((&target, &ours), (Some(t), Some(o)) if t == o);
+    serde_json::json!({
+        "installed": installed,
+        "path": CLI_LINK,
+        // 已存在但不是我们的链接（如其他位置安装的 vlu）：安装会替换它
+        "conflict": (exists && !installed).then(|| target.map(|t| t.display().to_string()).unwrap_or_else(|| CLI_LINK.to_string())),
+    })
+}
+
+/// 在 /usr/local/bin（macOS 默认 PATH 中）创建 vlu 的符号链接；该目录归 root 所有，需要管理员权限。
+pub fn cli_install() -> Result<(), String> {
+    let src = velum::bin_path("vlu").ok_or("找不到内置的 vlu")?;
+    let script = format!("mkdir -p /usr/local/bin && ln -sfn {} {CLI_LINK}", sh_quote(&src.to_string_lossy()));
+    run_admin(&script, "Velum 要把命令行工具 vlu 安装到 /usr/local/bin。")
+}
+
+/// 只删除指向本 App 的链接，不动用户自己放置的 vlu。
+pub fn cli_uninstall() -> Result<(), String> {
+    if !cli_status()["installed"].as_bool().unwrap_or(false) {
+        return Ok(());
+    }
+    run_admin(&format!("rm -f {CLI_LINK}"), "Velum 要移除命令行工具 vlu。")
+}
+
 fn agent_plist() -> Result<PathBuf, String> {
     let home = std::env::var("HOME").map_err(|e| e.to_string())?;
     Ok(PathBuf::from(home).join("Library/LaunchAgents").join(format!("{AGENT_LABEL}.plist")))

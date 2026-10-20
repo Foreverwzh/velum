@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { SubscriptionForm } from "../components/SubscriptionForm";
 import { TunToggle, installHelper } from "../components/TunToggle";
-import { api, componentStatus, componentText, errText, human, isWindows, native, srcText, subscribeConnections, type Connection, type HelperStatus, type Status, type Warning, type WhyResponse } from "../api";
+import { api, componentStatus, componentText, errText, human, isWindows, native, srcText, subscribeConnections, type CliStatus, type Connection, type HelperStatus, type Status, type Warning, type WhyResponse } from "../api";
 import { health } from "../health";
 import { Badge, Button, Card, Dot, Empty, Toggle, cx, delayTone, titlebarOverlay } from "../components/ui";
 import type { Refresh } from "../App";
@@ -446,11 +446,15 @@ function Warnings() {
 function SystemCard({ status, refresh }: { status: Status; refresh: Refresh }) {
   const [helper, setHelper] = useState<HelperStatus>();
   const [auto, setAuto] = useState<boolean>();
+  const [cli, setCli] = useState<CliStatus>();
   const [busy, setBusy] = useState<string>();
   const [msg, setMsg] = useState<string>();
   const load = useCallback(async () => {
     setHelper(await componentStatus().catch(() => undefined));
-    if (native.available) setAuto(await native.autostartGet().catch(() => undefined));
+    if (native.available) {
+      setAuto(await native.autostartGet().catch(() => undefined));
+      setCli(await native.cliStatus().catch(() => undefined));
+    }
   }, []);
   useEffect(() => void load(), [load]);
 
@@ -492,6 +496,22 @@ function SystemCard({ status, refresh }: { status: Status; refresh: Refresh }) {
           )}
         </div>
       </div>
+      {cli && (
+        <div className="mt-1 flex items-center justify-between gap-4 border-t border-neutral-100 py-2 dark:border-neutral-800">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 font-medium">
+              命令行工具 vlu {cli.installed ? <Badge tone="green">已安装</Badge> : <Badge tone="neutral">未安装</Badge>}
+            </div>
+            <div className="text-[12px] text-neutral-500">
+              {isWindows ? "把 Velum 安装目录加入当前用户的 PATH，新打开的终端中可直接使用 vlu" : <>在 <code>{cli.path}</code> 创建链接，终端中可直接使用 vlu（需要管理员密码）</>}
+              {cli.conflict && <span className="text-amber-600">；已存在其他 vlu（{cli.conflict}），安装会替换它</span>}
+            </div>
+          </div>
+          <Button disabled={!!busy} variant={cli.installed ? "danger" : undefined} onClick={() => run("cli", cli.installed ? native.cliUninstall : native.cliInstall)}>
+            {busy === "cli" ? "处理中…" : cli.installed ? "移除" : "安装"}
+          </Button>
+        </div>
+      )}
       {native.available && auto !== undefined && (
         <div className="mt-1 border-t border-neutral-100 dark:border-neutral-800">
           <Toggle label="开机启动" hint="登录后在后台启动 Velum（只显示托盘图标）" on={auto} want={auto} disabled={!!busy}
