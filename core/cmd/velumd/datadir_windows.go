@@ -44,17 +44,22 @@ func secureDataDir(dir string, readers []string) error {
 	if err := windows.CreateDirectory(p, &sa); err != nil && !errors.Is(err, windows.ERROR_ALREADY_EXISTS) {
 		return fmt.Errorf("创建数据目录 %s：%w", dir, err)
 	}
-	// 已存在的目录：重置所有者与受保护的 DACL（继承到现有子项）
+	// 已存在的目录：重置所有者与受保护的 DACL（继承到现有子项）。
+	// 所有者设为 Administrators 组：管理员令牌只能把所有者设为自己或 Administrators，
+	// 设为 SYSTEM 需要 SeRestorePrivilege，否则报 ERROR_INVALID_OWNER（1307）。
 	dacl, _, err := sd.DACL()
 	if err != nil {
 		return err
 	}
-	sys, err := windows.CreateWellKnownSid(windows.WinLocalSystemSid)
+	admins, err := windows.CreateWellKnownSid(windows.WinBuiltinAdministratorsSid)
 	if err != nil {
 		return err
 	}
-	return windows.SetNamedSecurityInfo(dir, windows.SE_FILE_OBJECT,
-		windows.OWNER_SECURITY_INFORMATION|windows.DACL_SECURITY_INFORMATION|windows.PROTECTED_DACL_SECURITY_INFORMATION, sys, nil, dacl, nil)
+	if err := windows.SetNamedSecurityInfo(dir, windows.SE_FILE_OBJECT,
+		windows.OWNER_SECURITY_INFORMATION|windows.DACL_SECURITY_INFORMATION|windows.PROTECTED_DACL_SECURITY_INFORMATION, admins, nil, dacl, nil); err != nil {
+		return fmt.Errorf("设置数据目录 %s 的权限：%w", dir, err)
+	}
+	return nil
 }
 
 func untrusted(path string, fi fs.FileInfo) bool {
