@@ -17,6 +17,7 @@
 | D5 | Windows TUN 方案 | `velumd` 以 Windows Service 运行，sing-box 原生 wintun + auto_route | ✅ 已定 |
 | D6 | 移动端分发（Ad Hoc / TestFlight / 其他） | 待定，M3 开始前决定。**前提：需要付费 Apple 开发者计划**（免费账号不能使用 Network Extension / App Groups，M0 的 iOS 两项也因此阻塞） | ⏳ 待定 |
 | D7 | Linux 支持方案 | 低优先级，未排期。倾向：`velumd` 以 systemd 系统服务运行，`User=` 为安装用户，通过 `AmbientCapabilities` 获得网络权限（不以 root 运行）；见 §3.7 | ⏳ 待定 |
+| D8 | 开源许可证 | **GPL-3.0-or-later**。velumd、Android 核心静态链接 sing-box（GPL-3.0-or-later），发布产物整体须以 GPLv3 提供源码；sing-box 许可证另有条款：衍生作品未经许可不得使用其名称或暗示关联（Velum 只做事实性说明）。**影响 D6**：GPLv3 与 App Store 条款存在冲突（附加使用限制），iOS 上架前需评估（可能只能走 TestFlight 以外的分发方式，或取得 sing-box 作者授权） | ✅ 已定（2026-10-20） |
 
 ---
 
