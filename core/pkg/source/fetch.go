@@ -6,9 +6,12 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -26,9 +29,13 @@ type Fetcher struct {
 	TTL time.Duration
 	// Stale 为 true 时，缓存存在即直接使用（即使已过期），只有没有缓存才拉取。
 	// 用于启动：先用缓存立即可用，过期的内容随后在后台更新（与 Clash / Stash 一致）。
-	Stale     bool
+	Stale bool
+	// Log 非空时记录较慢（超过 3 秒）或失败的远程请求，只含主机名（订阅地址可能带 token）。
+	Log       func(format string, args ...any)
 	usedStale atomic.Bool
 }
+
+const slowFetch = 3 * time.Second
 
 // UsedStale 报告本次是否使用了过期缓存（需要在后台更新）。
 func (f *Fetcher) UsedStale() bool { return f.usedStale.Load() }
@@ -45,8 +52,16 @@ func New(cacheDir, ua string) *Fetcher {
 		CacheDir:  cacheDir,
 		UserAgent: ua,
 		// 遵循 HTTP(S)_PROXY 环境变量；Velum 不写死任何上游。
-		Client: &http.Client{Timeout: 30 * time.Second, Transport: &http.Transport{Proxy: http.ProxyFromEnvironment}},
-		TTL:    time.Hour,
+		// 连接、握手、等待响应头分别限时：被墙或不通的地址（常见于还没有代理可用的首次设置）尽快失败，
+		// 整体 30 秒只留给下载较大的内容。
+		Client: &http.Client{Timeout: 30 * time.Second, Transport: &http.Transport{
+			Proxy:                 http.ProxyFromEnvironment,
+			DialContext:           (&net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
+			TLSHandshakeTimeout:   10 * time.Second,
+			ResponseHeaderTimeout: 15 * time.Second,
+			ForceAttemptHTTP2:     true,
+		}},
+		TTL: time.Hour,
 	}
 }
 
@@ -70,7 +85,19 @@ func (f *Fetcher) Get(kind, rawURL string, ttl time.Duration) ([]byte, Result, e
 			return data, Result{Origin: "cache", FetchedAt: st.ModTime()}, nil
 		}
 	}
+	start := time.Now()
 	data, err := f.fetch(rawURL)
+	if took := time.Since(start); f.Log != nil && (err != nil || took > slowFetch) {
+		host := rawURL
+		if u, perr := url.Parse(rawURL); perr == nil {
+			host = u.Host
+		}
+		if err != nil {
+			f.Log("拉取 %s（%s）失败，用时 %.1fs：%v", kind, host, took.Seconds(), redactErr(err, rawURL, host))
+		} else {
+			f.Log("拉取 %s（%s）较慢，用时 %.1fs", kind, host, took.Seconds())
+		}
+	}
 	if err == nil {
 		_ = os.MkdirAll(filepath.Dir(cp), 0o700)
 		_ = os.WriteFile(cp, data, 0o600)
@@ -81,6 +108,14 @@ func (f *Fetcher) Get(kind, rawURL string, ttl time.Duration) ([]byte, Result, e
 		return cached, Result{Origin: "cache", FetchedAt: st.ModTime(), Err: err.Error()}, nil
 	}
 	return nil, Result{Err: err.Error()}, err
+}
+
+// redactErr 去掉错误信息中的完整地址（url.Error 会带上它，可能含 token）。
+func redactErr(err error, rawURL, host string) string {
+	if ue, ok := err.(*url.Error); ok && ue.URL == rawURL {
+		return ue.Op + " " + host + ": " + ue.Err.Error()
+	}
+	return err.Error()
 }
 
 func (f *Fetcher) fetch(rawURL string) ([]byte, error) {
@@ -135,13 +170,30 @@ func (f *Fetcher) ProviderReader() func(path, url string) ([]byte, error) {
 // 下载失败且无缓存时，该规则集降级为空集（相关规则不命中）并告警，不影响整体启动
 // （sing-box 远程规则集首次下载失败会导致整个引擎无法启动）。
 func (f *Fetcher) ResolveRemoteRuleSets(cfg *ir.Config, ttl time.Duration) []ir.Warning {
+	type got struct {
+		res Result
+		err error
+	}
+	results := make([]got, len(cfg.RuleSets))
+	var wg sync.WaitGroup
+	for i := range cfg.RuleSets {
+		if cfg.RuleSets[i].Kind != ir.RuleSetRemote {
+			continue
+		}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, results[i].res, results[i].err = f.Get("rulesets", cfg.RuleSets[i].URL, ttl)
+		}()
+	}
+	wg.Wait()
 	var ws []ir.Warning
 	for i := range cfg.RuleSets {
 		rs := &cfg.RuleSets[i]
 		if rs.Kind != ir.RuleSetRemote {
 			continue
 		}
-		_, res, err := f.Get("rulesets", rs.URL, ttl)
+		res, err := results[i].res, results[i].err
 		if err != nil {
 			ws = append(ws, ir.Warning{Category: "ruleset", Kind: rs.Tag, Level: ir.Unsupported,
 				Reason: "下载失败且无缓存，规则集暂按空集处理（相关规则不会命中）：" + err.Error(), Subject: rs.URL, Source: rs.Source})

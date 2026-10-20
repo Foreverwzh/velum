@@ -121,6 +121,7 @@ func (d *Daemon) build(force, stale bool) (*state, error) {
 	}
 	f := source.New(d.Paths.Cache, cfg.Subscription.UserAgent)
 	f.PreferLocal = cfg.Subscription.PreferLocalProviders
+	f.Log = d.Logger.Printf
 	subTTL, rsTTL := cfg.Subscription.UpdateInterval, cfg.Subscription.RuleSetUpdateInterval
 	if force {
 		f.TTL, subTTL, rsTTL = 0, 0, 0
@@ -946,7 +947,9 @@ func (d *Daemon) putSubscription(w http.ResponseWriter, r *http.Request) {
 			ua = req.UserAgent
 		}
 		f := source.New(d.Paths.Cache, ua)
-		f.TTL = 0
+		f.TTL, f.Log = 0, d.Logger.Printf
+		start := time.Now()
+		defer func() { d.Logger.Printf("设置订阅：用时 %.1fs", time.Since(start).Seconds()) }()
 		data, res, err := f.Get("subscription", req.URL, 0)
 		if err == nil && res.Err != "" {
 			err = errors.New(res.Err) // 拉取失败、回落到了旧缓存：校验时不算成功

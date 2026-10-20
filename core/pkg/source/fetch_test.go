@@ -1,10 +1,12 @@
 package source_test
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -126,5 +128,17 @@ func TestStaleUsesExpiredCache(t *testing.T) {
 	f = source.New(f.CacheDir, "test")
 	if _, res, _ := f.Get("providers", srv.URL, time.Hour); res.Origin != "remote" || f.UsedStale() {
 		t.Fatalf("非 Stale 时过期缓存应重新拉取：%+v", res)
+	}
+}
+
+func TestFetchLogHidesURL(t *testing.T) {
+	f := source.New(t.TempDir(), "")
+	var logs []string
+	f.Log = func(format string, args ...any) { logs = append(logs, fmt.Sprintf(format, args...)) }
+	if _, _, err := f.Get("subscription", "http://127.0.0.1:9/sub?token=secret", time.Hour); err == nil {
+		t.Fatal("应拉取失败")
+	}
+	if len(logs) != 1 || strings.Contains(logs[0], "secret") || !strings.Contains(logs[0], "127.0.0.1:9") {
+		t.Fatalf("失败日志应只含主机名：%q", logs)
 	}
 }
