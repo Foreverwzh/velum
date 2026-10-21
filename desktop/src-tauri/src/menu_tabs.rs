@@ -18,7 +18,7 @@ use objc2::{AllocAnyThread, MainThreadMarker};
 use objc2_app_kit::{
     NSAttributedStringNSStringDrawing, NSBaselineOffsetAttributeName, NSBitmapImageFileType,
     NSBitmapImageRep, NSColor, NSDeviceRGBColorSpace, NSGraphicsContext, NSFont, NSFontAttributeName, NSFontWeightMedium,
-    NSForegroundColorAttributeName, NSMenu, NSMenuDidBeginTrackingNotification,
+    NSForegroundColorAttributeName, NSMenu, NSMenuItem, NSMenuDidBeginTrackingNotification,
     NSMenuDidEndTrackingNotification, NSMutableParagraphStyle, NSParagraphStyleAttributeName,
     NSTextAlignment, NSTextTab, NSWorkspace,
 };
@@ -30,6 +30,14 @@ use tauri::AppHandle;
 
 /// 左右两部分之间的最小间距（点）。
 const GAP: f64 = 28.0;
+/// 顶层菜单两侧的最小宽度所取的文字：活跃客户端的名称（截断后最多 25 个字符）与速率随时变化，
+/// 按最宽的情形预留，菜单宽度与右侧一列的位置就不会随之抖动。
+const MIN_LEFT: [&str; 2] = ["Google Chrome Helper (Ren", "smeltd-0477e9dce…1d3025df"];
+const MIN_RIGHT: &str = "000 MB/s";
+/// 菜单项图标与标题之间的间距（点）。
+const IMAGE_GAP: f64 = 6.0;
+/// 客户端行的图标宽度（点，与 muda 设置的图标大小一致）。
+const CLIENT_ICON: f64 = 18.0;
 /// 菜单栏两行网速的基线下移量（点）。
 const BASELINE: f64 = -4.5;
 
@@ -48,7 +56,7 @@ pub fn display_name(path: &str) -> String {
 
 /// 文件（.app 或可执行文件）在 Finder 中的图标，绘制为 32×32 的 PNG（菜单中显示为 16pt）。
 ///
-/// 图标作为菜单项自带的图标在创建时设置：菜单开始显示后再设置的图标不会显示（布局已确定）。
+/// macOS 27 起菜单项图标默认隐藏，显示时还需设置 preferredImageVisibility（见 show_image）。
 pub fn icon_png(path: &str) -> Option<Vec<u8>> {
     ICONS
         .lock()
@@ -91,7 +99,7 @@ pub fn install(app: &AppHandle) {
         let center = NSNotificationCenter::defaultCenter();
         let begin = RcBlock::new(|n: NonNull<NSNotification>| {
             if let Some(menu) = menu_of(unsafe { n.as_ref() }) {
-                format(&menu);
+                format(&menu, true);
                 // 只记录最外层菜单（子菜单打开时也会发送此通知）
                 OPEN.with(|o| {
                     o.borrow_mut().get_or_insert(menu);
@@ -131,7 +139,7 @@ pub fn reformat(app: &AppHandle) {
     let _ = app.run_on_main_thread(|| {
         OPEN.with(|o| {
             if let Some(menu) = o.borrow().as_ref() {
-                format(menu);
+                format(menu, true);
             }
         })
     });
@@ -141,42 +149,54 @@ fn menu_of(n: &NSNotification) -> Option<Retained<NSMenu>> {
     n.object()?.downcast::<NSMenu>().ok()
 }
 
-/// 为一个菜单（及其子菜单）中含 '\t' 的标题设置右对齐制表位。
-fn format(menu: &NSMenu) {
+/// 为一个菜单（及其子菜单）中含 '\t' 的标题设置右对齐制表位，并让带图标的菜单项显示图标；top 为顶层菜单。
+fn format(menu: &NSMenu, top: bool) {
     let font = NSFont::menuFontOfSize(0.0);
     let plain = attrs(&font, None, None, None);
     let width = |s: &str| unsafe { NSAttributedString::new_with_attributes(&NSString::from_str(s), &plain) }.size().width;
 
-    let items = menu.itemArray();
     let mut rows = Vec::new();
     let (mut left, mut right) = (0.0f64, 0.0f64);
-    for item in items.iter() {
+    for item in menu.itemArray().iter() {
         if let Some(sub) = item.submenu() {
-            format(&sub);
+            format(&sub, false);
         }
+        // 图标把标题往右推：制表位从标题起点算，带图标的行要相应前移
+        let indent = match item.image() {
+            Some(img) => {
+                show_image(&item);
+                img.size().width + IMAGE_GAP
+            }
+            None => 0.0,
+        };
         let title = item.title().to_string();
         if let Some((l, r)) = title.split_once('\t') {
-            left = left.max(width(l));
+            left = left.max(indent + width(l));
             right = right.max(width(r));
-            rows.push((item, title));
+            rows.push((item, title, indent));
         }
     }
     if rows.is_empty() {
         return;
     }
-    let tab = unsafe {
-        NSTextTab::initWithTextAlignment_location_options(
-            NSTextTab::alloc(),
-            NSTextAlignment::Right,
-            left + GAP + right,
-            &NSDictionary::new(),
-        )
-    };
-    let style = NSMutableParagraphStyle::new();
-    style.setTabStops(Some(&NSArray::from_retained_slice(&[tab])));
-    let styled = attrs(&font, Some(&style), None, None);
-    for (item, title) in rows {
-        let s = unsafe { NSAttributedString::new_with_attributes(&NSString::from_str(&title), &styled) };
+    if top {
+        for l in MIN_LEFT {
+            left = left.max(CLIENT_ICON + IMAGE_GAP + width(l));
+        }
+        right = right.max(width(MIN_RIGHT));
+    }
+    for (item, title, indent) in rows {
+        let tab = unsafe {
+            NSTextTab::initWithTextAlignment_location_options(
+                NSTextTab::alloc(),
+                NSTextAlignment::Right,
+                left + GAP + right - indent,
+                &NSDictionary::new(),
+            )
+        };
+        let style = NSMutableParagraphStyle::new();
+        style.setTabStops(Some(&NSArray::from_retained_slice(&[tab])));
+        let s = unsafe { NSAttributedString::new_with_attributes(&NSString::from_str(&title), &attrs(&font, Some(&style), None, None)) };
         item.setAttributedTitle(Some(&s));
     }
 }
@@ -231,6 +251,16 @@ pub fn speed_title(app: &AppHandle, lines: Option<(String, String)>) {
             v.setFrame(button.bounds());
         }
     });
+}
+
+/// macOS 27 起 AppKit 默认隐藏菜单项图标，需将 preferredImageVisibility 设为 Visible（1）才会显示。
+fn show_image(item: &NSMenuItem) {
+    let sel = objc2::sel!(setPreferredImageVisibility:);
+    if objc2_foundation::NSObjectProtocol::respondsToSelector(item, sel) {
+        unsafe {
+            let _: () = objc2::msg_send![item, setPreferredImageVisibility: 1isize];
+        }
+    }
 }
 
 fn attrs(
