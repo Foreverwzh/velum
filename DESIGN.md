@@ -40,6 +40,7 @@ System UI stack (SF Pro / PingFang SC; Segoe UI / Microsoft YaHei on Windows), 1
 - **Chain** the route chain; step kinds rule (info, mono), group (neutral), node (accent tint), direct, reject (muted neutral: expected behaviour, not an error; hidden from the overview).
 - **Panel + Row** hairline-bordered row groups; never cards inside cards.
 - **PageHeader**, **Section**, **KV**, **Empty** (icon + title + hint + action), **Notice**, **SearchInput** (with shortcut hint), **Kbd**.
+- **RuleDialog** (`components/RuleDialog.tsx`) the one way to add a local rule: opened from a connection, a diagnosis or the overlay page; picks scope by parent-domain chips + 含子域 / 仅此域名 / 仅子域 instead of YAML prefixes, then re-runs the diagnosis to show the new route.
 - Icons: lucide-react, 1.8 stroke. No emoji or Unicode glyphs as icons (emoji only appear inside subscription-provided names).
 
 ## Layout

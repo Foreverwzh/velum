@@ -38,6 +38,13 @@ export interface WhyResponse { report: WhyReport; chain?: string[]; resolved?: s
 export interface Warning { category: string; kind: string; level: string; reason: string; subject?: string; source: Source }
 export interface HelperStatus { socket: string; reachable: boolean; version: string; outdated?: boolean; error?: string }
 export interface RepairStep { name: string; ok: boolean; detail?: string }
+/** overlay 条目。domain 的 value 用 overlay 写法：x = 根域 + 子域，.x = 仅子域，=x = 仅此域名。 */
+export type OverlayKind = "domain" | "cidr" | "host" | "process" | "bypass";
+export interface OverlayEntry { kind: OverlayKind; value: string; ip?: string; line?: number }
+export interface OverlayItems {
+  path: string; entries: OverlayEntry[];
+  system_hosts: { name: string; addrs: string[] }[]; system_hosts_total: number; system_hosts_off?: boolean;
+}
 
 const inTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
@@ -75,6 +82,9 @@ export const api = {
   /** 先拉取并校验，通过后才写入 config.yaml；空字符串表示清除订阅。 */
   setSubscription: (url: string) => call<Status>("PUT", "/v1/subscription", { url }),
   saveOverlay: (content: string) => call<Status>("PUT", "/v1/overlay", { content }),
+  overlayItems: () => call<OverlayItems>("GET", "/v1/overlay/items"),
+  /** 按条目增删 overlay（保留文件中的注释），随后重新加载；失败时自动改回。 */
+  editOverlay: (op: "add" | "remove", entry: OverlayEntry) => call<Status>("POST", "/v1/overlay/items", { op, entry }),
   repair: () => call<{ steps: RepairStep[] }>("POST", "/v1/repair"),
 };
 

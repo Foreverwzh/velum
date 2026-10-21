@@ -1,17 +1,20 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { ArrowRightLeft, Check, CircleHelp, Globe2, ListTree, RefreshCw, Route, ScanSearch, Server, X } from "lucide-react";
+import { ArrowRightLeft, Check, CircleHelp, Globe2, ListPlus, ListTree, RefreshCw, Route, ScanSearch, Server, X } from "lucide-react";
 import { api, errText, human, srcText, type Connection, type Source, type WhyResponse } from "../api";
+import type { Refresh } from "../App";
+import { RuleDialog } from "../components/RuleDialog";
 import { Button, Chain, Empty, Notice, Panel, Section, Tag, chainSteps, cx } from "../components/ui";
 
 const examples = ["https://www.google.com/", "claude.ai", "github.com"];
 
 /** 诊断：逐步推演一个地址会怎么走（系统代理 → DNS → 规则 → 出站），并对照实际连接。 */
-export default function Diagnose({ initialTarget }: { initialTarget?: string }) {
+export default function Diagnose({ initialTarget, refresh }: { initialTarget?: string; refresh: Refresh }) {
   const [target, setTarget] = useState(initialTarget ?? "");
   const [res, setRes] = useState<WhyResponse>();
   const [live, setLive] = useState<Connection[]>([]);
   const [err, setErr] = useState<string>();
   const [busy, setBusy] = useState(false);
+  const [rule, setRule] = useState(false);
 
   const run = async (t = target) => {
     const v = t.trim();
@@ -62,6 +65,7 @@ export default function Diagnose({ initialTarget }: { initialTarget?: string }) 
                 <div className="flex items-center gap-2">
                   <h1 className="selectable truncate text-[18px] font-semibold tracking-[-0.015em]">{r.target.domain ?? r.target.ip}<span className="text-fg-3">:{r.target.port}</span></h1>
                   {r.decision.uncertain ? <Tag tone="warn">结论不确定</Tag> : <Tag tone="accent">结论确定</Tag>}
+                  <Button size="sm" className="ml-auto" icon={ListPlus} onClick={() => setRule(true)}>加入本地规则</Button>
                 </div>
                 <div className="mt-2">
                   <Chain steps={r.decision.action === "reject" ? [{ label: ruleText(r.decision.rule_index), kind: "rule" }, { label: "拦截", kind: "reject" }]
@@ -107,6 +111,7 @@ export default function Diagnose({ initialTarget }: { initialTarget?: string }) 
           )}
         </div>
       </div>
+      {rule && r && <RuleDialog initial={r.target.domain ?? r.target.ip} refresh={refresh} onSaved={() => void run()} onClose={() => setRule(false)} />}
     </div>
   );
 }

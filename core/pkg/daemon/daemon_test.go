@@ -10,6 +10,7 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -598,6 +599,33 @@ func TestDaemonSelectionOverlayRepair(t *testing.T) {
 		t.Fatal("校验失败时不应改动文件")
 	}
 	if _, err := c.SaveOverlay(doc.Content + "\n# edited\n"); err != nil {
+		t.Fatal(err)
+	}
+
+	// 按条目增删：生效到计划中，保留文件中的注释；非法条目被拒绝且不落盘
+	if _, err := c.EditOverlay("add", rpc.OverlayEntry{Kind: "domain", Value: "=added.example.org"}); err != nil {
+		t.Fatal(err)
+	}
+	items, err := c.OverlayItems()
+	if err != nil || !slices.ContainsFunc(items.Entries, func(e rpc.OverlayEntry) bool {
+		return e.Kind == "domain" && e.Value == "=added.example.org" && e.Line > 0
+	}) {
+		t.Fatalf("%v %+v", err, items)
+	}
+	if now, _ := os.ReadFile(paths.Overlay); !strings.Contains(string(now), "# edited") {
+		t.Fatalf("按条目编辑丢失了注释：\n%s", now)
+	}
+	if r, err := c.Why(rpc.WhyRequest{Target: "added.example.org", NoResolve: true}); err != nil || r.Report.Decision.Source.Kind != ir.SourceOverlay {
+		t.Fatalf("新增条目应立即生效：%v %+v", err, r)
+	}
+	before, _ := os.ReadFile(paths.Overlay)
+	if _, err := c.EditOverlay("add", rpc.OverlayEntry{Kind: "cidr", Value: "nope"}); err == nil {
+		t.Fatal("应拒绝非法网段")
+	}
+	if now, _ := os.ReadFile(paths.Overlay); string(now) != string(before) {
+		t.Fatal("拒绝时不应改动文件")
+	}
+	if _, err := c.EditOverlay("remove", rpc.OverlayEntry{Kind: "domain", Value: "=added.example.org"}); err != nil {
 		t.Fatal(err)
 	}
 

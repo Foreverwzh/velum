@@ -133,9 +133,9 @@ export default function App() {
           {
             overview: <Overview status={status} refresh={refresh} go={go} />,
             groups: <Groups status={status} refresh={refresh} focus={arg} />,
-            connections: <Connections go={go} initialQuery={arg} />,
-            diagnose: <Diagnose key={arg} initialTarget={arg} />,
-            overlay: <Overlay refresh={refresh} />,
+            connections: <Connections go={go} refresh={refresh} initialQuery={arg} />,
+            diagnose: <Diagnose key={arg} refresh={refresh} initialTarget={arg} />,
+            overlay: <Overlay status={status} refresh={refresh} />,
             warnings: <Warnings />,
             settings: <Settings status={status} refresh={refresh} />,
           }[page]

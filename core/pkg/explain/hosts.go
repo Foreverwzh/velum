@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -71,4 +72,41 @@ func parseHosts(f *os.File) map[string][]netip.Addr {
 		}
 	}
 	return m
+}
+
+// HostsEntry 是系统 hosts 文件中的一个域名及其地址。
+type HostsEntry struct {
+	Name  string   `json:"name"`
+	Addrs []string `json:"addrs"`
+}
+
+// SystemHostsEntries 列出系统 hosts 文件中的条目（不含 localhost 等系统默认项），最多 limit 个，按名称排序。
+var SystemHostsEntries = func(limit int) (entries []HostsEntry, total int) { return sysHosts.entries(limit) }
+
+func (c *hostsCache) entries(limit int) ([]HostsEntry, int) {
+	c.lookup("") // 按需重新读取
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	var names []string
+	for n := range c.byName {
+		switch n {
+		case "localhost", "broadcasthost", "ip6-localhost", "ip6-loopback", "localhost.localdomain":
+			continue
+		}
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	total := len(names)
+	if len(names) > limit {
+		names = names[:limit]
+	}
+	out := make([]HostsEntry, 0, len(names))
+	for _, n := range names {
+		e := HostsEntry{Name: n}
+		for _, a := range c.byName[n] {
+			e.Addrs = append(e.Addrs, a.String())
+		}
+		out = append(out, e)
+	}
+	return out, total
 }

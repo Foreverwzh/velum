@@ -686,6 +686,8 @@ func (d *Daemon) handler() (h http.Handler) {
 	mux.HandleFunc("POST /v1/groups/test", d.testGroup)
 	mux.HandleFunc("GET /v1/overlay", d.getOverlay)
 	mux.HandleFunc("PUT /v1/overlay", d.putOverlay)
+	mux.HandleFunc("GET /v1/overlay/items", d.getOverlayItems)
+	mux.HandleFunc("POST /v1/overlay/items", d.editOverlayItem)
 	mux.HandleFunc("GET /v1/subscription", func(w http.ResponseWriter, r *http.Request) {
 		cfg, err := config.Load(d.Paths)
 		if err != nil {
@@ -1287,14 +1289,87 @@ func (d *Daemon) putOverlay(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	old, _ := userfs.ReadFile(path)
-	if err := userfs.WriteFileAtomic(path, []byte(doc.Content), 0o600); err != nil {
+	if code, err := d.applyOverlay(r.Context(), path, old, []byte(doc.Content)); err != nil {
+		writeErr(w, code, err)
+		return
+	}
+	writeJSON(w, d.status())
+}
+
+// applyOverlay 写入新的 overlay 并重新加载；加载失败时改回 old。
+func (d *Daemon) applyOverlay(ctx context.Context, path string, old, data []byte) (int, error) {
+	if err := userfs.WriteFileAtomic(path, data, 0o600); err != nil {
+		return http.StatusInternalServerError, err
+	}
+	if err := d.Reload(ctx); err != nil {
+		_ = userfs.WriteFileAtomic(path, old, 0o600)
+		_ = d.Reload(ctx)
+		return http.StatusUnprocessableEntity, fmt.Errorf("应用失败，已改回原内容：%w", err)
+	}
+	return 0, nil
+}
+
+// getOverlayItems 返回结构化的 overlay 条目与系统 hosts 文件条目，供界面以列表编辑。
+func (d *Daemon) getOverlayItems(w http.ResponseWriter, r *http.Request) {
+	path, err := d.overlayPath()
+	if err != nil {
+		writeErr(w, http.StatusUnprocessableEntity, err)
+		return
+	}
+	ov, err := overlay.Load(path)
+	if err != nil {
+		writeErr(w, http.StatusUnprocessableEntity, err)
+		return
+	}
+	resp := rpc.OverlayItems{Path: path, Entries: []rpc.OverlayEntry{}}
+	for _, e := range ov.Entries() {
+		resp.Entries = append(resp.Entries, rpc.OverlayEntry(e))
+	}
+	resp.SystemHosts, resp.SystemHostsTotal = explain.SystemHostsEntries(200)
+	d.mu.RLock()
+	if st := d.st; st != nil {
+		resp.SystemHostsOff = st.plan.IR.DNS.NoSystemHosts
+	}
+	d.mu.RUnlock()
+	writeJSON(w, resp)
+}
+
+// editOverlayItem 添加或删除一个 overlay 条目（保留文件中的其余内容与注释），随后重新加载。
+func (d *Daemon) editOverlayItem(w http.ResponseWriter, r *http.Request) {
+	var req rpc.OverlayEdit
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	path, err := d.overlayPath()
+	if err != nil {
+		writeErr(w, http.StatusUnprocessableEntity, err)
+		return
+	}
+	old, err := userfs.ReadFile(path)
+	if err != nil && !os.IsNotExist(err) {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
-	if err := d.Reload(r.Context()); err != nil {
-		_ = userfs.WriteFileAtomic(path, old, 0o600)
-		_ = d.Reload(r.Context())
-		writeErr(w, http.StatusUnprocessableEntity, fmt.Errorf("应用失败，已改回原内容：%w", err))
+	e := overlay.Entry(req.Entry)
+	var data []byte
+	switch req.Op {
+	case "add":
+		data, _, err = overlay.Add(old, e)
+	case "remove":
+		data, err = overlay.Remove(old, e)
+	default:
+		err = fmt.Errorf("未知操作 %q", req.Op)
+	}
+	if err == nil {
+		_, err = overlay.Parse(data)
+	}
+	if err != nil {
+		writeErr(w, http.StatusUnprocessableEntity, err)
+		return
+	}
+	if code, err := d.applyOverlay(r.Context(), path, old, data); err != nil {
+		writeErr(w, code, err)
 		return
 	}
 	writeJSON(w, d.status())

@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
-import { ArrowLeftRight, Ban, Pause, Play, ScanSearch, TriangleAlert, X } from "lucide-react";
+import { ArrowLeftRight, Ban, ListPlus, Pause, Play, ScanSearch, TriangleAlert, X } from "lucide-react";
 import { api, human, srcText, subscribeConnections, type Connection } from "../api";
-import type { Go } from "../App";
+import type { Go, Refresh } from "../App";
+import { RuleDialog } from "../components/RuleDialog";
 import { Button, Chain, Empty, IconButton, KV, SearchInput, Tag, chainSteps, cx } from "../components/ui";
 
 /** 按规则拦截（REJECT 出站或 reject 动作），其报错是预期行为。 */
@@ -11,13 +12,14 @@ export function isRejected(c: Connection) {
 
 const ruleLabel = (c: Connection) => (c.rule_index >= 0 ? `#${c.rule_index}` : "final");
 
-export default function Connections({ go, initialQuery }: { go: Go; initialQuery?: string }) {
+export default function Connections({ go, refresh, initialQuery }: { go: Go; refresh: Refresh; initialQuery?: string }) {
   const [list, setList] = useState<Connection[]>([]);
   const [q, setQ] = useState(initialQuery ?? "");
   const [sel, setSel] = useState<Connection>();
   const [paused, setPaused] = useState(false);
   const [onlyErr, setOnlyErr] = useState(false);
   const [hideRej, setHideRej] = useState(false);
+  const [rule, setRule] = useState<Connection>();
 
   useEffect(() => {
     api.connections(300).then((r) => setList(r.connections ?? [])).catch(() => undefined);
@@ -134,11 +136,13 @@ export default function Connections({ go, initialQuery }: { go: Go; initialQuery
               )
             )}
           </div>
-          <div className="border-t border-line p-3">
-            <Button className="w-full" icon={ScanSearch} onClick={() => go("diagnose", sel.domain || sel.destination)}>诊断这个目标</Button>
+          <div className="flex gap-2 border-t border-line p-3">
+            <Button className="flex-1" icon={ListPlus} onClick={() => setRule(sel)}>加入本地规则</Button>
+            <Button className="flex-1" icon={ScanSearch} onClick={() => go("diagnose", sel.domain || sel.destination)}>诊断</Button>
           </div>
         </aside>
       )}
+      {rule && <RuleDialog initial={rule.domain || rule.destination} process={rule.process} refresh={refresh} onClose={() => setRule(undefined)} />}
     </div>
   );
 }

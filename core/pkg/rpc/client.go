@@ -117,6 +117,17 @@ func (c *Client) Overlay() (*OverlayDoc, error) {
 	return &d, c.do(http.MethodGet, "/v1/overlay", nil, &d)
 }
 
+func (c *Client) OverlayItems() (*OverlayItems, error) {
+	var d OverlayItems
+	return &d, c.do(http.MethodGet, "/v1/overlay/items", nil, &d)
+}
+
+// EditOverlay 添加（op = add）或删除（op = remove）一个 overlay 条目并重新加载。
+func (c *Client) EditOverlay(op string, e OverlayEntry) (*Status, error) {
+	var s Status
+	return &s, c.do(http.MethodPost, "/v1/overlay/items", OverlayEdit{Op: op, Entry: e}, &s)
+}
+
 func (c *Client) SaveOverlay(content string) (*Status, error) {
 	var s Status
 	return &s, c.do(http.MethodPut, "/v1/overlay", OverlayDoc{Content: content}, &s)

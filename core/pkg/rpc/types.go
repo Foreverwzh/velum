@@ -36,6 +36,31 @@ type OverlayDoc struct {
 	Content string `json:"content"`
 }
 
+// OverlayEntry 是 overlay 中的一个条目（kind：domain / cidr / host / process / bypass）。
+type OverlayEntry struct {
+	Kind  string `json:"kind"`
+	Value string `json:"value"`
+	IP    string `json:"ip,omitempty"` // kind == host
+	Line  int    `json:"line,omitempty"`
+}
+
+type HostsEntry = explain.HostsEntry
+
+// OverlayItems 是结构化的 overlay 条目，另附系统 hosts 文件中的条目（只读）。
+type OverlayItems struct {
+	Path             string         `json:"path"`
+	Entries          []OverlayEntry `json:"entries"`
+	SystemHosts      []HostsEntry   `json:"system_hosts"`
+	SystemHostsTotal int            `json:"system_hosts_total"`
+	SystemHostsOff   bool           `json:"system_hosts_off,omitempty"` // 订阅写了 use-system-hosts: false
+}
+
+// OverlayEdit 添加或删除一个 overlay 条目（op：add / remove）。
+type OverlayEdit struct {
+	Op    string       `json:"op"`
+	Entry OverlayEntry `json:"entry"`
+}
+
 type RepairStep struct {
 	Name   string `json:"name"`
 	OK     bool   `json:"ok"`
