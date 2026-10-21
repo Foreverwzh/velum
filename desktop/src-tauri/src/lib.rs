@@ -13,20 +13,14 @@ use tauri::{tray::TrayIconBuilder, AppHandle, Emitter, Manager, WindowEvent};
 
 /// 前端统一入口：转发到 velumd 本地接口。
 #[tauri::command]
-async fn velum_call(
-    method: String,
-    path: String,
-    body: Option<String>,
-) -> Result<serde_json::Value, String> {
+async fn velum_call(method: String, path: String, body: Option<String>) -> Result<serde_json::Value, String> {
     tauri::async_runtime::spawn_blocking(move || velum::call(&method, &path, body.as_deref()))
         .await
         .map_err(|e| e.to_string())?
 }
 
 async fn blocking<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> Result<T, String> {
-    tauri::async_runtime::spawn_blocking(f)
-        .await
-        .map_err(|e| e.to_string())
+    tauri::async_runtime::spawn_blocking(f).await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -86,9 +80,7 @@ pub(crate) fn summary(s: &serde_json::Value) -> String {
     if on("tun_on") {
         parts.push("TUN");
     }
-    let paused = s["network"]["paused"].as_str().filter(|_| {
-        (on("want_system_proxy") && !on("system_proxy_on")) || (on("want_tun") && !on("tun_on"))
-    });
+    let paused = s["network"]["paused"].as_str().filter(|_| (on("want_system_proxy") && !on("system_proxy_on")) || (on("want_tun") && !on("tun_on")));
     match (parts.is_empty(), paused) {
         (_, Some(p)) if parts.is_empty() => format!("已暂停：{p}"),
         (false, Some(_)) => format!("正在保护（{}，部分已暂停）", parts.join(" + ")),
@@ -116,17 +108,7 @@ pub(crate) fn show_main(app: &AppHandle) {
 
 pub fn run() {
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![
-            velum_call,
-            helper_install,
-            helper_uninstall,
-            helper_status,
-            cli_status,
-            cli_install,
-            cli_uninstall,
-            autostart_get,
-            autostart_set
-        ])
+        .invoke_handler(tauri::generate_handler![velum_call, helper_install, helper_uninstall, helper_status, cli_status, cli_install, cli_uninstall, autostart_get, autostart_set])
         .setup(|app| {
             let handle = app.handle().clone();
             // 开机启动（--hidden）时只在托盘运行，不弹出窗口

@@ -21,16 +21,12 @@ fn sh_quote(s: &str) -> String {
 }
 
 fn xml_escape(s: &str) -> String {
-    s.replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
+    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
 }
 
 fn current_uid() -> Result<u32, String> {
     let home = std::env::var("HOME").map_err(|e| e.to_string())?;
-    std::fs::metadata(&home)
-        .map(|m| m.uid())
-        .map_err(|e| format!("无法确定当前用户：{e}"))
+    std::fs::metadata(&home).map(|m| m.uid()).map_err(|e| format!("无法确定当前用户：{e}"))
 }
 
 /// 以管理员身份执行脚本（系统会弹出密码框）。
@@ -99,10 +95,7 @@ done
         src = sh_quote(&src.to_string_lossy()),
         plist = plist, // 内容全为常量与数字 uid，无外部输入
     );
-    run_admin(
-        &script,
-        "Velum 要安装 TUN 组件（velum-helper），用于创建虚拟网卡和设置路由。",
-    )
+    run_admin(&script, "Velum 要安装 TUN 组件（velum-helper），用于创建虚拟网卡和设置路由。")
 }
 
 pub fn helper_uninstall() -> Result<(), String> {
@@ -136,10 +129,7 @@ pub fn cli_status() -> serde_json::Value {
 /// 在 /usr/local/bin（macOS 默认 PATH 中）创建 vlu 的符号链接；该目录归 root 所有，需要管理员权限。
 pub fn cli_install() -> Result<(), String> {
     let src = velum::bin_path("vlu").ok_or("找不到内置的 vlu")?;
-    let script = format!(
-        "mkdir -p /usr/local/bin && ln -sfn {} {CLI_LINK}",
-        sh_quote(&src.to_string_lossy())
-    );
+    let script = format!("mkdir -p /usr/local/bin && ln -sfn {} {CLI_LINK}", sh_quote(&src.to_string_lossy()));
     run_admin(&script, "Velum 要把命令行工具 vlu 安装到 /usr/local/bin。")
 }
 
@@ -153,9 +143,7 @@ pub fn cli_uninstall() -> Result<(), String> {
 
 fn agent_plist() -> Result<PathBuf, String> {
     let home = std::env::var("HOME").map_err(|e| e.to_string())?;
-    Ok(PathBuf::from(home)
-        .join("Library/LaunchAgents")
-        .join(format!("{AGENT_LABEL}.plist")))
+    Ok(PathBuf::from(home).join("Library/LaunchAgents").join(format!("{AGENT_LABEL}.plist")))
 }
 
 pub fn autostart_get() -> bool {
@@ -199,10 +187,7 @@ mod tests {
 
     #[test]
     fn quote() {
-        assert_eq!(
-            sh_quote("/Applications/Velum.app/x"),
-            "'/Applications/Velum.app/x'"
-        );
+        assert_eq!(sh_quote("/Applications/Velum.app/x"), "'/Applications/Velum.app/x'");
         assert_eq!(sh_quote("a'b"), "'a'\\''b'");
         assert_eq!(xml_escape("a&<b>"), "a&amp;&lt;b&gt;");
     }

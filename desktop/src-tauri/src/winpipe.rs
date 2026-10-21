@@ -9,13 +9,10 @@ use std::os::windows::io::AsRawHandle;
 use std::ptr::null_mut;
 
 use windows_sys::Win32::Foundation::{CloseHandle, LocalFree, HANDLE};
-use windows_sys::Win32::Security::Authorization::{
-    ConvertSidToStringSidW, GetSecurityInfo, SE_KERNEL_OBJECT,
-};
+use windows_sys::Win32::Security::Authorization::{ConvertSidToStringSidW, GetSecurityInfo, SE_KERNEL_OBJECT};
 use windows_sys::Win32::Security::{
-    EqualSid, GetTokenInformation, IsWellKnownSid, TokenUser, WinBuiltinAdministratorsSid,
-    WinLocalSystemSid, OWNER_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR, PSID, TOKEN_QUERY,
-    TOKEN_USER,
+    EqualSid, GetTokenInformation, IsWellKnownSid, TokenUser, WinBuiltinAdministratorsSid, WinLocalSystemSid, OWNER_SECURITY_INFORMATION,
+    PSECURITY_DESCRIPTOR, PSID, TOKEN_QUERY, TOKEN_USER,
 };
 use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
 use windows_sys::Win32::System::IO::CancelIoEx;
@@ -39,13 +36,7 @@ fn current_user() -> Result<Vec<u64>, String> {
         let mut len = 0u32;
         GetTokenInformation(tok, TokenUser, null_mut(), 0, &mut len);
         let mut buf = vec![0u64; (len as usize).div_ceil(8)];
-        let ok = GetTokenInformation(
-            tok,
-            TokenUser,
-            buf.as_mut_ptr().cast::<c_void>(),
-            len,
-            &mut len,
-        );
+        let ok = GetTokenInformation(tok, TokenUser, buf.as_mut_ptr().cast::<c_void>(), len, &mut len);
         let err = std::io::Error::last_os_error();
         CloseHandle(tok);
         if ok == 0 {
@@ -83,24 +74,13 @@ pub fn verify(f: &File) -> Result<(), String> {
     unsafe {
         let mut owner: PSID = null_mut();
         let mut sd: PSECURITY_DESCRIPTOR = null_mut();
-        let rc = GetSecurityInfo(
-            f.as_raw_handle() as HANDLE,
-            SE_KERNEL_OBJECT,
-            OWNER_SECURITY_INFORMATION,
-            &mut owner,
-            null_mut(),
-            null_mut(),
-            null_mut(),
-            &mut sd,
-        );
+        let rc = GetSecurityInfo(f.as_raw_handle() as HANDLE, SE_KERNEL_OBJECT, OWNER_SECURITY_INFORMATION, &mut owner, null_mut(), null_mut(), null_mut(), &mut sd);
         if rc != 0 {
             return Err(format!("读取 Pipe 所有者失败（{rc}）"));
         }
         let trusted = IsWellKnownSid(owner, WinLocalSystemSid) != 0
             || IsWellKnownSid(owner, WinBuiltinAdministratorsSid) != 0
-            || user
-                .as_ref()
-                .is_some_and(|u| EqualSid(owner, sid_of(u)) != 0);
+            || user.as_ref().is_some_and(|u| EqualSid(owner, sid_of(u)) != 0);
         LocalFree(sd);
         if trusted {
             Ok(())
