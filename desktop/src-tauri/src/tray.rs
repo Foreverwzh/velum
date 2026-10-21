@@ -1,4 +1,4 @@
-//! 托盘菜单（参考 Stash 的菜单栏布局）：状态、策略组（切换节点 / 延迟测试）、开关与常用操作。
+//! 托盘菜单（参考 Stash 的菜单栏布局）：状态、策略组（切换节点 / 延迟测试）、活跃客户端、开关与常用操作。
 //!
 //! 菜单随 velumd 状态刷新：策略组结构（组、类型、成员）变化时整体重建，否则只更新有变化的勾选与文字，
 //! 菜单打开时也不会闪动。
@@ -29,6 +29,11 @@ struct Items {
     tun: Option<CheckMenuItem<Wry>>,
     autostart: Option<CheckMenuItem<Wry>>,
     groups: HashMap<String, Submenu<Wry>>,
+    menu: Option<Menu<Wry>>,
+    /// 活跃客户端分区：标题、各行、分隔线；没有客户端时整个分区不显示
+    client_head: Option<MenuItem<Wry>>,
+    client_rows: Vec<MenuItem<Wry>>,
+    client_sep: Option<PredefinedMenuItem<Wry>>,
     members: HashMap<String, CheckMenuItem<Wry>>, // id = 组 SEP 成员
     /// 上次写入的文字与勾选，只在变化时更新
     last: HashMap<String, (String, bool)>,
@@ -204,6 +209,7 @@ fn build(app: &AppHandle, groups: &[Value]) -> tauri::Result<(Menu<Wry>, Items)>
         menu.append(it)?;
     }
 
+    items.menu = Some(menu.clone());
     items.status = Some(status);
     items.traffic = Some(traffic);
     items.speed_title = Some(speed_title);
@@ -346,20 +352,127 @@ fn rate(b: i64) -> String {
     }
 }
 
-/// 菜单栏中的紧凑形式：1.2M、30K。
-fn rate_short(b: i64) -> String {
-    let b = b.max(0) as f64;
-    if b >= 1024.0 * 1024.0 {
-        format!("{:.1}M", b / 1024.0 / 1024.0)
-    } else if b >= 1024.0 {
-        format!("{:.0}K", b / 1024.0)
-    } else {
-        format!("{b:.0}B")
-    }
+/// 菜单中最多列出的活跃客户端数。
+const MAX_CLIENTS: usize = 6;
+
+/// 每条进行中连接上次看到的累计字节数；None 表示还没有采样过（首次采样不计速率）。
+static SEEN: Mutex<Option<HashMap<u64, i64>>> = Mutex::new(None);
+
+/// 进程路径 → (显示名, 图标所取的文件)。
+static LABELS: LazyLock<Mutex<HashMap<String, (String, String)>>> = LazyLock::new(Default::default);
+
+/// 客户端的显示名与图标：macOS 取所在 .app 的本地化名称（最内层，如 Chrome 的各个 Helper），
+/// 图标取最外层 .app；其他情况取可执行文件名。
+fn label(path: &str) -> (String, String) {
+    LABELS
+        .lock()
+        .unwrap()
+        .entry(path.to_string())
+        .or_insert_with(|| {
+            let bundles: Vec<&str> = path.match_indices(".app/").map(|(i, _)| &path[..i + 4]).collect();
+            let file = path.rsplit(['/', '\\']).next().unwrap_or(path);
+            let name = match bundles.last() {
+                #[cfg(target_os = "macos")]
+                Some(app) => {
+                    let n = crate::menu_tabs::display_name(app);
+                    n.strip_suffix(".app").map(str::to_string).unwrap_or(n)
+                }
+                _ => file.strip_suffix(".exe").unwrap_or(file).to_string(),
+            };
+            (name, bundles.first().copied().unwrap_or(path).to_string())
+        })
+        .clone()
 }
 
-/// 按 /v1/traffic 更新菜单中的实时流量行与菜单栏网速；traffic 为 None 表示未连上。
-pub fn traffic(app: &AppHandle, t: Option<&Value>) {
+/// 按进行中的连接算出各客户端（进程）在上一秒的速率，按速率、连接数排序。
+fn clients(conns: &[Value]) -> Vec<(String, String, i64)> {
+    let mut seen = SEEN.lock().unwrap();
+    let first = seen.is_none();
+    let prev = seen.take().unwrap_or_default();
+    let mut next = HashMap::new();
+    let mut by: HashMap<String, (String, i64, usize)> = HashMap::new();
+    for c in conns {
+        let Some(path) = c["process"].as_str().filter(|p| !p.is_empty()) else {
+            continue;
+        };
+        let id = c["id"].as_u64().unwrap_or(0);
+        let total = c["upload"].as_i64().unwrap_or(0) + c["download"].as_i64().unwrap_or(0);
+        let delta = if first { 0 } else { total - prev.get(&id).copied().unwrap_or(0) };
+        next.insert(id, total);
+        let (name, icon) = label(path);
+        let e = by.entry(name).or_insert((icon, 0, 0));
+        e.1 += delta.max(0);
+        e.2 += 1;
+    }
+    *seen = Some(next);
+    let mut out: Vec<_> = by.into_iter().collect();
+    out.sort_by(|a, b| (b.1 .1, b.1 .2).cmp(&(a.1 .1, a.1 .2)).then_with(|| a.0.cmp(&b.0)));
+    out.into_iter()
+        .take(MAX_CLIENTS)
+        .map(|(name, (icon, rate, _))| (name, icon, rate))
+        .collect()
+}
+
+/// 更新活跃客户端分区（位于策略组与开关之间）；行数变化时重建分区，否则只改文字。
+fn set_clients(app: &AppHandle, rows: &[(String, String, i64)]) -> bool {
+    let mut it = ITEMS.lock().unwrap();
+    let Some(menu) = it.menu.clone() else {
+        return false;
+    };
+    let mut changed = false;
+    if rows.len() != it.client_rows.len() {
+        if let Some(h) = it.client_head.take() {
+            let _ = menu.remove(&h);
+        }
+        for r in std::mem::take(&mut it.client_rows) {
+            let _ = menu.remove(&r);
+        }
+        if let Some(sep) = it.client_sep.take() {
+            let _ = menu.remove(&sep);
+        }
+        it.last.retain(|k, _| !k.starts_with("client"));
+        let pos = menu
+            .items()
+            .ok()
+            .and_then(|v| v.iter().position(|i| i.id() == "sysproxy"));
+        if let (false, Some(pos)) = (rows.is_empty(), pos) {
+            let (Ok(head), Ok(sep)) = (
+                MenuItem::with_id(app, "clients", "活跃客户端", false, None::<&str>),
+                PredefinedMenuItem::separator(app),
+            ) else {
+                return false;
+            };
+            let _ = menu.insert(&head, pos);
+            for i in 0..rows.len() {
+                if let Ok(row) = MenuItem::with_id(app, format!("client{SEP}{i}"), "", true, None::<&str>) {
+                    let _ = menu.insert(&row, pos + 1 + it.client_rows.len());
+                    it.client_rows.push(row);
+                }
+            }
+            let _ = menu.insert(&sep, pos + 1 + it.client_rows.len());
+            it.client_head = Some(head);
+            it.client_sep = Some(sep);
+        }
+        changed = true;
+    }
+    let Items { client_rows, last, .. } = &mut *it;
+    for (i, ((name, icon, rate_), row)) in rows.iter().zip(client_rows.iter()).enumerate() {
+        let text = format!("{name}\t{}", rate(*rate_));
+        let key = format!("client{i}");
+        if last.get(&key) != Some(&(text.clone(), false)) {
+            #[cfg(target_os = "macos")]
+            crate::menu_tabs::set_icon(name, icon);
+            let _ = icon;
+            let _ = row.set_text(&text);
+            last.insert(key, (text, false));
+            changed = true;
+        }
+    }
+    changed
+}
+
+/// 按 /v1/traffic 与进行中的连接更新实时流量行、活跃客户端与菜单栏网速；traffic 为 None 表示未连上。
+pub fn traffic(app: &AppHandle, t: Option<&Value>, conns: &[Value]) {
     let (up, down) = t
         .map(|t| (t["up_rate"].as_i64().unwrap_or(0), t["down_rate"].as_i64().unwrap_or(0)))
         .unwrap_or((0, 0));
@@ -367,7 +480,7 @@ pub fn traffic(app: &AppHandle, t: Option<&Value>) {
         Some(_) => format!("实时流量\t↓ {}   ↑ {}", rate(down), rate(up)),
         None => "实时流量\t—".to_string(),
     };
-    let changed = {
+    let mut changed = {
         let mut it = ITEMS.lock().unwrap();
         let Items { traffic, last, .. } = &mut *it;
         match traffic {
@@ -379,15 +492,14 @@ pub fn traffic(app: &AppHandle, t: Option<&Value>) {
             _ => false,
         }
     };
+    changed |= set_clients(app, &clients(conns));
     if changed {
         #[cfg(target_os = "macos")]
         crate::menu_tabs::reformat(app);
     }
+    #[cfg(target_os = "macos")]
     if SPEED_TITLE.load(Ordering::Relaxed) {
-        if let Some(tray) = app.tray_by_id("main") {
-            let title = t.map(|_| format!("↓{} ↑{}", rate_short(down), rate_short(up)));
-            let _ = tray.set_title(title.as_deref());
-        }
+        crate::menu_tabs::speed_title(app, t.map(|_| (rate(up), rate(down))));
     }
 }
 
@@ -417,7 +529,7 @@ pub fn handle(app: &AppHandle, id: &str) {
             let body = serde_json::json!({ "group": group }).to_string();
             let _ = velum::call("POST", "/v1/groups/test", Some(&body));
         }
-        (Some("open"), ..) => crate::show_main(app),
+        (Some("open" | "client"), ..) => crate::show_main(app),
         (Some("sysproxy"), ..) => toggle("system_proxy"),
         (Some("tun"), ..) => toggle("tun"),
         (Some("autostart"), ..) => {
@@ -434,10 +546,9 @@ pub fn handle(app: &AppHandle, id: &str) {
             if let Some(item) = &ITEMS.lock().unwrap().speed_title {
                 let _ = item.set_checked(on);
             }
+            #[cfg(target_os = "macos")]
             if !on {
-                if let Some(t) = app.tray_by_id("main") {
-                    let _ = t.set_title(None::<&str>);
-                }
+                crate::menu_tabs::speed_title(app, None);
             }
         }
         (Some("reload"), ..) => {
@@ -512,4 +623,37 @@ fn set_clipboard(text: &str) -> std::io::Result<()> {
         .write_all(text.as_bytes())?;
     child.wait()?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn client_label() {
+        assert_eq!(label("/usr/bin/curl"), ("curl".into(), "/usr/bin/curl".into()));
+        let helper = "/Applications/Velum Test.app/Contents/Frameworks/Helpers/Velum Test Helper.app/Contents/MacOS/Velum Test Helper";
+        let (name, icon) = label(helper);
+        assert_eq!(icon, "/Applications/Velum Test.app");
+        assert_eq!(name, "Velum Test Helper");
+        assert_eq!(label(r"C:\Program Files\App\app.exe").0, "app");
+    }
+
+    #[test]
+    fn client_rates() {
+        let conn = |id: u64, p: &str, up: i64, down: i64| json!({"id": id, "process": p, "upload": up, "download": down});
+        // 首次采样只记录基线
+        let rows = clients(&[conn(1, "/usr/bin/a", 10, 100), conn(2, "/usr/bin/b", 0, 50)]);
+        assert!(rows.iter().all(|r| r.2 == 0));
+        // 之后按差值计：a 的两条连接合并，新连接按全部字节计，没有进程的连接忽略
+        let rows = clients(&[
+            conn(1, "/usr/bin/a", 10, 300),
+            conn(3, "/usr/bin/a", 0, 100),
+            conn(2, "/usr/bin/b", 0, 1050),
+            json!({"id": 4, "upload": 0, "download": 9999}),
+        ]);
+        let got: Vec<_> = rows.iter().map(|r| (r.0.as_str(), r.2)).collect();
+        assert_eq!(got, [("b", 1000), ("a", 300)]);
+    }
 }
