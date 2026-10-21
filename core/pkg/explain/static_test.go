@@ -173,3 +173,23 @@ func TestWhyWithLoadedRuleSetsAndResolution(t *testing.T) {
 		t.Fatalf("解析到非 CN 地址应确定未命中：%+v", r.Decision)
 	}
 }
+
+// 只写在系统 hosts 文件里的本地开发域名：DNS 一步显示按 hosts 文件应答，不送往上游。
+func TestWhySystemHosts(t *testing.T) {
+	old := explain.SystemHosts
+	t.Cleanup(func() { explain.SystemHosts = old })
+	explain.SystemHosts = func(d string) []netip.Addr {
+		if d == "dev-gateway.corp.example.net" {
+			return []netip.Addr{netip.MustParseAddr("127.0.0.1")}
+		}
+		return nil
+	}
+	p := plan(t, compiler.ModeSysProxy)
+	r := why(t, p, "https://dev-gateway.corp.example.net:8101/")
+	if len(r.DNS.Answer) != 1 || r.DNS.Answer[0] != "127.0.0.1" || r.DNS.Source == nil || r.DNS.Source.Text != "系统 hosts 文件" {
+		t.Fatalf("%+v", r.DNS)
+	}
+	if r := why(t, p, "https://other.corp.example.net/"); len(r.DNS.Answer) != 0 {
+		t.Fatalf("hosts 文件里没有的域名不应命中：%+v", r.DNS)
+	}
+}

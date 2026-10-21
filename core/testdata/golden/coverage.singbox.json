@@ -22,6 +22,13 @@
       },
       {
         "action": "route",
+        "preferred_by": [
+          "velum-hosts"
+        ],
+        "server": "velum-hosts"
+      },
+      {
+        "action": "route",
         "domain_suffix": [
           "corp.example.com"
         ],
@@ -127,6 +134,10 @@
       {
         "tag": "velum-local",
         "type": "local"
+      },
+      {
+        "tag": "velum-hosts",
+        "type": "hosts"
       }
     ]
   },

@@ -431,6 +431,10 @@ func renderDNS(d *ir.DNS) (obj, error) {
 		o := obj{"tag": s.Tag, "type": s.Type}
 		switch s.Type {
 		case "local", "dhcp":
+		case "hosts":
+			if s.Path != "" {
+				o["path"] = []string{s.Path} // 默认为系统 hosts 文件
+			}
 		case "race":
 			o["type"], o["servers"] = race.Type, s.Members
 		case "udp", "tcp", "tls", "https", "quic", "h3":
@@ -464,6 +468,9 @@ func renderDNS(d *ir.DNS) (obj, error) {
 		o := MatchJSON(r.Match)
 		if len(r.QueryType) > 0 {
 			o["query_type"] = r.QueryType
+		}
+		if r.PreferredBy != "" {
+			o["preferred_by"] = []string{r.PreferredBy}
 		}
 		if len(r.Answer) > 0 {
 			o["action"] = "predefined"

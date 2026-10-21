@@ -194,11 +194,13 @@ type DNS struct {
 	FakeIP   *FakeIP
 	// OutboundResolver 用于解析节点服务器域名（对应 Clash proxy-server-nameserver）。
 	OutboundResolver string
+	// NoSystemHosts 表示订阅显式写了 use-system-hosts: false：不查系统 hosts 文件（mihomo 默认先查）。
+	NoSystemHosts bool
 }
 
 type DNSServer struct {
 	Tag     string
-	Type    string // local / udp / tcp / tls / https / quic / h3 / dhcp / fakeip / race
+	Type    string // local / udp / tcp / tls / https / quic / h3 / dhcp / fakeip / race / hosts
 	Address string
 	// Members 是 race 类型的上游（其他 DNSServer 的 Tag）：并发查询，取最先成功的应答（mihomo 多个 nameserver 的语义）。
 	Members  []string
@@ -217,7 +219,9 @@ type DNSRule struct {
 	Server    string
 	// Answer 非空时直接应答（hosts 覆盖），不再查询上游。
 	Answer []string
-	Source Source
+	// PreferredBy 非空时只匹配该 DNS 服务器（hosts 类型）有记录的域名，与 Match 同时满足才命中。
+	PreferredBy string
+	Source      Source
 }
 
 type FakeIP struct{ Inet4Range, Inet6Range string }

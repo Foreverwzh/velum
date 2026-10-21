@@ -26,6 +26,9 @@ const (
 // LocalDNS 是编译器注入的系统 DNS 服务器标签。
 const LocalDNS = "velum-local"
 
+// SystemHostsDNS 是读取系统 hosts 文件（/etc/hosts 等）的 DNS 服务器标签。
+const SystemHostsDNS = "velum-hosts"
+
 type Options struct {
 	Mode        string
 	SystemProxy bool           // 接管系统代理（可与 TUN 同时开启）
@@ -196,6 +199,13 @@ func Compile(sub *ir.Config, ov *overlay.Overlay, opts Options) (*Plan, error) {
 		}
 		cfg.DNS.Rules = append(cfg.DNS.Rules, ir.DNSRule{Match: ir.Leaf(ir.Cond{Domain: []string{h.Domain}}),
 			Answer: []string{fmt.Sprintf("%s. IN %s %s", h.Domain, rr, h.IP)}, Source: src})
+	}
+	if !cfg.DNS.NoSystemHosts {
+		// 系统 hosts 文件里有记录的域名按文件应答（Clash use-system-hosts，mihomo 默认开启），排在 Overlay hosts 之后、
+		// 其他 DNS 规则之前：否则只写在 hosts 里的本地开发域名会被送到上游（如 VPN 作用域 DNS）而解析失败。文件修改后自动生效。
+		src := velum("系统 hosts 文件")
+		cfg.DNS.Servers = append(cfg.DNS.Servers, ir.DNSServer{Tag: SystemHostsDNS, Type: "hosts", Source: src})
+		cfg.DNS.Rules = append(cfg.DNS.Rules, ir.DNSRule{PreferredBy: SystemHostsDNS, Server: SystemHostsDNS, Source: src})
 	}
 	for _, d := range ov.Domains {
 		name, kind := overlay.ParseDomain(d.Value)

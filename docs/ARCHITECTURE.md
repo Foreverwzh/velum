@@ -306,7 +306,8 @@ type PlatformHooks interface {
 
 - **规则集分发**：GeoIP / GeoSite 规则集与 rule-providers 都由 Velum 自行下载（遵循 HTTPS_PROXY，带缓存，失败回落缓存；provider 的 `path` 作为最后回落），以本地文件交给内核。原因：sing-box 远程规则集首次下载失败会导致整个引擎无法启动（M1 实测）。无缓存且下载失败时，该规则集降级为空集并告警。下载地址可在配置中替换为镜像。
 - **策略组私有字段**：Stash 的 `ssid-policy`（按 Wi-Fi 切换）由 NetworkSense 场景触发器在运行时调用 selector 实现。
-- **DNS 降级项**：多个 nameserver 并发竞速 → 只取首个；`respect-rules` 和 `use-system-hosts` 由 Velum DNSPlan 实现。
+- **DNS 降级项**：多个 nameserver 并发竞速 → 只取首个；`respect-rules` 由 Velum DNSPlan 实现。
+- **系统 hosts**：与 mihomo 一致默认读取系统 hosts 文件（`use-system-hosts: false` 时关闭）。编译器注入 sing-box 的 `hosts` DNS 服务器和一条 `preferred_by` 规则，只应答文件里有记录的域名，排在 Overlay hosts 之后、其他 DNS 规则之前；文件修改后自动生效。`vlu why` 的 DNS 一步显示「系统 hosts 文件」。
 - **验证方式**：用真实订阅（脱敏，不入库）和覆盖型合成样本（`spikes/m0-subconv/testdata/coverage`）做 golden snapshot 测试，并对产物执行 `box.New` 校验。另外用 Clash 语义参考匹配器生成正例 / 反例，与 sing-box 匹配器逐条比对，覆盖规则集和内联 AND / OR / NOT。方法见 `spikes/m0-subconv`。
 
 ### 4.2 Overlay 多层一致性编译器（终结开发域名断网）

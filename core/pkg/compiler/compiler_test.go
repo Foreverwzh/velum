@@ -629,3 +629,29 @@ func TestIPv6DisabledRejectsInTUN(t *testing.T) {
 		t.Fatal("未写 ipv6 时不应拒绝（mihomo 默认开启 IPv6）")
 	}
 }
+
+// 系统 hosts 文件默认生效（mihomo use-system-hosts 默认开启），排在 Overlay hosts 之后、其他 DNS 规则之前。
+func TestSystemHosts(t *testing.T) {
+	p := compile(t, compiler.ModeSysProxy, "darwin")
+	i := slices.IndexFunc(p.IR.DNS.Rules, func(r ir.DNSRule) bool { return r.PreferredBy == compiler.SystemHostsDNS })
+	if i != 1 || p.IR.DNS.Rules[0].Answer == nil || p.IR.DNS.Rules[i].Server != compiler.SystemHostsDNS {
+		t.Fatalf("系统 hosts 规则应紧跟 Overlay hosts：位置 %d，%+v", i, p.IR.DNS.Rules)
+	}
+	if !slices.ContainsFunc(p.IR.DNS.Servers, func(s ir.DNSServer) bool { return s.Tag == compiler.SystemHostsDNS && s.Type == "hosts" }) {
+		t.Fatal("缺少系统 hosts DNS 服务器")
+	}
+
+	s, err := subscription.Parse([]byte("dns:\n  use-system-hosts: false\n"), subscription.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err = compiler.Compile(s, nil, compiler.Options{Listen: netip.MustParseAddrPort("127.0.0.1:7899")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range p.IR.DNS.Rules {
+		if r.PreferredBy != "" {
+			t.Fatalf("use-system-hosts: false 时不应查系统 hosts：%+v", r)
+		}
+	}
+}

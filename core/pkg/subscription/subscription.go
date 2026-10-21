@@ -721,8 +721,8 @@ func (c *converter) dns(node *yaml.Node) {
 			}
 		}
 	}
-	if b, _ := boolv(d, "use-system-hosts"); b {
-		c.warn("dns", "use-system-hosts", ir.Degraded, "系统 hosts 由 Velum DNSPlan（Overlay hosts）统一处理", "", field("use-system-hosts"))
+	if b, ok := boolv(d, "use-system-hosts"); ok && !b {
+		D.NoSystemHosts = true
 	}
 	if b, ok := boolv(d, "ipv6"); ok && !b {
 		D.Strategy = "ipv4_only"

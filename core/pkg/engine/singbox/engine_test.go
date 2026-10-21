@@ -3,6 +3,7 @@ package singbox_test
 import (
 	"bytes"
 	"context"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -171,6 +172,51 @@ func TestDirectDomainResolvesThroughDNSRules(t *testing.T) {
 	}
 	if plan.IR.Rules[cs[0].RuleIndex].Source.Text != "DOMAIN-SUFFIX,dev.test,DIRECT" {
 		t.Fatalf("RuleIndex 应为 IR 下标：%d", cs[0].RuleIndex)
+	}
+}
+
+// 只写在 hosts 文件里的域名经 DIRECT 访问时按文件解析，不送往上游（上游是本机没有监听的端口，必然失败）。
+func TestDirectDomainResolvesThroughHostsFile(t *testing.T) {
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte("ok")) }))
+	defer target.Close()
+	_, port, _ := net.SplitHostPort(strings.TrimPrefix(target.URL, "http://"))
+	hostsFile := filepath.Join(t.TempDir(), "hosts")
+	if err := os.WriteFile(hostsFile, []byte("# dev\n127.0.0.1 gateway.hosts.test\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	sub, _ := subscription.Parse([]byte("rules:\n  - DOMAIN-SUFFIX,hosts.test,DIRECT\n  - MATCH,REJECT\n"), subscription.Options{})
+	listen := freePort(t)
+	plan, err := compiler.Compile(sub, nil, compiler.Options{Mode: compiler.ModeProxy, Listen: listen})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range plan.IR.DNS.Servers {
+		if plan.IR.DNS.Servers[i].Tag == compiler.SystemHostsDNS {
+			plan.IR.DNS.Servers[i].Path = hostsFile
+		}
+	}
+	plan.IR.DNS.Servers = append(plan.IR.DNS.Servers, ir.DNSServer{Tag: "dead", Type: "udp", Address: "127.0.0.1", Port: 1})
+	plan.IR.DNS.Final = "dead"
+	r, err := render.Render(plan, render.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	eng := singbox.New(singbox.Options{})
+	if err := eng.Start(context.Background(), engine.Config{JSON: r.JSON, RuleSources: r.RuleSources, RuleIndex: r.RuleIndex}); err != nil {
+		t.Fatal(err)
+	}
+	defer eng.Stop()
+	proxyURL, _ := url.Parse("http://" + listen.String())
+	client := &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(proxyURL)}, Timeout: 5 * time.Second}
+	resp, err := client.Get("http://gateway.hosts.test:" + port + "/")
+	if err != nil {
+		t.Fatalf("经 hosts 文件解析失败：%v", err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if string(body) != "ok" {
+		t.Fatalf("经 hosts 文件解析失败：%s %q", resp.Status, body)
 	}
 }
 

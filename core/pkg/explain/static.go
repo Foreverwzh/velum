@@ -157,10 +157,19 @@ func WhyWith(p *compiler.Plan, t Target, loaded map[string][]ir.Cond) Report {
 		r.DNS.Applicable = true
 		m := Meta{Domain: t.Domain}
 		for _, dr := range p.IR.DNS.Rules {
+			var inHosts []netip.Addr
+			if dr.PreferredBy != "" {
+				// 编译器只为系统 hosts 文件生成 PreferredBy 规则
+				if inHosts = SystemHosts(t.Domain); len(inHosts) == 0 {
+					continue
+				}
+			}
 			if res := EvalMatch(dr.Match, m, sets); res.Matched {
 				src := dr.Source
 				r.DNS.Source = &src
-				if len(dr.Answer) > 0 {
+				if len(inHosts) > 0 {
+					r.DNS.Answer = []string{joinAddrs(inHosts)}
+				} else if len(dr.Answer) > 0 {
 					r.DNS.Answer = dr.Answer
 				} else {
 					r.DNS.Server = dr.Server
