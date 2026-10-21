@@ -146,6 +146,8 @@ func Render(p *compiler.Plan, opts Options) (*Rendered, error) {
 	}
 	// Android：VpnService 已排除 Velum 自身，出站连接自然走物理网络；且 Android 11+ 不允许应用使用 netlink 监听网卡，不能开启
 	route := obj{"rules": rules, "auto_detect_interface": p.Options.Mode == compiler.ModeTUN && p.Options.Platform != "android"}
+	// 总是查找连接所属进程：连接记录与托盘的活跃客户端都依赖它；内核默认只在有进程规则时才查找
+	route["find_process"] = true
 	if len(ruleSets) > 0 {
 		route["rule_set"] = ruleSets
 	}

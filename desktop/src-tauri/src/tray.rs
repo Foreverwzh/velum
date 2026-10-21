@@ -23,7 +23,6 @@ struct Items {
     built: bool,
     signature: String,
     status: Option<MenuItem<Wry>>,
-    traffic: Option<MenuItem<Wry>>,
     speed_title: Option<CheckMenuItem<Wry>>,
     sysproxy: Option<CheckMenuItem<Wry>>,
     tun: Option<CheckMenuItem<Wry>>,
@@ -96,8 +95,6 @@ fn build(app: &AppHandle, groups: &[Value]) -> tauri::Result<(Menu<Wry>, Items)>
 
     let status = MenuItem::with_id(app, "status", "Velum：启动中…", false, None::<&str>)?;
     menu.append(&status)?;
-    let traffic = MenuItem::with_id(app, "traffic", "实时流量\t—", false, None::<&str>)?;
-    menu.append(&traffic)?;
     menu.append(&MenuItem::with_id(
         app,
         "open",
@@ -211,7 +208,6 @@ fn build(app: &AppHandle, groups: &[Value]) -> tauri::Result<(Menu<Wry>, Items)>
 
     items.menu = Some(menu.clone());
     items.status = Some(status);
-    items.traffic = Some(traffic);
     items.speed_title = Some(speed_title);
     items.sysproxy = Some(sysproxy);
     items.tun = Some(tun);
@@ -340,13 +336,18 @@ fn save_prefs(app: &AppHandle) {
     }
 }
 
-/// 速率的可读形式：1.2 MB/s、30 KB/s。
+/// 速率的可读形式，数字最多三位：512 B/s、30 KB/s、1.2 MB/s、120 MB/s。
 fn rate(b: i64) -> String {
     let b = b.max(0) as f64;
-    if b >= 1024.0 * 1024.0 {
-        format!("{:.1} MB/s", b / 1024.0 / 1024.0)
-    } else if b >= 1024.0 {
-        format!("{:.0} KB/s", b / 1024.0)
+    let (kb, mb) = (b / 1024.0, b / 1024.0 / 1024.0);
+    if kb >= 999.5 {
+        if mb < 9.95 {
+            format!("{mb:.1} MB/s")
+        } else {
+            format!("{mb:.0} MB/s")
+        }
+    } else if b >= 999.5 {
+        format!("{kb:.0} KB/s")
     } else {
         format!("{b:.0} B/s")
     }
@@ -384,6 +385,13 @@ fn label(path: &str) -> (String, String) {
         .clone()
 }
 
+/// 是否为 Velum 自身的进程（velumd 与 App 在同一目录；订阅更新、延迟测试等由它发起）。
+fn own(path: &str) -> bool {
+    static DIR: LazyLock<Option<std::path::PathBuf>> =
+        LazyLock::new(|| std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.to_path_buf())));
+    DIR.as_deref().is_some_and(|d| std::path::Path::new(path).starts_with(d))
+}
+
 /// 按进行中的连接算出各客户端（进程）在上一秒的速率，按速率、连接数排序。
 fn clients(conns: &[Value]) -> Vec<(String, String, i64)> {
     let mut seen = SEEN.lock().unwrap();
@@ -392,7 +400,7 @@ fn clients(conns: &[Value]) -> Vec<(String, String, i64)> {
     let mut next = HashMap::new();
     let mut by: HashMap<String, (String, i64, usize)> = HashMap::new();
     for c in conns {
-        let Some(path) = c["process"].as_str().filter(|p| !p.is_empty()) else {
+        let Some(path) = c["process"].as_str().filter(|p| !p.is_empty() && !own(p)) else {
             continue;
         };
         let id = c["id"].as_u64().unwrap_or(0);
@@ -471,35 +479,19 @@ fn set_clients(app: &AppHandle, rows: &[(String, String, i64)]) -> bool {
     changed
 }
 
-/// 按 /v1/traffic 与进行中的连接更新实时流量行、活跃客户端与菜单栏网速；traffic 为 None 表示未连上。
+/// 按 /v1/traffic 与进行中的连接更新活跃客户端与菜单栏网速；traffic 为 None 表示未连上。
 pub fn traffic(app: &AppHandle, t: Option<&Value>, conns: &[Value]) {
-    let (up, down) = t
-        .map(|t| (t["up_rate"].as_i64().unwrap_or(0), t["down_rate"].as_i64().unwrap_or(0)))
-        .unwrap_or((0, 0));
-    let text = match t {
-        Some(_) => format!("实时流量\t↓ {}   ↑ {}", rate(down), rate(up)),
-        None => "实时流量\t—".to_string(),
-    };
-    let mut changed = {
-        let mut it = ITEMS.lock().unwrap();
-        let Items { traffic, last, .. } = &mut *it;
-        match traffic {
-            Some(item) if last.get("traffic") != Some(&(text.clone(), false)) => {
-                let _ = item.set_text(&text);
-                last.insert("traffic".into(), (text, false));
-                true
-            }
-            _ => false,
-        }
-    };
-    changed |= set_clients(app, &clients(conns));
-    if changed {
+    if set_clients(app, &clients(conns)) {
         #[cfg(target_os = "macos")]
         crate::menu_tabs::reformat(app);
     }
     #[cfg(target_os = "macos")]
     if SPEED_TITLE.load(Ordering::Relaxed) {
-        crate::menu_tabs::speed_title(app, t.map(|_| (rate(up), rate(down))));
+        let lines = t.map(|t| {
+            let r = |k: &str| rate(t[k].as_i64().unwrap_or(0));
+            (r("up_rate"), r("down_rate"))
+        });
+        crate::menu_tabs::speed_title(app, lines);
     }
 }
 
@@ -629,6 +621,12 @@ fn set_clipboard(text: &str) -> std::io::Result<()> {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn rate_text() {
+        let got: Vec<_> = [512, 1000, 30 * 1024, 999 * 1024, 1000 * 1024, 12 * 1024 * 1024].map(rate).into();
+        assert_eq!(got, ["512 B/s", "1 KB/s", "30 KB/s", "999 KB/s", "1.0 MB/s", "12 MB/s"]);
+    }
 
     #[test]
     fn client_label() {

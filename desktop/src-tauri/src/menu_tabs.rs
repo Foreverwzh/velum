@@ -16,19 +16,21 @@ use objc2::rc::Retained;
 use objc2::runtime::AnyObject;
 use objc2::{AllocAnyThread, MainThreadMarker};
 use objc2_app_kit::{
-    NSAttributedStringNSStringDrawing, NSColor, NSFont, NSFontAttributeName, NSFontWeightMedium,
+    NSAttributedStringNSStringDrawing, NSBaselineOffsetAttributeName, NSColor, NSFont, NSFontAttributeName, NSFontWeightMedium,
     NSForegroundColorAttributeName, NSImage, NSMenu, NSMenuDidBeginTrackingNotification,
     NSMenuDidEndTrackingNotification, NSMutableParagraphStyle, NSParagraphStyleAttributeName,
     NSTextAlignment, NSTextTab, NSWorkspace,
 };
 use objc2_foundation::{
     NSArray, NSAttributedString, NSAttributedStringKey, NSDictionary, NSFileManager,
-    NSNotification, NSNotificationCenter, NSSize, NSString,
+    NSNotification, NSNotificationCenter, NSNumber, NSSize, NSString,
 };
 use tauri::AppHandle;
 
 /// 左右两部分之间的最小间距（点）。
 const GAP: f64 = 28.0;
+/// 菜单栏两行网速的基线下移量（点）。
+const BASELINE: f64 = -4.5;
 
 thread_local! {
     /// 正在显示的菜单（只在主线程访问）。
@@ -122,7 +124,7 @@ fn menu_of(n: &NSNotification) -> Option<Retained<NSMenu>> {
 /// 为一个菜单（及其子菜单）中含 '\t' 的标题设置右对齐制表位。
 fn format(menu: &NSMenu) {
     let font = NSFont::menuFontOfSize(0.0);
-    let plain = attrs(&font, None, None);
+    let plain = attrs(&font, None, None, None);
     let width = |s: &str| unsafe { NSAttributedString::new_with_attributes(&NSString::from_str(s), &plain) }.size().width;
 
     let icons = ICONS.lock().unwrap().clone();
@@ -158,7 +160,7 @@ fn format(menu: &NSMenu) {
     };
     let style = NSMutableParagraphStyle::new();
     style.setTabStops(Some(&NSArray::from_retained_slice(&[tab])));
-    let styled = attrs(&font, Some(&style), None);
+    let styled = attrs(&font, Some(&style), None, None);
     for (item, title) in rows {
         let s = unsafe { NSAttributedString::new_with_attributes(&NSString::from_str(&title), &styled) };
         item.setAttributedTitle(Some(&s));
@@ -182,7 +184,7 @@ pub fn speed_title(app: &AppHandle, lines: Option<(String, String)>) {
                 let font = unsafe { NSFont::monospacedDigitSystemFontOfSize_weight(9.0, NSFontWeightMedium) };
                 // 宽度按最宽的取值固定，数字变化时图标不会左右跳动
                 let widest = unsafe {
-                    NSAttributedString::new_with_attributes(&NSString::from_str("000.0 MB/s"), &attrs(&font, None, None))
+                    NSAttributedString::new_with_attributes(&NSString::from_str("999 MB/s"), &attrs(&font, None, None, None))
                 }
                 .size()
                 .width
@@ -201,7 +203,11 @@ pub fn speed_title(app: &AppHandle, lines: Option<(String, String)>) {
                 style.setMaximumLineHeight(10.0);
                 let color = NSColor::labelColor();
                 let text = NSString::from_str(&format!("\t{up}\n\t{down}"));
-                let s = unsafe { NSAttributedString::new_with_attributes(&text, &attrs(&font, Some(&style), Some(&color))) };
+                // 两行文字整体偏上，下移到与图标垂直居中
+                let offset = NSNumber::new_f64(BASELINE);
+                let s = unsafe {
+                    NSAttributedString::new_with_attributes(&text, &attrs(&font, Some(&style), Some(&color), Some(&offset)))
+                };
                 button.setAttributedTitle(&s);
             }
             None => button.setTitle(&NSString::new()),
@@ -217,6 +223,7 @@ fn attrs(
     font: &NSFont,
     style: Option<&NSMutableParagraphStyle>,
     color: Option<&NSColor>,
+    baseline: Option<&NSNumber>,
 ) -> Retained<NSDictionary<NSAttributedStringKey, AnyObject>> {
     let mut keys: Vec<&NSAttributedStringKey> = vec![unsafe { NSFontAttributeName }];
     let mut values: Vec<&AnyObject> = vec![font.as_ref()];
@@ -227,6 +234,10 @@ fn attrs(
     if let Some(c) = color {
         keys.push(unsafe { NSForegroundColorAttributeName });
         values.push(c.as_ref());
+    }
+    if let Some(b) = baseline {
+        keys.push(unsafe { NSBaselineOffsetAttributeName });
+        values.push(b.as_ref());
     }
     NSDictionary::from_slices(&keys, &values)
 }

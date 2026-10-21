@@ -679,6 +679,7 @@
     "auto_detect_interface": false,
     "default_domain_resolver": "ns",
     "final": "Proxy",
+    "find_process": true,
     "rule_set": [
       {
         "download_detour": "DIRECT",
