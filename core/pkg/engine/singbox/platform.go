@@ -15,8 +15,9 @@ import (
 	"github.com/sagernet/sing/common/logger"
 )
 
-// platform 只接管「打开 TUN」：由 velum-helper 创建 utun 并设置路由，经 SCM_RIGHTS 交回 FD
-// （M0 spikes/m0-utun）。其余能力全部回落 sing-box 原生实现（网卡监听、进程查询等）。
+// platform 接管「打开 TUN」：由 velum-helper 创建 utun 并设置路由，经 SCM_RIGHTS 交回 FD
+// （M0 spikes/m0-utun）；以及 macOS 上的连接归属查询（见 owner_darwin.go，此时不论是否启用 TUN 都提供）。
+// 其余能力全部回落 sing-box 原生实现（网卡监听等）。
 type platform struct {
 	cfg *engine.TUNConfig
 
@@ -31,7 +32,10 @@ var _ adapter.PlatformInterface = (*platform)(nil)
 func (p *platform) Initialize(adapter.NetworkManager) error     { return nil }
 func (p *platform) UsePlatformAutoDetectInterfaceControl() bool { return false }
 func (p *platform) AutoDetectInterfaceControl(int) error        { return nil }
-func (p *platform) UsePlatformInterface() bool                  { return true }
+func (p *platform) UsePlatformInterface() bool                  { return p.opensTUN() }
+
+// opensTUN 表示由平台（helper / VpnService）打开 TUN；否则 TUN 由内核自建。
+func (p *platform) opensTUN() bool { return p != nil && p.cfg.Opener != nil }
 
 func (p *platform) OpenInterface(options *tun.Options, _ option.TunPlatformOptions) (tun.Tun, error) {
 	var inet4, inet6 []string
@@ -93,24 +97,28 @@ func (p *platform) RequestPermissionForWIFIState() error            { return nil
 func (p *platform) ReadWIFIState(context.Context) adapter.WIFIState { return adapter.WIFIState{} }
 func (p *platform) UsePlatformConnectionOwnerFinder() bool {
 	_, ok := p.cfg.Opener.(engine.OwnerFinder)
-	return ok
+	return ok || nativeOwner
 }
 
 // FindConnectionOwner 经平台查询连接所属应用。包名同时写入 ProcessPath：process_name 规则按其文件名匹配，
 // 因此 PROCESS-NAME / overlay processes 中的包名在 Android 上直接生效（与 mihomo 的语义一致）。
 func (p *platform) FindConnectionOwner(req *adapter.FindConnectionOwnerRequest) (*adapter.ConnectionOwner, error) {
+	src, err1 := netip.ParseAddr(req.SourceAddress)
+	dst, err2 := netip.ParseAddr(req.DestinationAddress)
 	f, ok := p.cfg.Opener.(engine.OwnerFinder)
-	if !ok {
+	if !ok && err1 == nil { // 目标为域名时没有目标地址，只按来源查
+		var to netip.AddrPort
+		if err2 == nil {
+			to = netip.AddrPortFrom(dst, uint16(req.DestinationPort))
+		}
+		return findOwner(int(req.IpProtocol), netip.AddrPortFrom(src, uint16(req.SourcePort)), to)
+	}
+	if !ok || err1 != nil || err2 != nil {
 		return nil, os.ErrInvalid
 	}
 	network := "tcp"
 	if req.IpProtocol == 17 { // IPPROTO_UDP
 		network = "udp"
-	}
-	src, err1 := netip.ParseAddr(req.SourceAddress)
-	dst, err2 := netip.ParseAddr(req.DestinationAddress)
-	if err1 != nil || err2 != nil {
-		return nil, os.ErrInvalid
 	}
 	o, found, err := f.FindOwner(network, netip.AddrPortFrom(src, uint16(req.SourcePort)), netip.AddrPortFrom(dst, uint16(req.DestinationPort)))
 	if err != nil {

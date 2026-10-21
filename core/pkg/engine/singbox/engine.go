@@ -54,7 +54,7 @@ type Engine struct {
 	lmu      sync.Mutex // 生命周期（instance）；Start 期间内核会回调日志，不能与 mu 合用
 	instance *box.Box
 	bctx     context.Context // 内核的 context（含 DNS 路由器等服务）
-	plat     *platform       // TUN 模式下的平台接口（持有 helper 会话）
+	plat     *platform       // 平台接口：TUN 模式下持有 helper 会话；macOS 上另负责连接归属查询
 	ownTUN   string          // 内核自建 TUN（Windows）的网卡名
 
 	mu       sync.Mutex // 连接数据与运行时引用
@@ -123,8 +123,13 @@ func (e *Engine) Start(ctx context.Context, cfg engine.Config) error {
 func (e *Engine) startLocked(cfg engine.Config) error {
 	bctx := boxContext(context.Background())
 	var plat *platform
-	if cfg.TUN != nil && cfg.TUN.Opener != nil { // 没有 Opener（Windows）时由内核自建 TUN
+	switch {
+	case cfg.TUN != nil && cfg.TUN.Opener != nil: // 没有 Opener（Windows）时由内核自建 TUN
 		plat = &platform{cfg: cfg.TUN}
+	case nativeOwner:
+		plat = &platform{cfg: &engine.TUNConfig{}}
+	}
+	if plat != nil {
 		bctx = service.ContextWith[adapter.PlatformInterface](bctx, plat)
 	}
 	opts, err := json.UnmarshalExtendedContext[option.Options](bctx, cfg.JSON)
@@ -175,7 +180,7 @@ func (e *Engine) startLocked(cfg engine.Config) error {
 	}
 	e.instance, e.plat, e.bctx = instance, plat, bctx
 	e.ownTUN = ""
-	if plat == nil {
+	if !plat.opensTUN() {
 		for _, in := range opts.Inbounds {
 			if t, ok := in.Options.(*option.TunInboundOptions); ok {
 				e.ownTUN = t.InterfaceName
@@ -203,7 +208,7 @@ func (e *Engine) closeLocked() error {
 func (e *Engine) TUNName() string {
 	e.lmu.Lock()
 	defer e.lmu.Unlock()
-	if e.plat == nil {
+	if !e.plat.opensTUN() {
 		return e.ownTUN
 	}
 	return e.plat.tunName()
