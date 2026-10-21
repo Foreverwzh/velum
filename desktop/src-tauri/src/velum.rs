@@ -13,11 +13,17 @@ pub fn home() -> PathBuf {
     }
     #[cfg(windows)]
     {
-        std::env::var("APPDATA").map(PathBuf::from).unwrap_or_default().join("Velum")
+        std::env::var("APPDATA")
+            .map(PathBuf::from)
+            .unwrap_or_default()
+            .join("Velum")
     }
     #[cfg(not(windows))]
     {
-        std::env::var("HOME").map(PathBuf::from).unwrap_or_default().join("Library/Application Support/Velum")
+        std::env::var("HOME")
+            .map(PathBuf::from)
+            .unwrap_or_default()
+            .join("Library/Application Support/Velum")
     }
 }
 
@@ -26,7 +32,8 @@ type Conn = std::os::unix::net::UnixStream;
 
 #[cfg(unix)]
 fn connect(timeout: Option<Duration>) -> Result<Conn, String> {
-    let s = Conn::connect(home().join("velumd.sock")).map_err(|e| format!("无法连接 velumd：{e}"))?;
+    let s =
+        Conn::connect(home().join("velumd.sock")).map_err(|e| format!("无法连接 velumd：{e}"))?;
     s.set_read_timeout(timeout).ok();
     s.set_write_timeout(Some(Duration::from_secs(10))).ok();
     Ok(s)
@@ -46,12 +53,18 @@ fn connect(_timeout: Option<Duration>) -> Result<Conn, String> {
     for name in [winpipe::user_pipe()?, winpipe::SERVICE_PIPE.to_string()] {
         let mut opened = None;
         for _ in 0..20 {
-            match std::fs::OpenOptions::new().read(true).write(true).open(&name) {
+            match std::fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .open(&name)
+            {
                 Ok(f) => {
                     opened = Some(Ok(f));
                     break;
                 }
-                Err(e) if e.raw_os_error() == Some(ERROR_PIPE_BUSY) => std::thread::sleep(Duration::from_millis(50)),
+                Err(e) if e.raw_os_error() == Some(ERROR_PIPE_BUSY) => {
+                    std::thread::sleep(Duration::from_millis(50))
+                }
                 Err(e) => {
                     opened = Some(Err(e));
                     break;
@@ -63,7 +76,9 @@ fn connect(_timeout: Option<Duration>) -> Result<Conn, String> {
                 Ok(()) => return Ok(f),
                 Err(e) => e,
             },
-            Some(Err(e)) if e.raw_os_error() == Some(ERROR_FILE_NOT_FOUND) => "velumd 未运行".to_string(),
+            Some(Err(e)) if e.raw_os_error() == Some(ERROR_FILE_NOT_FOUND) => {
+                "velumd 未运行".to_string()
+            }
             Some(Err(e)) => e.to_string(),
             None => "所有连接都忙".to_string(),
         };
@@ -76,7 +91,11 @@ fn connect(_timeout: Option<Duration>) -> Result<Conn, String> {
 /// 由看门狗线程在超时后取消挂起的 I/O，避免 velumd 无响应时界面与托盘线程永久阻塞。
 /// Unix 上由 socket 读超时（connect 时设置）中断；超时报出的是 EAGAIN（os error 35 / 11），这里换成可读的说明。
 #[cfg(unix)]
-fn with_deadline<T>(s: &mut Conn, t: Duration, f: impl FnOnce(&mut Conn) -> Result<T, String>) -> Result<T, String> {
+fn with_deadline<T>(
+    s: &mut Conn,
+    t: Duration,
+    f: impl FnOnce(&mut Conn) -> Result<T, String>,
+) -> Result<T, String> {
     let start = Instant::now();
     let r = f(s);
     if r.is_err() && start.elapsed() + Duration::from_secs(1) >= t {
@@ -86,11 +105,18 @@ fn with_deadline<T>(s: &mut Conn, t: Duration, f: impl FnOnce(&mut Conn) -> Resu
 }
 
 fn timeout_msg(t: Duration) -> String {
-    format!("velumd 未在 {} 秒内响应（可能正在拉取订阅或规则集，稍后查看状态）", t.as_secs())
+    format!(
+        "velumd 未在 {} 秒内响应（可能正在拉取订阅或规则集，稍后查看状态）",
+        t.as_secs()
+    )
 }
 
 #[cfg(windows)]
-fn with_deadline<T>(s: &mut Conn, t: Duration, f: impl FnOnce(&mut Conn) -> Result<T, String>) -> Result<T, String> {
+fn with_deadline<T>(
+    s: &mut Conn,
+    t: Duration,
+    f: impl FnOnce(&mut Conn) -> Result<T, String>,
+) -> Result<T, String> {
     use std::os::windows::io::AsRawHandle;
     let handle = s.as_raw_handle() as usize;
     let (tx, rx) = std::sync::mpsc::channel::<()>();
@@ -123,7 +149,11 @@ fn write_request(s: &mut Conn, method: &str, path: &str, body: Option<&str>) -> 
 fn read_head<R: BufRead>(r: &mut R) -> Result<(u16, bool, Option<usize>), String> {
     let mut line = String::new();
     r.read_line(&mut line).map_err(|e| e.to_string())?;
-    let code = line.split_whitespace().nth(1).and_then(|c| c.parse().ok()).ok_or("响应格式无效")?;
+    let code = line
+        .split_whitespace()
+        .nth(1)
+        .and_then(|c| c.parse().ok())
+        .ok_or("响应格式无效")?;
     let (mut chunked, mut len) = (false, None);
     loop {
         line.clear();
@@ -189,7 +219,13 @@ pub fn call(method: &str, path: &str, body: Option<&str>) -> Result<serde_json::
         let (code, chunked, len) = read_head(&mut r)?;
         let mut data = Vec::new();
         if chunked {
-            Chunked { inner: r, left: 0, done: false }.read_to_end(&mut data).map_err(|e| e.to_string())?;
+            Chunked {
+                inner: r,
+                left: 0,
+                done: false,
+            }
+            .read_to_end(&mut data)
+            .map_err(|e| e.to_string())?;
         } else if let Some(n) = len {
             data.resize(n, 0);
             r.read_exact(&mut data).map_err(|e| e.to_string())?;
@@ -202,7 +238,11 @@ pub fn call(method: &str, path: &str, body: Option<&str>) -> Result<serde_json::
     if (200..300).contains(&code) {
         Ok(v)
     } else {
-        Err(v.get("error").and_then(|e| e.as_str()).map(str::to_owned).unwrap_or_else(|| format!("HTTP {code}")))
+        Err(v
+            .get("error")
+            .and_then(|e| e.as_str())
+            .map(str::to_owned)
+            .unwrap_or_else(|| format!("HTTP {code}")))
     }
 }
 
@@ -215,7 +255,15 @@ pub fn stream(mut on_event: impl FnMut(serde_json::Value)) -> Result<(), String>
     if code != 200 {
         return Err(format!("HTTP {code}"));
     }
-    let lines: Box<dyn BufRead> = if chunked { Box::new(BufReader::new(Chunked { inner: r, left: 0, done: false })) } else { Box::new(r) };
+    let lines: Box<dyn BufRead> = if chunked {
+        Box::new(BufReader::new(Chunked {
+            inner: r,
+            left: 0,
+            done: false,
+        }))
+    } else {
+        Box::new(r)
+    };
     for line in lines.lines() {
         let line = line.map_err(|e| e.to_string())?;
         if let Some(data) = line.strip_prefix("data: ") {
@@ -266,16 +314,27 @@ pub fn ensure_running() -> Result<(), String> {
     let bin = velumd_path().ok_or("找不到 velumd（可设置环境变量 VELUMD 指定路径）")?;
     #[cfg(windows)]
     {
-        if crate::system::service_status().map(|s| s["installed"].as_bool() == Some(true)).unwrap_or(false) {
+        if crate::system::service_status()
+            .map(|s| s["installed"].as_bool() == Some(true))
+            .unwrap_or(false)
+        {
             crate::system::run_hidden(&bin, &["service", "start"])?;
             return wait_ready();
         }
     }
     let logs = home().join("logs");
     std::fs::create_dir_all(&logs).ok();
-    let out = std::fs::OpenOptions::new().create(true).append(true).open(logs.join("velumd.out")).map_err(|e| e.to_string())?;
+    let out = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(logs.join("velumd.out"))
+        .map_err(|e| e.to_string())?;
     let mut cmd = Command::new(&bin);
-    cmd.arg("--home").arg(home()).stdin(Stdio::null()).stdout(out.try_clone().map_err(|e| e.to_string())?).stderr(out);
+    cmd.arg("--home")
+        .arg(home())
+        .stdin(Stdio::null())
+        .stdout(out.try_clone().map_err(|e| e.to_string())?)
+        .stderr(out);
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
@@ -318,7 +377,12 @@ mod tests {
         let w = call("GET", "/v1/warnings", None).expect("warnings");
         assert!(w["warnings"].is_array());
         // 错误信息透传
-        let e = call("POST", "/v1/groups/select", Some(r#"{"group":"nope","member":"x"}"#)).unwrap_err();
+        let e = call(
+            "POST",
+            "/v1/groups/select",
+            Some(r#"{"group":"nope","member":"x"}"#),
+        )
+        .unwrap_err();
         assert!(e.contains("nope"), "{e}");
         // SSE：发起一次经 velumd 的请求，应收到连接事件
         let (tx, rx) = std::sync::mpsc::channel();
@@ -329,8 +393,21 @@ mod tests {
         });
         std::thread::sleep(Duration::from_millis(300));
         let listen = s["listen"].as_str().unwrap().to_string();
-        let _ = std::process::Command::new("curl").args(["-s", "-m", "8", "-o", "/dev/null", "-x", &format!("http://{listen}"), "https://www.baidu.com/"]).status();
-        let ev = rx.recv_timeout(Duration::from_secs(10)).expect("应收到连接事件");
+        let _ = std::process::Command::new("curl")
+            .args([
+                "-s",
+                "-m",
+                "8",
+                "-o",
+                "/dev/null",
+                "-x",
+                &format!("http://{listen}"),
+                "https://www.baidu.com/",
+            ])
+            .status();
+        let ev = rx
+            .recv_timeout(Duration::from_secs(10))
+            .expect("应收到连接事件");
         assert!(ev["chain"].is_array(), "{ev}");
     }
 }

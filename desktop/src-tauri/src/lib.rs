@@ -1,6 +1,7 @@
 //! Velum 桌面壳：界面 + 托盘 + velumd 进程管理。业务逻辑全部在 velumd（Go 核心）中。
 
 mod system;
+mod tray;
 mod velum;
 #[cfg(windows)]
 mod winpipe;
@@ -8,22 +9,24 @@ mod winpipe;
 use std::time::Duration;
 #[cfg(target_os = "macos")]
 use tauri::image::Image;
-use tauri::{
-    menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem},
-    tray::TrayIconBuilder,
-    AppHandle, Emitter, Manager, WindowEvent,
-};
+use tauri::{tray::TrayIconBuilder, AppHandle, Emitter, Manager, WindowEvent};
 
 /// 前端统一入口：转发到 velumd 本地接口。
 #[tauri::command]
-async fn velum_call(method: String, path: String, body: Option<String>) -> Result<serde_json::Value, String> {
+async fn velum_call(
+    method: String,
+    path: String,
+    body: Option<String>,
+) -> Result<serde_json::Value, String> {
     tauri::async_runtime::spawn_blocking(move || velum::call(&method, &path, body.as_deref()))
         .await
         .map_err(|e| e.to_string())?
 }
 
 async fn blocking<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> Result<T, String> {
-    tauri::async_runtime::spawn_blocking(f).await.map_err(|e| e.to_string())
+    tauri::async_runtime::spawn_blocking(f)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -68,7 +71,7 @@ fn autostart_set(on: bool) -> Result<(), String> {
 }
 
 /// 托盘上的一句话状态（与界面 health 口径一致的简化版）。
-fn summary(s: &serde_json::Value) -> String {
+pub(crate) fn summary(s: &serde_json::Value) -> String {
     let on = |k: &str| s[k].as_bool().unwrap_or(false);
     if on("starting") {
         return "正在启动…".into();
@@ -83,7 +86,9 @@ fn summary(s: &serde_json::Value) -> String {
     if on("tun_on") {
         parts.push("TUN");
     }
-    let paused = s["network"]["paused"].as_str().filter(|_| (on("want_system_proxy") && !on("system_proxy_on")) || (on("want_tun") && !on("tun_on")));
+    let paused = s["network"]["paused"].as_str().filter(|_| {
+        (on("want_system_proxy") && !on("system_proxy_on")) || (on("want_tun") && !on("tun_on"))
+    });
     match (parts.is_empty(), paused) {
         (_, Some(p)) if parts.is_empty() => format!("已暂停：{p}"),
         (false, Some(_)) => format!("正在保护（{}，部分已暂停）", parts.join(" + ")),
@@ -94,14 +99,14 @@ fn summary(s: &serde_json::Value) -> String {
 }
 
 /// 停止 velumd（还原系统代理 / TUN）。退出 App 时调用；只执行一次。
-fn stop_velum() {
+pub(crate) fn stop_velum() {
     static STOPPED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
     if !STOPPED.swap(true, std::sync::atomic::Ordering::SeqCst) {
         let _ = velum::call("POST", "/v1/stop", None);
     }
 }
 
-fn show_main(app: &AppHandle) {
+pub(crate) fn show_main(app: &AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.show();
         let _ = w.unminimize();
@@ -109,17 +114,19 @@ fn show_main(app: &AppHandle) {
     }
 }
 
-/// 切换开关：按用户当前意图（want_*）取反；两个开关相互独立。
-fn toggle(which: &str) {
-    let want_key = if which == "system_proxy" { "want_system_proxy" } else { "want_tun" };
-    let want = velum::call("GET", "/v1/status", None).ok().and_then(|s| s[want_key].as_bool()).unwrap_or(false);
-    let body = serde_json::json!({ which: if want { "off" } else { "on" } }).to_string();
-    let _ = velum::call("POST", "/v1/switches", Some(&body));
-}
-
 pub fn run() {
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![velum_call, helper_install, helper_uninstall, helper_status, cli_status, cli_install, cli_uninstall, autostart_get, autostart_set])
+        .invoke_handler(tauri::generate_handler![
+            velum_call,
+            helper_install,
+            helper_uninstall,
+            helper_status,
+            cli_status,
+            cli_install,
+            cli_uninstall,
+            autostart_get,
+            autostart_set
+        ])
         .setup(|app| {
             let handle = app.handle().clone();
             // 开机启动（--hidden）时只在托盘运行，不弹出窗口
@@ -127,15 +134,8 @@ pub fn run() {
                 show_main(&handle);
             }
 
-            // ---- 托盘 ----
-            let status_item = MenuItem::with_id(app, "status", "Velum：启动中…", false, None::<&str>)?;
-            let open = MenuItem::with_id(app, "open", "打开 Velum", true, None::<&str>)?;
-            let sysproxy = CheckMenuItem::with_id(app, "sysproxy", "系统代理", true, false, None::<&str>)?;
-            let tun = CheckMenuItem::with_id(app, "tun", "TUN", true, false, None::<&str>)?;
-            let repair = MenuItem::with_id(app, "repair", "一键修复", true, None::<&str>)?;
-            let quit = MenuItem::with_id(app, "quit", "退出 Velum", true, None::<&str>)?;
-            let sep = || PredefinedMenuItem::separator(app);
-            let menu = Menu::with_items(app, &[&status_item, &sep()?, &open, &sysproxy, &tun, &sep()?, &repair, &sep()?, &quit])?;
+            // ---- 托盘（菜单见 tray.rs）----
+            let menu = tray::initial(&handle)?;
             // macOS 菜单栏用单色模板图标（随深浅色自动反色）；Windows 任务栏用彩色应用图标
             #[cfg(target_os = "macos")]
             let icon = Image::from_bytes(include_bytes!("../tray-template.png"))?;
@@ -150,28 +150,16 @@ pub fn run() {
                 .on_menu_event(|app, event| {
                     let app = app.clone();
                     let id = event.id().as_ref().to_string();
-                    std::thread::spawn(move || match id.as_str() {
-                        "open" => show_main(&app),
-                        "sysproxy" => toggle("system_proxy"),
-                        "tun" => toggle("tun"),
-                        "repair" => {
-                            let _ = velum::call("POST", "/v1/repair", None);
-                        }
-                        "quit" => {
-                            stop_velum(); // 退出时停止 velumd（其会还原系统代理 / TUN）
-                            app.exit(0);
-                        }
-                        _ => {}
-                    });
+                    std::thread::spawn(move || tray::handle(&app, &id));
                 })
                 .build(app)?;
 
             // ---- velumd 生命周期与状态轮询（更新托盘）----
             {
-                let (status_item, sysproxy, tun) = (status_item.clone(), sysproxy.clone(), tun.clone());
+                let app = handle.clone();
                 std::thread::spawn(move || {
                     if let Err(e) = velum::ensure_running() {
-                        let _ = status_item.set_text(format!("Velum：{e}"));
+                        tray::refresh(&app, None, &e);
                     }
                     let opened = std::time::Instant::now();
                     let mut connected = false;
@@ -179,15 +167,11 @@ pub fn run() {
                         match velum::call("GET", "/v1/status", None) {
                             Ok(s) => {
                                 connected = true;
-                                let _ = status_item.set_text(format!("Velum：{}", summary(&s)));
-                                let _ = sysproxy.set_checked(s["want_system_proxy"].as_bool().unwrap_or(false));
-                                let _ = tun.set_checked(s["want_tun"].as_bool().unwrap_or(false));
+                                tray::refresh(&app, Some(&s), &summary(&s));
                             }
                             // 刚打开时 velumd 还在启动，先不报未运行
                             Err(_) if !connected && opened.elapsed() < Duration::from_secs(20) => {}
-                            Err(_) => {
-                                let _ = status_item.set_text("Velum：未运行");
-                            }
+                            Err(_) => tray::refresh(&app, None, "未运行"),
                         }
                         std::thread::sleep(Duration::from_secs(3));
                     }
