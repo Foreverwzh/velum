@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { ArrowRight, Building2, Gauge, Globe, Network, Split, Wifi, Wrench } from "lucide-react";
+import { isRejected } from "./Connections";
 import { api, subscribeConnections, type Connection, type RepairStep, type Status } from "../api";
 import { health } from "../health";
 import { delayOf, leafOf, pathOf, useAction } from "../hooks";
@@ -125,8 +126,9 @@ function GroupSummary({ status: s, go, busy, onTest }: { status: Status; go: Go;
 function RecentConnections({ go }: { go: Go }) {
   const [list, setList] = useState<Connection[]>([]);
   useEffect(() => {
-    api.connections(6).then((r) => setList(r.connections ?? [])).catch(() => undefined);
-    return subscribeConnections((c) => setList((xs) => [c, ...xs.filter((x) => x.id !== c.id)].slice(0, 6)));
+    // 按规则拦截的连接（如 ipv6: false 拒绝的 IPv6 重试）是预期行为，概览里不占位置，在「连接」页查看
+    api.connections(60).then((r) => setList((r.connections ?? []).filter((c) => !isRejected(c)).slice(0, 6))).catch(() => undefined);
+    return subscribeConnections((c) => !isRejected(c) && setList((xs) => [c, ...xs.filter((x) => x.id !== c.id)].slice(0, 6)));
   }, []);
   return (
     <Section title="最近连接" actions={<Button size="sm" variant="ghost" onClick={() => go("connections")}>全部连接<ArrowRight className="size-3" /></Button>}>

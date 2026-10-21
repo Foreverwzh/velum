@@ -167,7 +167,7 @@ export function Chain({ steps, size = "md", className }: { steps: ChainStep[]; s
               s.kind === "group" && "bg-hover text-fg-2",
               s.kind === "node" && "bg-accent-soft font-medium text-fg",
               s.kind === "direct" && "bg-hover font-medium text-fg",
-              s.kind === "reject" && "bg-err-soft font-medium text-err",
+              s.kind === "reject" && "bg-hover text-fg-3", // 按规则拦截是预期行为，不用错误色
               !s.kind && "text-fg-2",
             )}
           >

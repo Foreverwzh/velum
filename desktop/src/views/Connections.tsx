@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { ArrowLeftRight, Pause, Play, ScanSearch, TriangleAlert, X } from "lucide-react";
+import { ArrowLeftRight, Ban, Pause, Play, ScanSearch, TriangleAlert, X } from "lucide-react";
 import { api, human, srcText, subscribeConnections, type Connection } from "../api";
 import type { Go } from "../App";
 import { Button, Chain, Empty, IconButton, KV, SearchInput, Tag, chainSteps, cx } from "../components/ui";
@@ -17,6 +17,7 @@ export default function Connections({ go, initialQuery }: { go: Go; initialQuery
   const [sel, setSel] = useState<Connection>();
   const [paused, setPaused] = useState(false);
   const [onlyErr, setOnlyErr] = useState(false);
+  const [hideRej, setHideRej] = useState(false);
 
   useEffect(() => {
     api.connections(300).then((r) => setList(r.connections ?? [])).catch(() => undefined);
@@ -30,12 +31,14 @@ export default function Connections({ go, initialQuery }: { go: Go; initialQuery
     const keys = q.trim().toLowerCase().split(/\s+/).filter(Boolean);
     return list.filter((c) => {
       if (onlyErr && !(c.errors?.length && !isRejected(c))) return false;
+      if (hideRej && isRejected(c)) return false;
       if (!keys.length) return true;
       const hay = [c.domain, c.destination, c.process, c.chain.join(" "), c.provenance.text, ruleLabel(c)].join(" ").toLowerCase();
       return keys.every((k) => hay.includes(k));
     });
-  }, [list, q, onlyErr]);
+  }, [list, q, onlyErr, hideRej]);
   const errCount = useMemo(() => list.filter((c) => c.errors?.length && !isRejected(c)).length, [list]);
+  const rejCount = useMemo(() => list.filter(isRejected).length, [list]);
   // 拿不到进程信息时（如部分 TUN 连接）不占一列
   const hasProc = useMemo(() => shown.some((c) => c.process), [shown]);
 
@@ -49,12 +52,19 @@ export default function Connections({ go, initialQuery }: { go: Go; initialQuery
               onlyErr ? "border-err/40 bg-err-soft text-err" : "border-line text-fg-2 hover:bg-hover")}>
             <TriangleAlert className="size-3.5" strokeWidth={1.8} />出错 <span className="font-mono tnum">{errCount}</span>
           </button>
+          {!!rejCount && (
+            <button onClick={() => setHideRej(!hideRej)} title="按规则拦截的连接是预期行为（如订阅 ipv6: false 拒绝 IPv6）"
+              className={cx("inline-flex h-7 items-center gap-1.5 rounded-md border px-2.5 text-[12px] transition-colors",
+                hideRej ? "border-line-strong bg-active text-fg" : "border-line text-fg-2 hover:bg-hover")}>
+              <Ban className="size-3.5" strokeWidth={1.8} />{hideRej ? "已隐藏拦截" : "隐藏拦截"} <span className="font-mono tnum">{rejCount}</span>
+            </button>
+          )}
           <span className="ml-auto text-[12px] text-fg-3 tnum">{shown.length} 条</span>
           <IconButton icon={paused ? Play : Pause} label={paused ? "继续实时更新" : "暂停实时更新"} onClick={() => setPaused(!paused)} className={paused ? "text-warn" : undefined} />
         </div>
         <div className="min-h-0 flex-1 overflow-auto">
           {!shown.length ? (
-            <Empty icon={ArrowLeftRight} title={list.length ? "没有匹配的连接" : "还没有连接"} hint={list.length ? "换个关键词，或关闭「出错」筛选" : "经 Velum 访问任意网站后，连接会实时出现在这里"} />
+            <Empty icon={ArrowLeftRight} title={list.length ? "没有匹配的连接" : "还没有连接"} hint={list.length ? "换个关键词，或关闭「出错」「隐藏拦截」筛选" : "经 Velum 访问任意网站后，连接会实时出现在这里"} />
           ) : (
             <table className="w-full table-fixed text-[12.5px]">
               <thead className="sticky top-0 z-10 bg-bg text-left text-[11.5px] text-fg-3">

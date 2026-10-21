@@ -22,7 +22,7 @@ All colours come from CSS variables in `desktop/src/styles.css`, exposed to Tail
 | fg / fg-2 / fg-3 | #16171a / #55585f / #6f727a | #ecedee / #a3a6ad / #80838b | text hierarchy |
 | accent (Velum teal) | #0b8f7e | #3fd1bd | protected state, primary action, selection, latency < 300 ms |
 | warn | #a3650a | #f0b552 | paused, degraded, 300–800 ms |
-| err | #c9343b | #f2676b | errors, timeouts, rejected |
+| err | #c9343b | #f2676b | errors, timeouts (a rule-based reject is expected, not an error) |
 | info | #3b6fd1 | #86a9f7 | rule references, notices |
 
 Soft variants (`*-soft`) are 10–13% tints for chips and selected rows. Shadows: `shadow-raise` for buttons, `shadow-pop` for the palette only.
@@ -37,7 +37,7 @@ System UI stack (SF Pro / PingFang SC; Segoe UI / Microsoft YaHei on Windows), 1
 - **Switch** 30×18, accent when on, warn when on-but-paused.
 - **Tag** 18 px chip in neutral / accent / warn / err / info.
 - **Latency** coloured dot + number (`72 ms`, `超时`); never colour alone.
-- **Chain** the route chain; step kinds rule (info, mono), group (neutral), node (accent tint), direct, reject (err).
+- **Chain** the route chain; step kinds rule (info, mono), group (neutral), node (accent tint), direct, reject (muted neutral: expected behaviour, not an error; hidden from the overview).
 - **Panel + Row** hairline-bordered row groups; never cards inside cards.
 - **PageHeader**, **Section**, **KV**, **Empty** (icon + title + hint + action), **Notice**, **SearchInput** (with shortcut hint), **Kbd**.
 - Icons: lucide-react, 1.8 stroke. No emoji or Unicode glyphs as icons (emoji only appear inside subscription-provided names).
