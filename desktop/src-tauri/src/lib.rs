@@ -1,5 +1,7 @@
 //! Velum 桌面壳：界面 + 托盘 + velumd 进程管理。业务逻辑全部在 velumd（Go 核心）中。
 
+#[cfg(target_os = "macos")]
+mod menu_tabs;
 mod system;
 mod tray;
 mod velum;
@@ -117,6 +119,9 @@ pub fn run() {
             }
 
             // ---- 托盘（菜单见 tray.rs）----
+            #[cfg(target_os = "macos")]
+            menu_tabs::install(&handle);
+            tray::load_prefs(&handle);
             let menu = tray::initial(&handle)?;
             // macOS 菜单栏用单色模板图标（随深浅色自动反色）；Windows 任务栏用彩色应用图标
             #[cfg(target_os = "macos")]
@@ -145,17 +150,29 @@ pub fn run() {
                     }
                     let opened = std::time::Instant::now();
                     let mut connected = false;
+                    // 每秒更新实时流量，每 3 秒更新完整状态
+                    let mut tick = 0u64;
                     loop {
-                        match velum::call("GET", "/v1/status", None) {
-                            Ok(s) => {
-                                connected = true;
-                                tray::refresh(&app, Some(&s), &summary(&s));
+                        tick += 1;
+                        if tick % 3 == 1 {
+                            match velum::call("GET", "/v1/status", None) {
+                                Ok(s) => {
+                                    connected = true;
+                                    tray::refresh(&app, Some(&s), &summary(&s));
+                                }
+                                // 刚打开时 velumd 还在启动，先不报未运行
+                                Err(_) if !connected && opened.elapsed() < Duration::from_secs(20) => {}
+                                Err(_) => {
+                                    connected = false;
+                                    tray::refresh(&app, None, "未运行");
+                                }
                             }
-                            // 刚打开时 velumd 还在启动，先不报未运行
-                            Err(_) if !connected && opened.elapsed() < Duration::from_secs(20) => {}
-                            Err(_) => tray::refresh(&app, None, "未运行"),
                         }
-                        std::thread::sleep(Duration::from_secs(3));
+                        if connected {
+                            let t = velum::call("GET", "/v1/traffic", None).ok();
+                            tray::traffic(&app, t.as_ref());
+                        }
+                        std::thread::sleep(Duration::from_secs(1));
                     }
                 });
             }

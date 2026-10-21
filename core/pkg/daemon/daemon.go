@@ -92,6 +92,9 @@ type Daemon struct {
 	captive       netsense.CaptiveState
 	captiveDetail string
 
+	trMu    sync.Mutex
+	traffic *rpc.Traffic // 最近一次流量采样（每秒）
+
 	// 实际生效代理的缓存：读取可能较慢（Windows 服务需在用户会话中启动子进程），状态查询频繁
 	effMu  sync.Mutex
 	effAt  time.Time
@@ -441,6 +444,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 	d.mu.Unlock()
 	go d.updater(ctx)
 	go d.netMonitor(ctx)
+	go d.trafficSampler(ctx)
 	select {
 	case <-ctx.Done():
 	case <-d.stop:
@@ -734,8 +738,12 @@ func (d *Daemon) handler() (h http.Handler) {
 			limit = 50
 		}
 		host := strings.ToLower(r.URL.Query().Get("host"))
+		active := r.URL.Query().Get("active") == "1" // 只要进行中的连接（含实时字节数）
 		var out []engine.Connection
 		for _, c := range d.Engine.Connections(0) {
+			if active && c.End != nil {
+				break // 进行中的连接排在最前
+			}
 			if host == "" || matchHost(c, host) {
 				out = append(out, c)
 				if len(out) >= limit {
@@ -746,6 +754,15 @@ func (d *Daemon) handler() (h http.Handler) {
 		writeJSON(w, rpc.ConnectionsResponse{Connections: out})
 	})
 	mux.HandleFunc("GET /v1/connections/stream", d.stream)
+	mux.HandleFunc("GET /v1/traffic", func(w http.ResponseWriter, r *http.Request) {
+		d.trMu.Lock()
+		t := d.traffic
+		d.trMu.Unlock()
+		if t == nil {
+			t = &rpc.Traffic{}
+		}
+		writeJSON(w, t)
+	})
 	mux.HandleFunc("GET /v1/warnings", func(w http.ResponseWriter, r *http.Request) {
 		d.mu.RLock()
 		defer d.mu.RUnlock()
@@ -786,9 +803,12 @@ func (d *Daemon) status() rpc.Status {
 			eff = &e
 		}
 	}
+	d.trMu.Lock()
+	traffic := d.traffic
+	d.trMu.Unlock()
 	d.mu.RLock()
 	defer d.mu.RUnlock()
-	s := rpc.Status{PID: os.Getpid(), Version: Version, Running: d.Engine.Running(), Home: d.Paths.Home, StartedAt: d.startedAt, Starting: d.starting, LastError: d.lastErr,
+	s := rpc.Status{Traffic: traffic, PID: os.Getpid(), Version: Version, Running: d.Engine.Running(), Home: d.Paths.Home, StartedAt: d.startedAt, Starting: d.starting, LastError: d.lastErr,
 		Overridden: d.sysOverride != nil || d.tunOverride != nil}
 	if d.SysProxy != nil {
 		s.SysProxy = rpc.SysProxyStatus{Supported: true, Active: d.SysProxy.HasSnapshot()}
@@ -1373,6 +1393,41 @@ func (d *Daemon) editOverlayItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, d.status())
+}
+
+// ---------------- 实时流量 ----------------
+
+// trafficSampler 每秒采样引擎的总字节数，得出最近一秒的速率。
+func (d *Daemon) trafficSampler(ctx context.Context) {
+	t, ok := d.Engine.(interface{ Traffic() engine.Traffic })
+	if !ok {
+		return
+	}
+	tick := time.NewTicker(time.Second)
+	defer tick.Stop()
+	prev, prevAt := t.Traffic(), time.Now()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-d.stop:
+			return
+		case now := <-tick.C:
+			cur := t.Traffic()
+			sec := now.Sub(prevAt).Seconds()
+			rate := func(a, b int64) int64 {
+				if b < a || sec <= 0 { // 计数归零（引擎重建）时本次不计速率
+					return 0
+				}
+				return int64(float64(b-a) / sec)
+			}
+			v := &rpc.Traffic{Up: cur.Up, Down: cur.Down, UpRate: rate(prev.Up, cur.Up), DownRate: rate(prev.Down, cur.Down), Active: cur.Active}
+			d.trMu.Lock()
+			d.traffic = v
+			d.trMu.Unlock()
+			prev, prevAt = cur, now
+		}
+	}
 }
 
 // ---------------- 一键修复 ----------------

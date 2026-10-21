@@ -313,3 +313,51 @@ func TestEngineSelectMember(t *testing.T) {
 		t.Fatal("非 selector 应报错")
 	}
 }
+
+// 进行中的连接实时计数：连接未结束时即可读到字节数，引擎总量同步累计。
+func TestEngineLiveTraffic(t *testing.T) {
+	release := make(chan struct{})
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write(bytes.Repeat([]byte("x"), 64<<10))
+		w.(http.Flusher).Flush()
+		<-release
+	}))
+	defer target.Close()
+	defer close(release)
+
+	sub, _ := subscription.Parse([]byte("rules:\n  - MATCH,DIRECT\n"), subscription.Options{})
+	listen := freePort(t)
+	plan, err := compiler.Compile(sub, nil, compiler.Options{Mode: compiler.ModeProxy, Listen: listen})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := render.Render(plan, render.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	eng := singbox.New(singbox.Options{})
+	if err := eng.Start(context.Background(), engine.Config{JSON: r.JSON, RuleSources: r.RuleSources, RuleIndex: r.RuleIndex}); err != nil {
+		t.Fatal(err)
+	}
+	defer eng.Stop()
+	proxyURL, _ := url.Parse("http://" + listen.String())
+	client := &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(proxyURL)}}
+	go func() {
+		if resp, err := client.Get(target.URL); err == nil {
+			_, _ = io.Copy(io.Discard, resp.Body)
+			resp.Body.Close()
+		}
+	}()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		cs := eng.Connections(10)
+		if len(cs) > 0 && cs[0].End == nil && cs[0].Download >= 64<<10 {
+			if tr := eng.Traffic(); tr.Down < 64<<10 || tr.Active < 1 || tr.Up == 0 {
+				t.Fatalf("总量 %+v", tr)
+			}
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatalf("进行中的连接没有实时字节数：%+v", eng.Connections(10))
+}

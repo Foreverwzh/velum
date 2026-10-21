@@ -31,6 +31,7 @@ import (
 	sblog "github.com/sagernet/sing-box/log"
 	"github.com/sagernet/sing-box/option"
 	tun "github.com/sagernet/sing-tun"
+	"github.com/sagernet/sing/common/bufio"
 	"github.com/sagernet/sing/common/json"
 	N "github.com/sagernet/sing/common/network"
 	"github.com/sagernet/sing/service"
@@ -65,17 +66,21 @@ type Engine struct {
 	ruleIdx  map[adapter.Rule]int
 
 	live    map[uint32]*engine.Connection
+	meters  map[uint32]*meter // 进行中连接的实时字节数
 	errs    map[uint32][]string
 	history []engine.Connection // 环形缓冲
 	next    int
 	subs    map[chan engine.Connection]struct{}
+
+	totalUp, totalDown atomic.Int64 // 引擎启动以来经过 Velum 的总字节数（含已结束的连接）
 }
 
 func New(opts Options) *Engine {
 	if opts.History <= 0 {
 		opts.History = defaultHistory
 	}
-	return &Engine{opts: opts, live: map[uint32]*engine.Connection{}, errs: map[uint32][]string{}, subs: map[chan engine.Connection]struct{}{}}
+	return &Engine{opts: opts, live: map[uint32]*engine.Connection{}, meters: map[uint32]*meter{}, errs: map[uint32][]string{},
+		subs: map[chan engine.Connection]struct{}{}}
 }
 
 var _ engine.Engine = (*Engine)(nil)
@@ -256,8 +261,12 @@ func (e *Engine) Connections(limit int) []engine.Connection {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	var out []engine.Connection
-	for _, c := range e.live {
-		out = append(out, *c)
+	for id, c := range e.live {
+		cc := *c
+		if m := e.meters[id]; m != nil {
+			cc.Upload, cc.Download = m.up.Load(), m.down.Load()
+		}
+		out = append(out, cc)
 	}
 	n := len(e.history)
 	for i := 0; i < n; i++ {
@@ -292,20 +301,47 @@ func (e *Engine) Subscribe() (<-chan engine.Connection, func()) {
 type tracker struct{ e *Engine }
 
 func (t *tracker) RoutedConnection(ctx context.Context, conn net.Conn, md adapter.InboundContext, rule adapter.Rule, ob adapter.Outbound) net.Conn {
-	c := t.e.begin(ctx, "tcp", md, rule, ob)
-	return &trackedConn{Conn: conn, e: t.e, c: c, start: time.Now()}
+	c, m := t.e.begin(ctx, "tcp", md, rule, ob)
+	read, write := t.e.countFuncs(m)
+	return &trackedConn{Conn: bufio.NewCounterConn(conn, read, write), e: t.e, c: c, m: m}
 }
 
 func (t *tracker) RoutedPacketConnection(ctx context.Context, conn N.PacketConn, md adapter.InboundContext, rule adapter.Rule, ob adapter.Outbound) N.PacketConn {
-	c := t.e.begin(ctx, "udp", md, rule, ob)
-	return &trackedPacketConn{PacketConn: conn, e: t.e, c: c, start: time.Now()}
+	c, m := t.e.begin(ctx, "udp", md, rule, ob)
+	read, write := t.e.countFuncs(m)
+	return &trackedPacketConn{PacketConn: bufio.NewCounterPacketConn(conn, read, write), e: t.e, c: c, m: m}
+}
+
+// countFuncs 返回入站侧连接的计数函数：读 = 客户端上行，写 = 远端下行；同时累计到引擎总量。
+// 使用 sing 的计数连接，内核的各条复制路径（含批量与零拷贝）都会计数。
+func (e *Engine) countFuncs(m *meter) (read, write []N.CountFunc) {
+	read = []N.CountFunc{func(n int64) {
+		m.up.Add(n)
+		e.totalUp.Add(n)
+	}}
+	write = []N.CountFunc{func(n int64) {
+		if n > 0 && m.firstByte.Load() == 0 {
+			m.firstByte.CompareAndSwap(0, time.Since(m.start).Milliseconds()+1)
+		}
+		m.down.Add(n)
+		e.totalDown.Add(n)
+	}}
+	return
+}
+
+// Traffic 返回引擎启动以来的总字节数与进行中的连接数。
+func (e *Engine) Traffic() engine.Traffic {
+	e.mu.Lock()
+	active := len(e.live)
+	e.mu.Unlock()
+	return engine.Traffic{Up: e.totalUp.Load(), Down: e.totalDown.Load(), Active: active}
 }
 
 func (t *tracker) RoutedFlow(context.Context, adapter.InboundContext, adapter.Rule, adapter.Outbound) tun.FlowTracker {
 	return nil
 }
 
-func (e *Engine) begin(ctx context.Context, network string, md adapter.InboundContext, rule adapter.Rule, ob adapter.Outbound) *engine.Connection {
+func (e *Engine) begin(ctx context.Context, network string, md adapter.InboundContext, rule adapter.Rule, ob adapter.Outbound) (*engine.Connection, *meter) {
 	c := &engine.Connection{Start: time.Now(), Network: network, Inbound: md.Inbound, Source: md.Source.String(),
 		Domain: md.Domain, Destination: md.Destination.String(), Sniffed: md.Protocol, RuleIndex: -1, FirstByteMS: -1}
 	if id, ok := sblog.IDFromContext(ctx); ok {
@@ -331,7 +367,9 @@ func (e *Engine) begin(ctx context.Context, network string, md adapter.InboundCo
 		c.Provenance = ir.Source{Kind: ir.SourceVelum, Text: "route.final"}
 	}
 	om := e.outbound
+	m := &meter{start: c.Start}
 	e.live[c.ID] = c
+	e.meters[c.ID] = m
 	e.mu.Unlock()
 	for cur, i := ob, 0; cur != nil && i < 8; i++ {
 		c.Chain = append(c.Chain, cur.Tag())
@@ -341,22 +379,23 @@ func (e *Engine) begin(ctx context.Context, network string, md adapter.InboundCo
 		}
 		cur, _ = om.Outbound(g.Now())
 	}
-	return c
+	return c, m
 }
 
-func (e *Engine) finish(c *engine.Connection, start, end time.Time, up, down, firstByte int64) {
+func (e *Engine) finish(c *engine.Connection, m *meter, end time.Time) {
 	time.Sleep(finishDelay) // 等待同一连接的错误日志
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	c.Upload, c.Download = up, down
-	if firstByte > 0 {
-		c.FirstByteMS = firstByte - 1
+	c.Upload, c.Download = m.up.Load(), m.down.Load()
+	if fb := m.firstByte.Load(); fb > 0 {
+		c.FirstByteMS = fb - 1
 	}
-	c.DurationMS = end.Sub(start).Milliseconds()
+	c.DurationMS = end.Sub(m.start).Milliseconds()
 	c.End = &end
 	c.Errors = append(c.Errors, e.errs[c.ID]...)
 	delete(e.errs, c.ID)
 	delete(e.live, c.ID)
+	delete(e.meters, c.ID)
 	e.pushLocked(*c)
 }
 
@@ -376,60 +415,38 @@ func (e *Engine) pushLocked(c engine.Connection) {
 	}
 }
 
-type counters struct {
-	up, down, firstByte atomic.Int64
+// meter 是一个连接的实时计数（由计数连接在数据面更新）。
+type meter struct {
+	start               time.Time
+	up, down, firstByte atomic.Int64 // firstByte：首个下行字节距开始的毫秒数 + 1，0 表示尚未收到
 	once                sync.Once
 }
 
 type trackedConn struct {
-	net.Conn
-	e     *Engine
-	c     *engine.Connection
-	start time.Time
-	counters
-}
-
-// 入站侧 conn：Read = 客户端上行；Write = 远端下行。
-func (t *trackedConn) Read(p []byte) (int, error) {
-	n, err := t.Conn.Read(p)
-	t.up.Add(int64(n))
-	return n, err
-}
-
-func (t *trackedConn) Write(p []byte) (int, error) {
-	if len(p) > 0 && t.firstByte.Load() == 0 {
-		t.firstByte.CompareAndSwap(0, time.Since(t.start).Milliseconds()+1)
-	}
-	n, err := t.Conn.Write(p)
-	t.down.Add(int64(n))
-	return n, err
+	net.Conn // 计数连接
+	e        *Engine
+	c        *engine.Connection
+	m        *meter
 }
 
 func (t *trackedConn) Close() error {
 	err := t.Conn.Close()
-	t.once.Do(func() {
-		end := time.Now()
-		go t.e.finish(t.c, t.start, end, t.up.Load(), t.down.Load(), t.firstByte.Load())
-	})
+	t.m.once.Do(func() { go t.e.finish(t.c, t.m, time.Now()) })
 	return err
 }
 
 func (t *trackedConn) Upstream() any { return t.Conn }
 
 type trackedPacketConn struct {
-	N.PacketConn
-	e     *Engine
-	c     *engine.Connection
-	start time.Time
-	counters
+	N.PacketConn // 计数连接
+	e            *Engine
+	c            *engine.Connection
+	m            *meter
 }
 
 func (t *trackedPacketConn) Close() error {
 	err := t.PacketConn.Close()
-	t.once.Do(func() {
-		end := time.Now()
-		go t.e.finish(t.c, t.start, end, t.up.Load(), t.down.Load(), t.firstByte.Load())
-	})
+	t.m.once.Do(func() { go t.e.finish(t.c, t.m, time.Now()) })
 	return err
 }
 

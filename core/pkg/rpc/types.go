@@ -148,6 +148,15 @@ type SwitchRequest struct {
 	TUN         string `json:"tun,omitempty"`
 }
 
+// Traffic 是经过 Velum 的实时流量（速率为最近一秒，字节 / 秒）。
+type Traffic struct {
+	Up       int64 `json:"up"`
+	Down     int64 `json:"down"`
+	UpRate   int64 `json:"up_rate"`
+	DownRate int64 `json:"down_rate"`
+	Active   int   `json:"active"`
+}
+
 type Status struct {
 	PID           int    `json:"pid"`
 	Version       string `json:"version"`
@@ -162,6 +171,7 @@ type Status struct {
 	SysProxy        SysProxyStatus `json:"sys_proxy"`
 	TUN             *TUNStatus     `json:"tun,omitempty"`
 	Network         *NetworkStatus `json:"network,omitempty"`
+	Traffic         *Traffic       `json:"traffic,omitempty"` // 引擎不支持统计时为空
 	Listen          string         `json:"listen"`
 	Home            string         `json:"home"`
 	StartedAt       time.Time      `json:"started_at"`

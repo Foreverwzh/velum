@@ -37,6 +37,7 @@ export interface WhyReport {
 export interface WhyResponse { report: WhyReport; chain?: string[]; resolved?: string[]; resolved_by?: string; resolve_error?: string; rule_set_errors?: Record<string, string> }
 export interface Warning { category: string; kind: string; level: string; reason: string; subject?: string; source: Source }
 export interface HelperStatus { socket: string; reachable: boolean; version: string; outdated?: boolean; error?: string }
+export interface Traffic { up: number; down: number; up_rate: number; down_rate: number; active: number }
 export interface RepairStep { name: string; ok: boolean; detail?: string }
 /** overlay 条目。domain 的 value 用 overlay 写法：x = 根域 + 子域，.x = 仅子域，=x = 仅此域名。 */
 export type OverlayKind = "domain" | "cidr" | "host" | "process" | "bypass";
@@ -72,8 +73,10 @@ export const api = {
   setSwitch: (which: "system_proxy" | "tun", value: "on" | "off" | "config") => call<Status>("POST", "/v1/switches", { [which]: value }),
   why: (target: string, opts: { resolved?: string[]; process?: string; network?: string; no_resolve?: boolean } = {}) =>
     call<WhyResponse>("POST", "/v1/why", { target, ...opts }),
-  connections: (limit = 200, host = "") =>
-    call<{ connections: Connection[] | null }>("GET", `/v1/connections?limit=${limit}${host ? `&host=${encodeURIComponent(host)}` : ""}`),
+  connections: (limit = 200, host = "", active = false) =>
+    call<{ connections: Connection[] | null }>("GET", `/v1/connections?limit=${limit}${host ? `&host=${encodeURIComponent(host)}` : ""}${active ? "&active=1" : ""}`),
+  /** 实时流量：总字节数与最近一秒的速率（字节 / 秒）。 */
+  traffic: () => call<Traffic>("GET", "/v1/traffic"),
   warnings: () => call<{ warnings: Warning[] | null }>("GET", "/v1/warnings"),
   select: (group: string, member: string) => call<Status>("POST", "/v1/groups/select", { group, member }),
   test: (group: string) => call<{ delays: Record<string, number> }>("POST", "/v1/groups/test", { group }),
@@ -111,6 +114,13 @@ export function srcText(s?: Source): string {
   let loc = s.file ? s.file.split("/").pop()! : s.kind;
   if (s.line) loc += `:${s.line}`;
   return s.text ? `${loc}  ${s.text}` : loc;
+}
+
+/** 速率：1.2 MB/s、30 KB/s。 */
+export function rate(n: number): string {
+  if (n >= 1 << 20) return (n / (1 << 20)).toFixed(1) + " MB/s";
+  if (n >= 1 << 10) return Math.round(n / (1 << 10)) + " KB/s";
+  return Math.round(n) + " B/s";
 }
 
 export function human(n: number): string {

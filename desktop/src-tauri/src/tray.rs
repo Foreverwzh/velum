@@ -4,12 +4,13 @@
 //! 菜单打开时也不会闪动。
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{LazyLock, Mutex};
 
 use serde_json::Value;
 use tauri::{
     menu::{CheckMenuItem, IsMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu},
-    AppHandle, Wry,
+    AppHandle, Manager, Wry,
 };
 
 use crate::{system, velum};
@@ -22,6 +23,8 @@ struct Items {
     built: bool,
     signature: String,
     status: Option<MenuItem<Wry>>,
+    traffic: Option<MenuItem<Wry>>,
+    speed_title: Option<CheckMenuItem<Wry>>,
     sysproxy: Option<CheckMenuItem<Wry>>,
     tun: Option<CheckMenuItem<Wry>>,
     autostart: Option<CheckMenuItem<Wry>>,
@@ -40,15 +43,16 @@ fn member_id(group: &str, member: &str) -> String {
 fn group_title(g: &Value) -> String {
     let tag = g["tag"].as_str().unwrap_or("");
     match g["selected"].as_str().filter(|s| !s.is_empty()) {
-        Some(sel) => format!("{tag}：{sel}"),
+        // '\t' 之后的部分右对齐（macOS 见 menu_tabs，Windows 菜单原生支持）
+        Some(sel) => format!("{tag}\t{sel}"),
         None => tag.to_string(),
     }
 }
 
 fn member_label(g: &Value, m: &str) -> String {
     match g["delays"][m].as_i64() {
-        Some(d) if d < 0 => format!("{m}  ·  超时"),
-        Some(d) => format!("{m}  ·  {d} ms"),
+        Some(d) if d < 0 => format!("{m}\t超时"),
+        Some(d) => format!("{m}\t{d} ms"),
         None => m.to_string(),
     }
 }
@@ -87,6 +91,8 @@ fn build(app: &AppHandle, groups: &[Value]) -> tauri::Result<(Menu<Wry>, Items)>
 
     let status = MenuItem::with_id(app, "status", "Velum：启动中…", false, None::<&str>)?;
     menu.append(&status)?;
+    let traffic = MenuItem::with_id(app, "traffic", "实时流量\t—", false, None::<&str>)?;
+    menu.append(&traffic)?;
     menu.append(&MenuItem::with_id(
         app,
         "open",
@@ -168,16 +174,25 @@ fn build(app: &AppHandle, groups: &[Value]) -> tauri::Result<(Menu<Wry>, Items)>
         system::autostart_get(),
         None::<&str>,
     )?;
+    let speed_title = CheckMenuItem::with_id(
+        app,
+        "speedtitle",
+        "在菜单栏显示网速",
+        cfg!(target_os = "macos"), // 只有 macOS 的菜单栏能在图标旁显示文字
+        SPEED_TITLE.load(Ordering::Relaxed),
+        None::<&str>,
+    )?;
     let reload = MenuItem::with_id(app, "reload", "重新加载配置", true, Some("CmdOrCtrl+R"))?;
     let update = MenuItem::with_id(app, "update", "更新订阅", true, Some("CmdOrCtrl+U"))?;
     let repair = MenuItem::with_id(app, "repair", "一键修复", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "退出 Velum", true, Some("CmdOrCtrl+Q"))?;
-    let rest: [&dyn IsMenuItem<Wry>; 11] = [
+    let rest: [&dyn IsMenuItem<Wry>; 12] = [
         &sysproxy,
         &tun,
         &shell,
         &sep()?,
         &autostart,
+        &speed_title,
         &sep()?,
         &reload,
         &update,
@@ -190,6 +205,8 @@ fn build(app: &AppHandle, groups: &[Value]) -> tauri::Result<(Menu<Wry>, Items)>
     }
 
     items.status = Some(status);
+    items.traffic = Some(traffic);
+    items.speed_title = Some(speed_title);
     items.sysproxy = Some(sysproxy);
     items.tun = Some(tun);
     items.autostart = Some(autostart);
@@ -285,6 +302,93 @@ pub fn refresh(app: &AppHandle, status: Option<&Value>, text: &str) {
             }
         }
     }
+    // 菜单打开时改写标题会清掉右对齐排版，重新应用
+    #[cfg(target_os = "macos")]
+    crate::menu_tabs::reformat(app);
+}
+
+// ---------------- 实时流量 ----------------
+
+/// 是否在菜单栏图标旁显示网速（偏好保存在 App 配置目录的 tray.json）。
+static SPEED_TITLE: AtomicBool = AtomicBool::new(false);
+
+fn prefs_path(app: &AppHandle) -> Option<std::path::PathBuf> {
+    app.path().app_config_dir().ok().map(|d| d.join("tray.json"))
+}
+
+/// 读取托盘偏好；在构建菜单之前调用。
+pub fn load_prefs(app: &AppHandle) {
+    let on = prefs_path(app)
+        .and_then(|p| std::fs::read(p).ok())
+        .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
+        .and_then(|v| v["menubar_speed"].as_bool())
+        .unwrap_or(false);
+    SPEED_TITLE.store(on, Ordering::Relaxed);
+}
+
+fn save_prefs(app: &AppHandle) {
+    if let Some(p) = prefs_path(app) {
+        let _ = std::fs::create_dir_all(p.parent().unwrap());
+        let v = serde_json::json!({ "menubar_speed": SPEED_TITLE.load(Ordering::Relaxed) });
+        let _ = std::fs::write(p, v.to_string());
+    }
+}
+
+/// 速率的可读形式：1.2 MB/s、30 KB/s。
+fn rate(b: i64) -> String {
+    let b = b.max(0) as f64;
+    if b >= 1024.0 * 1024.0 {
+        format!("{:.1} MB/s", b / 1024.0 / 1024.0)
+    } else if b >= 1024.0 {
+        format!("{:.0} KB/s", b / 1024.0)
+    } else {
+        format!("{b:.0} B/s")
+    }
+}
+
+/// 菜单栏中的紧凑形式：1.2M、30K。
+fn rate_short(b: i64) -> String {
+    let b = b.max(0) as f64;
+    if b >= 1024.0 * 1024.0 {
+        format!("{:.1}M", b / 1024.0 / 1024.0)
+    } else if b >= 1024.0 {
+        format!("{:.0}K", b / 1024.0)
+    } else {
+        format!("{b:.0}B")
+    }
+}
+
+/// 按 /v1/traffic 更新菜单中的实时流量行与菜单栏网速；traffic 为 None 表示未连上。
+pub fn traffic(app: &AppHandle, t: Option<&Value>) {
+    let (up, down) = t
+        .map(|t| (t["up_rate"].as_i64().unwrap_or(0), t["down_rate"].as_i64().unwrap_or(0)))
+        .unwrap_or((0, 0));
+    let text = match t {
+        Some(_) => format!("实时流量\t↓ {}   ↑ {}", rate(down), rate(up)),
+        None => "实时流量\t—".to_string(),
+    };
+    let changed = {
+        let mut it = ITEMS.lock().unwrap();
+        let Items { traffic, last, .. } = &mut *it;
+        match traffic {
+            Some(item) if last.get("traffic") != Some(&(text.clone(), false)) => {
+                let _ = item.set_text(&text);
+                last.insert("traffic".into(), (text, false));
+                true
+            }
+            _ => false,
+        }
+    };
+    if changed {
+        #[cfg(target_os = "macos")]
+        crate::menu_tabs::reformat(app);
+    }
+    if SPEED_TITLE.load(Ordering::Relaxed) {
+        if let Some(tray) = app.tray_by_id("main") {
+            let title = t.map(|_| format!("↓{} ↑{}", rate_short(down), rate_short(up)));
+            let _ = tray.set_title(title.as_deref());
+        }
+    }
 }
 
 /// 取当前状态并刷新菜单（菜单操作之后立即反映结果，不等下一次轮询）。
@@ -323,6 +427,19 @@ pub fn handle(app: &AppHandle, id: &str) {
             }
         }
         (Some("copyshell"), ..) => copy_shell_command(),
+        (Some("speedtitle"), ..) => {
+            let on = !SPEED_TITLE.load(Ordering::Relaxed);
+            SPEED_TITLE.store(on, Ordering::Relaxed);
+            save_prefs(app);
+            if let Some(item) = &ITEMS.lock().unwrap().speed_title {
+                let _ = item.set_checked(on);
+            }
+            if !on {
+                if let Some(t) = app.tray_by_id("main") {
+                    let _ = t.set_title(None::<&str>);
+                }
+            }
+        }
         (Some("reload"), ..) => {
             let _ = velum::call("POST", "/v1/reload", None);
         }

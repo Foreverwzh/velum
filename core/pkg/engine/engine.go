@@ -88,6 +88,13 @@ type Connection struct {
 	Untracked bool `json:"untracked,omitempty"`
 }
 
+// Traffic 是经过引擎的流量统计。
+type Traffic struct {
+	Up     int64 `json:"up"`   // 引擎启动以来的上行总字节数
+	Down   int64 `json:"down"` // 下行总字节数
+	Active int   `json:"active"`
+}
+
 // Engine 是数据面引擎。
 type Engine interface {
 	Start(ctx context.Context, cfg Config) error
