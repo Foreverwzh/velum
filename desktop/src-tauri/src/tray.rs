@@ -493,6 +493,8 @@ pub fn traffic(app: &AppHandle, t: Option<&Value>, conns: &[Value]) {
         });
         crate::menu_tabs::speed_title(app, lines);
     }
+    #[cfg(not(target_os = "macos"))]
+    let _ = t; // 只有 macOS 的菜单栏能显示网速
 }
 
 /// 取当前状态并刷新菜单（菜单操作之后立即反映结果，不等下一次轮询）。
