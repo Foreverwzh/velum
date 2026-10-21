@@ -9,7 +9,8 @@ use std::sync::{LazyLock, Mutex};
 
 use serde_json::Value;
 use tauri::{
-    menu::{CheckMenuItem, IsMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu},
+    image::Image,
+    menu::{CheckMenuItem, IconMenuItem, IsMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu},
     AppHandle, Manager, Wry,
 };
 
@@ -31,7 +32,7 @@ struct Items {
     menu: Option<Menu<Wry>>,
     /// 活跃客户端分区：标题、各行、分隔线；没有客户端时整个分区不显示
     client_head: Option<MenuItem<Wry>>,
-    client_rows: Vec<MenuItem<Wry>>,
+    client_rows: Vec<IconMenuItem<Wry>>,
     client_sep: Option<PredefinedMenuItem<Wry>>,
     members: HashMap<String, CheckMenuItem<Wry>>, // id = 组 SEP 成员
     /// 上次写入的文字与勾选，只在变化时更新
@@ -421,6 +422,28 @@ fn clients(conns: &[Value]) -> Vec<(String, String, i64)> {
         .collect()
 }
 
+/// 客户端名称过长（如带哈希的可执行文件名）时截去中间，避免把菜单撑宽：菜单打开期间变宽后不会再缩回。
+fn short(name: &str) -> String {
+    const HEAD: usize = 16;
+    const TAIL: usize = 8;
+    let chars: Vec<char> = name.chars().collect();
+    if chars.len() <= HEAD + TAIL + 1 {
+        return name.to_string();
+    }
+    format!("{}…{}", chars[..HEAD].iter().collect::<String>(), chars[chars.len() - TAIL..].iter().collect::<String>())
+}
+
+/// 客户端的应用图标（macOS）；其他平台不显示图标。
+fn app_icon(path: &str) -> Option<Image<'static>> {
+    #[cfg(target_os = "macos")]
+    return crate::menu_tabs::icon_png(path).and_then(|b| Image::from_bytes(&b).ok());
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = path;
+        None
+    }
+}
+
 /// 更新活跃客户端分区（位于策略组与开关之间）；行数变化时重建分区，否则只改文字。
 fn set_clients(app: &AppHandle, rows: &[(String, String, i64)]) -> bool {
     let mut it = ITEMS.lock().unwrap();
@@ -452,7 +475,7 @@ fn set_clients(app: &AppHandle, rows: &[(String, String, i64)]) -> bool {
             };
             let _ = menu.insert(&head, pos);
             for i in 0..rows.len() {
-                if let Ok(row) = MenuItem::with_id(app, format!("client{SEP}{i}"), "", true, None::<&str>) {
+                if let Ok(row) = IconMenuItem::with_id(app, format!("client{SEP}{i}"), "", true, None, None::<&str>) {
                     let _ = menu.insert(&row, pos + 1 + it.client_rows.len());
                     it.client_rows.push(row);
                 }
@@ -465,12 +488,14 @@ fn set_clients(app: &AppHandle, rows: &[(String, String, i64)]) -> bool {
     }
     let Items { client_rows, last, .. } = &mut *it;
     for (i, ((name, icon, rate_), row)) in rows.iter().zip(client_rows.iter()).enumerate() {
-        let text = format!("{name}\t{}", rate(*rate_));
+        let key = format!("clienticon{i}");
+        if last.get(&key) != Some(&(icon.clone(), false)) {
+            let _ = row.set_icon(app_icon(icon));
+            last.insert(key, (icon.clone(), false));
+        }
+        let text = format!("{}\t{}", short(name), rate(*rate_));
         let key = format!("client{i}");
         if last.get(&key) != Some(&(text.clone(), false)) {
-            #[cfg(target_os = "macos")]
-            crate::menu_tabs::set_icon(name, icon);
-            let _ = icon;
             let _ = row.set_text(&text);
             last.insert(key, (text, false));
             changed = true;
@@ -623,6 +648,15 @@ fn set_clipboard(text: &str) -> std::io::Result<()> {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn short_name() {
+        assert_eq!(short("豆包输入法"), "豆包输入法");
+        assert_eq!(
+            short("smeltd-0477e9dce437e6a5560e4a88a05eaa895204af2edc43069252e9ff141d3025df"),
+            "smeltd-0477e9dce…1d3025df"
+        );
+    }
 
     #[test]
     fn rate_text() {

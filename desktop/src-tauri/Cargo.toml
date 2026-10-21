@@ -20,8 +20,8 @@ serde_json = "1"
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
 block2 = "0.6"
-objc2-foundation = { version = "0.3", default-features = false, features = ["std", "block2", "NSArray", "NSAttributedString", "NSDictionary", "NSFileManager", "NSGeometry", "NSNotification", "NSObject", "NSOperation", "NSString", "NSValue"] }
-objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "objc2-core-foundation", "NSAttributedString", "NSButton", "NSColor", "NSControl", "NSFont", "NSFontDescriptor", "NSImage", "NSMenu", "NSMenuItem", "NSParagraphStyle", "NSResponder", "NSStatusBar", "NSStatusBarButton", "NSStatusItem", "NSStringDrawing", "NSText", "NSView", "NSWorkspace"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "block2", "NSArray", "NSAttributedString", "NSDictionary", "NSFileManager", "NSGeometry", "NSNotification", "NSObject", "NSData", "NSOperation", "NSString", "NSValue"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "objc2-core-foundation", "NSAttributedString", "NSBitmapImageRep", "NSButton", "NSColor", "NSControl", "NSFont", "NSFontDescriptor", "NSGraphics", "NSGraphicsContext", "NSImage", "NSImageRep", "NSMenu", "NSMenuItem", "NSParagraphStyle", "NSResponder", "NSStatusBar", "NSStatusBarButton", "NSStatusItem", "NSStringDrawing", "NSText", "NSView", "NSWorkspace"] }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_UI_Shell", "Win32_System_Threading", "Win32_UI_WindowsAndMessaging", "Win32_System_Registry", "Win32_Security", "Win32_Security_Authorization", "Win32_System_IO"] }

@@ -4,7 +4,7 @@
 //! （NSMenuDidBeginTrackingNotification）把含 '\t' 的标题改为带右对齐制表位的富文本；
 //! Windows 的菜单原生把 '\t' 之后的文字右对齐，无需处理。
 //!
-//! 同时负责 Tauri 做不到的其他 macOS 菜单栏排版：活跃客户端的应用图标、菜单栏图标旁的两行网速。
+//! 同时提供 Tauri 做不到的其他 macOS 菜单栏能力：活跃客户端的应用图标与名称、菜单栏图标旁的两行网速。
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -16,14 +16,15 @@ use objc2::rc::Retained;
 use objc2::runtime::AnyObject;
 use objc2::{AllocAnyThread, MainThreadMarker};
 use objc2_app_kit::{
-    NSAttributedStringNSStringDrawing, NSBaselineOffsetAttributeName, NSColor, NSFont, NSFontAttributeName, NSFontWeightMedium,
-    NSForegroundColorAttributeName, NSImage, NSMenu, NSMenuDidBeginTrackingNotification,
+    NSAttributedStringNSStringDrawing, NSBaselineOffsetAttributeName, NSBitmapImageFileType,
+    NSBitmapImageRep, NSColor, NSDeviceRGBColorSpace, NSGraphicsContext, NSFont, NSFontAttributeName, NSFontWeightMedium,
+    NSForegroundColorAttributeName, NSMenu, NSMenuDidBeginTrackingNotification,
     NSMenuDidEndTrackingNotification, NSMutableParagraphStyle, NSParagraphStyleAttributeName,
     NSTextAlignment, NSTextTab, NSWorkspace,
 };
 use objc2_foundation::{
     NSArray, NSAttributedString, NSAttributedStringKey, NSDictionary, NSFileManager,
-    NSNotification, NSNotificationCenter, NSNumber, NSSize, NSString,
+    NSNotification, NSNotificationCenter, NSNumber, NSPoint, NSRect, NSSize, NSString,
 };
 use tauri::AppHandle;
 
@@ -35,34 +36,53 @@ const BASELINE: f64 = -4.5;
 thread_local! {
     /// 正在显示的菜单（只在主线程访问）。
     static OPEN: RefCell<Option<Retained<NSMenu>>> = const { RefCell::new(None) };
-    /// 已加载的应用图标，按文件路径缓存（只在主线程访问）。
-    static IMAGES: RefCell<HashMap<String, Retained<NSImage>>> = RefCell::new(HashMap::new());
 }
 
-/// 活跃客户端行的名称 → 图标所取的文件（.app 或可执行文件）。
-static ICONS: LazyLock<Mutex<HashMap<String, String>>> = LazyLock::new(Default::default);
-
-/// 登记菜单项（按 '\t' 之前的名称）要显示的应用图标；下次排版时生效。
-pub fn set_icon(name: &str, path: &str) {
-    ICONS.lock().unwrap().insert(name.to_string(), path.to_string());
-}
+/// 应用图标（PNG），按文件路径缓存。
+static ICONS: LazyLock<Mutex<HashMap<String, Option<Vec<u8>>>>> = LazyLock::new(Default::default);
 
 /// 应用在 Finder 中的显示名（本地化，不带 .app），如「豆包输入法」。
 pub fn display_name(path: &str) -> String {
     NSFileManager::defaultManager().displayNameAtPath(&NSString::from_str(path)).to_string()
 }
 
-fn icon(path: &str) -> Retained<NSImage> {
-    IMAGES.with(|m| {
-        m.borrow_mut()
-            .entry(path.to_string())
-            .or_insert_with(|| {
-                let img = NSWorkspace::sharedWorkspace().iconForFile(&NSString::from_str(path));
-                img.setSize(NSSize::new(16.0, 16.0));
-                img
-            })
-            .clone()
-    })
+/// 文件（.app 或可执行文件）在 Finder 中的图标，绘制为 32×32 的 PNG（菜单中显示为 16pt）。
+///
+/// 图标作为菜单项自带的图标在创建时设置：菜单开始显示后再设置的图标不会显示（布局已确定）。
+pub fn icon_png(path: &str) -> Option<Vec<u8>> {
+    ICONS
+        .lock()
+        .unwrap()
+        .entry(path.to_string())
+        .or_insert_with(|| render_icon(path, 32))
+        .clone()
+}
+
+fn render_icon(path: &str, px: isize) -> Option<Vec<u8>> {
+    let img = NSWorkspace::sharedWorkspace().iconForFile(&NSString::from_str(path));
+    let rep = unsafe {
+        NSBitmapImageRep::initWithBitmapDataPlanes_pixelsWide_pixelsHigh_bitsPerSample_samplesPerPixel_hasAlpha_isPlanar_colorSpaceName_bytesPerRow_bitsPerPixel(
+            NSBitmapImageRep::alloc(),
+            std::ptr::null_mut(),
+            px,
+            px,
+            8,
+            4,
+            true,
+            false,
+            NSDeviceRGBColorSpace,
+            0,
+            0,
+        )
+    }?;
+    let ctx = NSGraphicsContext::graphicsContextWithBitmapImageRep(&rep)?;
+    NSGraphicsContext::saveGraphicsState_class();
+    NSGraphicsContext::setCurrentContext(Some(&ctx));
+    img.drawInRect(NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(px as f64, px as f64)));
+    ctx.flushGraphics();
+    NSGraphicsContext::restoreGraphicsState_class();
+    let data = unsafe { rep.representationUsingType_properties(NSBitmapImageFileType::PNG, &NSDictionary::new()) }?;
+    Some(data.to_vec())
 }
 
 /// 注册菜单显示通知；在 setup 中调用一次。
@@ -127,7 +147,6 @@ fn format(menu: &NSMenu) {
     let plain = attrs(&font, None, None, None);
     let width = |s: &str| unsafe { NSAttributedString::new_with_attributes(&NSString::from_str(s), &plain) }.size().width;
 
-    let icons = ICONS.lock().unwrap().clone();
     let items = menu.itemArray();
     let mut rows = Vec::new();
     let (mut left, mut right) = (0.0f64, 0.0f64);
@@ -139,11 +158,6 @@ fn format(menu: &NSMenu) {
         if let Some((l, r)) = title.split_once('\t') {
             left = left.max(width(l));
             right = right.max(width(r));
-            if item.submenu().is_none() {
-                if let Some(path) = icons.get(l) {
-                    item.setImage(Some(&icon(path)));
-                }
-            }
             rows.push((item, title));
         }
     }
