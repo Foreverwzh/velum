@@ -1,18 +1,126 @@
 @import "tailwindcss";
 
+/*
+ * Velum 设计令牌：界面颜色只经这些变量取用，深浅色各写一套（跟随系统）。
+ * 基调克制，强调色是 Velum 青（受保护 = 青色）；琥珀表示暂停 / 降级，红色表示错误 / 超时。
+ */
+:root {
+  --bg: #f7f7f8;
+  --sidebar: #f0f0f2;
+  --panel: #ffffff;
+  --raised: #ffffff;
+  --hover: rgba(15, 17, 21, 0.045);
+  --active: rgba(15, 17, 21, 0.075);
+  --line: rgba(15, 17, 21, 0.08);
+  --line-strong: rgba(15, 17, 21, 0.14);
+  --fg: #16171a;
+  --fg-2: #55585f;
+  --fg-3: #6f727a;
+  --accent: #0b8f7e;
+  --accent-strong: #08786a;
+  --accent-soft: rgba(11, 143, 126, 0.1);
+  --on-accent: #ffffff;
+  --warn: #a3650a;
+  --warn-soft: rgba(214, 140, 20, 0.13);
+  --err: #c9343b;
+  --err-soft: rgba(201, 52, 59, 0.1);
+  --info: #3b6fd1;
+  --info-soft: rgba(59, 111, 209, 0.1);
+  --shadow-pop: 0 12px 32px -8px rgba(15, 17, 21, 0.18), 0 2px 6px rgba(15, 17, 21, 0.06);
+  --shadow-raise: 0 1px 2px rgba(15, 17, 21, 0.05);
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0d0e10;
+    --sidebar: #111214;
+    --panel: #141518;
+    --raised: #1a1b1f;
+    --hover: rgba(255, 255, 255, 0.045);
+    --active: rgba(255, 255, 255, 0.08);
+    --line: rgba(255, 255, 255, 0.07);
+    --line-strong: rgba(255, 255, 255, 0.12);
+    --fg: #ecedee;
+    --fg-2: #a3a6ad;
+    --fg-3: #80838b;
+    --accent: #3fd1bd;
+    --accent-strong: #5fe0cd;
+    --accent-soft: rgba(63, 209, 189, 0.12);
+    --on-accent: #062520;
+    --warn: #f0b552;
+    --warn-soft: rgba(240, 181, 82, 0.13);
+    --err: #f2676b;
+    --err-soft: rgba(242, 103, 107, 0.12);
+    --info: #86a9f7;
+    --info-soft: rgba(134, 169, 247, 0.13);
+    --shadow-pop: 0 16px 40px -8px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.06);
+    --shadow-raise: 0 1px 2px rgba(0, 0, 0, 0.4);
+    color-scheme: dark;
+  }
+}
+
 @theme {
-  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Segoe UI", system-ui, sans-serif;
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Segoe UI", "Microsoft YaHei UI", system-ui, sans-serif;
   --font-mono: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+
+  --color-bg: var(--bg);
+  --color-sidebar: var(--sidebar);
+  --color-panel: var(--panel);
+  --color-raised: var(--raised);
+  --color-hover: var(--hover);
+  --color-active: var(--active);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-fg: var(--fg);
+  --color-fg-2: var(--fg-2);
+  --color-fg-3: var(--fg-3);
+  --color-accent: var(--accent);
+  --color-accent-strong: var(--accent-strong);
+  --color-accent-soft: var(--accent-soft);
+  --color-on-accent: var(--on-accent);
+  --color-warn: var(--warn);
+  --color-warn-soft: var(--warn-soft);
+  --color-err: var(--err);
+  --color-err-soft: var(--err-soft);
+  --color-info: var(--info);
+  --color-info-soft: var(--info-soft);
+
+  --shadow-pop: var(--shadow-pop);
+  --shadow-raise: var(--shadow-raise);
+
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 html, body, #root { height: 100%; }
 body {
   margin: 0;
-  @apply bg-neutral-100 text-neutral-900 antialiased dark:bg-neutral-900 dark:text-neutral-100;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-sans);
   font-size: 13px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
   -webkit-user-select: none;
   user-select: none;
+  cursor: default;
 }
 .selectable, input, textarea { -webkit-user-select: text; user-select: text; }
-::-webkit-scrollbar { width: 8px; height: 8px; }
-::-webkit-scrollbar-thumb { @apply rounded-full bg-neutral-300 dark:bg-neutral-700; }
+::selection { background: var(--accent-soft); color: var(--fg); }
+input, textarea { caret-color: var(--accent); }
+.tnum { font-variant-numeric: tabular-nums; }
+
+:focus { outline: none; }
+/* 输入框由外框变色表示焦点，其余可交互元素用强调色描边 */
+:where(button, a, [role="switch"], [tabindex]):focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--line-strong); border-radius: 10px; border: 3px solid transparent; background-clip: content-box; }
+::-webkit-scrollbar-thumb:hover { background-color: var(--fg-3); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}
+
+@keyframes fade { from { opacity: 0; } }

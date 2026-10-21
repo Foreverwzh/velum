@@ -1,2 +1,5 @@
 cache.db
 .DS_Store
+
+# 设计过程中的草图与临时文件
+.impeccable/
