@@ -595,6 +595,60 @@ func TestSystemDNSSplitResolvers(t *testing.T) {
 	}
 }
 
+// overlay 里同时写了企业 VPN 的内网域名 / 网段：仍按 NetworkSense 经 VPN 网卡、交给 /etc/resolver 指定的 DNS；
+// 否则 TUN 接管系统 DNS 后这些域名经物理网络 DNS 解析（NXDOMAIN），并从物理网卡直连。没有检测到时照常直连。
+func TestOverlayDefersToNetworkSense(t *testing.T) {
+	s, _ := subscription.Parse([]byte(sub), subscription.Options{})
+	o, _ := overlay.Parse([]byte("dev_bypass:\n  domains:\n    - corp-net.example\n  cidrs:\n    - 10.0.0.0/8\n"))
+	mk := func(env *compiler.Environment) *compiler.Plan {
+		p, err := compiler.Compile(s, o, compiler.Options{Mode: compiler.ModeTUN, Listen: netip.MustParseAddrPort("127.0.0.1:7899"), Platform: "darwin",
+			TUN: compiler.TUNOptions{Address: netip.MustParsePrefix("172.19.0.1/30"), DNSHijack: true}, Env: env})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	first := func(p *compiler.Plan) (dns, domain, cidr string) {
+		for _, r := range p.IR.DNS.Rules {
+			if r.Match.Cond != nil && slices.Contains(r.Match.Cond.DomainSuffix, "corp-net.example") {
+				dns = r.Server
+				break
+			}
+		}
+		for _, r := range p.IR.Rules {
+			if c := r.Match.Cond; c != nil && domain == "" && slices.Contains(c.DomainSuffix, "corp-net.example") {
+				domain = r.Action.Outbound
+			}
+			if c := r.Match.Cond; c != nil && cidr == "" && slices.Contains(c.IPCIDR, "10.0.0.0/8") {
+				cidr = r.Action.Outbound
+			}
+		}
+		return
+	}
+
+	vpn := compiler.VPNOutbound("utun8")
+	dns, domain, cidr := first(mk(&compiler.Environment{PhysicalDNS: []string{"192.168.3.1"},
+		SplitVPNs:        []compiler.EnvVPN{{Iface: "utun8", Routes: []netip.Prefix{netip.MustParsePrefix("10.0.0.0/8")}}},
+		SystemDNSDomains: []string{"corp-net.example"},
+		SystemResolvers:  []compiler.EnvResolver{{Domain: "corp-net.example", Nameservers: []string{"127.0.0.1", "10.8.3.129"}}}}))
+	if dns == compiler.LocalDNS || domain != vpn || cidr != vpn {
+		t.Fatalf("应优先按 NetworkSense：dns=%s domain=%s cidr=%s", dns, domain, cidr)
+	}
+
+	// 在办公网：没有 VPN 网卡，只有 /etc/resolver
+	dns, domain, _ = first(mk(&compiler.Environment{PhysicalDNS: []string{"192.168.3.1"},
+		SystemDNSDomains: []string{"corp-net.example"},
+		SystemResolvers:  []compiler.EnvResolver{{Domain: "corp-net.example", Nameservers: []string{"127.0.0.1", "10.8.3.129"}}}}))
+	if dns == compiler.LocalDNS || domain != ir.OutboundDirect {
+		t.Fatalf("应交给 /etc/resolver 的 DNS 并直连：dns=%s domain=%s", dns, domain)
+	}
+
+	dns, domain, cidr = first(mk(&compiler.Environment{PhysicalDNS: []string{"192.168.3.1"}}))
+	if dns != compiler.LocalDNS || domain != ir.OutboundDirect || cidr != ir.OutboundDirect {
+		t.Fatalf("没有检测到时照常直连：dns=%s domain=%s cidr=%s", dns, domain, cidr)
+	}
+}
+
 // 订阅显式 ipv6: false：TUN 下拒绝连向 IPv6 地址的连接（排在订阅规则之前），应用立即回落到 IPv4。
 func TestIPv6DisabledRejectsInTUN(t *testing.T) {
 	has := func(text string, mode string) (bool, bool) {

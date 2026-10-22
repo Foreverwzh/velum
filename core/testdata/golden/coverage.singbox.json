@@ -806,6 +806,32 @@
       },
       {
         "action": "resolve",
+        "ip_cidr": [
+          "172.20.0.0/16"
+        ]
+      },
+      {
+        "action": "route",
+        "ip_cidr": [
+          "172.20.0.0/16"
+        ],
+        "outbound": "VPN:utun7"
+      },
+      {
+        "action": "resolve",
+        "domain_suffix": [
+          "corp.example"
+        ]
+      },
+      {
+        "action": "route",
+        "domain_suffix": [
+          "corp.example"
+        ],
+        "outbound": "VPN:utun7"
+      },
+      {
+        "action": "resolve",
         "domain_suffix": [
           "corp.example.com"
         ]
@@ -881,32 +907,6 @@
         "process_name": [
           "SomeVPNClient"
         ]
-      },
-      {
-        "action": "resolve",
-        "ip_cidr": [
-          "172.20.0.0/16"
-        ]
-      },
-      {
-        "action": "route",
-        "ip_cidr": [
-          "172.20.0.0/16"
-        ],
-        "outbound": "VPN:utun7"
-      },
-      {
-        "action": "resolve",
-        "domain_suffix": [
-          "corp.example"
-        ]
-      },
-      {
-        "action": "route",
-        "domain_suffix": [
-          "corp.example"
-        ],
-        "outbound": "VPN:utun7"
       },
       {
         "action": "route",

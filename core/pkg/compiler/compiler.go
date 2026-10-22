@@ -207,47 +207,6 @@ func Compile(sub *ir.Config, ov *overlay.Overlay, opts Options) (*Plan, error) {
 		cfg.DNS.Servers = append(cfg.DNS.Servers, ir.DNSServer{Tag: SystemHostsDNS, Type: "hosts", Source: src})
 		cfg.DNS.Rules = append(cfg.DNS.Rules, ir.DNSRule{PreferredBy: SystemHostsDNS, Server: SystemHostsDNS, Source: src})
 	}
-	for _, d := range ov.Domains {
-		name, kind := overlay.ParseDomain(d.Value)
-		if name == "" {
-			continue
-		}
-		src := ovSrc(d.Line, "domains: "+d.Value)
-		var c ir.Cond
-		switch kind {
-		case overlay.DomainExact:
-			c.Domain = []string{name}
-		case overlay.DomainSubOnly:
-			c.DomainSuffix = []string{"." + name}
-		default:
-			c.DomainSuffix = []string{name}
-		}
-		rules = append(rules, ir.Rule{Match: ir.Leaf(c), Action: direct, Source: src})
-		cfg.DNS.Rules = append(cfg.DNS.Rules, ir.DNSRule{Match: ir.Leaf(c), Server: LocalDNS, Source: src})
-		for _, pat := range sysProxyPatterns(name, kind) {
-			if h := coveredHost(pat, hostDomains); h != "" {
-				// 豁免会让浏览器绕过 Velum 直连并使用系统 DNS，hosts 覆盖随之失效（ARCHITECTURE §4.2）。
-				warn("domains", ir.Degraded, fmt.Sprintf("豁免写法 %s 会覆盖 hosts 主机 %s，已不写入系统代理豁免；这些域名改为经 Velum 代理端口直连", pat, h), d.Value, src)
-				continue
-			}
-			p.SysProxy.Exceptions = append(p.SysProxy.Exceptions, Exception{pat, src})
-		}
-	}
-	if len(ov.CIDRs) > 0 {
-		for _, cidr := range ov.CIDRs {
-			src := ovSrc(cidr.Line, "cidrs: "+cidr.Value)
-			rules = append(rules, ir.Rule{Match: ir.Leaf(ir.Cond{IPCIDR: []string{cidr.Value}, NoResolve: true}), Action: direct, Source: src})
-			p.SysProxy.Exceptions = append(p.SysProxy.Exceptions, Exception{cidr.Value, src})
-		}
-	}
-	for _, pr := range ov.Processes {
-		src := ovSrc(pr.Line, "processes: "+pr.Value)
-		if opts.Platform == "ios" {
-			warn("processes", ir.Unsupported, "iOS 不支持进程规则，已忽略", pr.Value, src)
-			continue
-		}
-		rules = append(rules, ir.Rule{Match: ir.Leaf(ir.Cond{ProcessName: []string{pr.Value}}), Action: direct, Source: src})
-	}
 
 	// ---- NetworkSense：分流型 VPN 的网段与域名走该 VPN（优先于订阅）----
 	var envExclude []netip.Prefix
@@ -307,6 +266,51 @@ func Compile(sub *ir.Config, ov *overlay.Overlay, opts Options) (*Plan, error) {
 			}
 			return ob
 		})
+	}
+
+	// ---- Overlay 直连域名 / 网段 / 进程：排在 NetworkSense 之后 ----
+	// 检测到的 VPN 与系统 DNS 分流更具体：同时写在 overlay 里的内网域名仍要经 VPN 网卡、交给 /etc/resolver 指定的 DNS 解析；
+	// 否则会从物理网卡直连、经物理网络 DNS 解析（TUN 接管系统 DNS 后）而失败。没有这些环境时 overlay 照常直连。
+	for _, d := range ov.Domains {
+		name, kind := overlay.ParseDomain(d.Value)
+		if name == "" {
+			continue
+		}
+		src := ovSrc(d.Line, "domains: "+d.Value)
+		var c ir.Cond
+		switch kind {
+		case overlay.DomainExact:
+			c.Domain = []string{name}
+		case overlay.DomainSubOnly:
+			c.DomainSuffix = []string{"." + name}
+		default:
+			c.DomainSuffix = []string{name}
+		}
+		rules = append(rules, ir.Rule{Match: ir.Leaf(c), Action: direct, Source: src})
+		cfg.DNS.Rules = append(cfg.DNS.Rules, ir.DNSRule{Match: ir.Leaf(c), Server: LocalDNS, Source: src})
+		for _, pat := range sysProxyPatterns(name, kind) {
+			if h := coveredHost(pat, hostDomains); h != "" {
+				// 豁免会让浏览器绕过 Velum 直连并使用系统 DNS，hosts 覆盖随之失效（ARCHITECTURE §4.2）。
+				warn("domains", ir.Degraded, fmt.Sprintf("豁免写法 %s 会覆盖 hosts 主机 %s，已不写入系统代理豁免；这些域名改为经 Velum 代理端口直连", pat, h), d.Value, src)
+				continue
+			}
+			p.SysProxy.Exceptions = append(p.SysProxy.Exceptions, Exception{pat, src})
+		}
+	}
+	if len(ov.CIDRs) > 0 {
+		for _, cidr := range ov.CIDRs {
+			src := ovSrc(cidr.Line, "cidrs: "+cidr.Value)
+			rules = append(rules, ir.Rule{Match: ir.Leaf(ir.Cond{IPCIDR: []string{cidr.Value}, NoResolve: true}), Action: direct, Source: src})
+			p.SysProxy.Exceptions = append(p.SysProxy.Exceptions, Exception{cidr.Value, src})
+		}
+	}
+	for _, pr := range ov.Processes {
+		src := ovSrc(pr.Line, "processes: "+pr.Value)
+		if opts.Platform == "ios" {
+			warn("processes", ir.Unsupported, "iOS 不支持进程规则，已忽略", pr.Value, src)
+			continue
+		}
+		rules = append(rules, ir.Rule{Match: ir.Leaf(ir.Cond{ProcessName: []string{pr.Value}}), Action: direct, Source: src})
 	}
 
 	// ---- 订阅 ipv6: false（TUN）：拒绝连向 IPv6 地址的连接，应用随即回落到 IPv4 ----
