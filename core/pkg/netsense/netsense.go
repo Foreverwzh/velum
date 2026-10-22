@@ -125,6 +125,9 @@ type Assessment struct {
 	VPNs             []VPN  `json:"vpns,omitempty"`
 	// SplitDNSDomains 是系统中声明了专用解析器的域名（/etc/resolver、VPN 下发的作用域 DNS 等）。
 	SplitDNSDomains []string `json:"split_dns_domains,omitempty"`
+	// StaleDNS 是系统默认 DNS 中指向代理工具虚拟地址（198.18.0.0/15）的服务器，而当前没有隧道在接管：
+	// 多为其他代理工具退出时没有还原的设置，查询无人应答，域名解析会失败或很慢。
+	StaleDNS []string `json:"stale_dns,omitempty"`
 	// SplitDNS 是这些域名各自的 DNS 服务器（与 SplitDNSDomains 对应）。Velum 直接询问它们：
 	// sing-box 的系统解析器在 macOS 上只对 .local 使用 mDNSResponder，其余按默认解析器查询，
 	// 而接管系统 DNS 后默认解析器就是 Velum 自己，交给它会回环。
@@ -172,6 +175,7 @@ func (a Assessment) Key() string {
 		}
 		b.WriteString(";" + strings.Join(v.Domains, ",") + ";" + strings.Join(v.Nameservers, ","))
 	}
+	b.WriteString("|stale:" + strings.Join(a.StaleDNS, ","))
 	b.WriteString("|dns:")
 	for _, r := range a.SplitDNS {
 		b.WriteString(r.Domain + "=" + strings.Join(r.Nameservers, ",") + ";")
@@ -283,7 +287,9 @@ func Analyze(s Snapshot, own ...string) Assessment {
 		if a == nil {
 			a = &acc{}
 		}
-		full := n == s.PrimaryInterface && (a.deflt || (a.halfLow && a.halfHi))
+		// 用一串网段覆盖整个 IPv4 的隧道（如代理工具的 TUN：1.0.0.0/8、2.0.0.0/7 … 128.0.0.0/1）同样是全局接管：
+		// 这些网段比默认路由更具体，无论主接口是谁都会接走流量；按分流处理会把几乎所有直连都送进它。
+		full := (n == s.PrimaryInterface && (a.deflt || (a.halfLow && a.halfHi))) || coverage(a.routes, a.halfLow, a.halfHi) >= 1<<31
 		if !full && len(a.routes) == 0 && len(domains[n]) == 0 {
 			continue // 没有声明任何东西的隧道（如系统 utun、仅持有非主默认路由的隧道）
 		}
@@ -293,8 +299,51 @@ func Analyze(s Snapshot, own ...string) Assessment {
 		}
 		out.VPNs = append(out.VPNs, v)
 	}
+	if out.FullTunnel() == nil {
+		for _, rv := range s.Resolvers {
+			if rv.Domain != "" || rv.Scoped || ownSet[rv.Iface] {
+				continue
+			}
+			for _, ns := range rv.Nameservers {
+				if a, err := netip.ParseAddr(ns); err == nil && FakeIPRange.Contains(a) {
+					out.StaleDNS = appendUnique(out.StaleDNS, ns)
+				}
+			}
+		}
+	}
 	return out
 }
+
+// coverage 返回网段（与 0/1、128/1）共覆盖的 IPv4 地址数；被其他网段包含的不重复计算。
+func coverage(routes []netip.Prefix, halfLow, halfHi bool) uint64 {
+	ps := append([]netip.Prefix(nil), routes...)
+	if halfLow {
+		ps = append(ps, netip.MustParsePrefix("0.0.0.0/1"))
+	}
+	if halfHi {
+		ps = append(ps, netip.MustParsePrefix("128.0.0.0/1"))
+	}
+	var n uint64
+	for i, p := range ps {
+		if !p.Addr().Is4() {
+			continue
+		}
+		nested := false
+		for j, q := range ps {
+			if j != i && q.Bits() <= p.Bits() && q.Contains(p.Addr()) && (q.Bits() < p.Bits() || j < i) {
+				nested = true
+				break
+			}
+		}
+		if !nested {
+			n += 1 << (32 - p.Bits())
+		}
+	}
+	return n
+}
+
+// FakeIPRange 是代理工具常用作虚拟地址（fake-ip、TUN 内 DNS）的保留网段（RFC 2544）。
+var FakeIPRange = netip.MustParsePrefix("198.18.0.0/15")
 
 // normDomain 规范化解析器域名；反向解析域与 local（mDNS）返回空。
 func normDomain(d string) string {

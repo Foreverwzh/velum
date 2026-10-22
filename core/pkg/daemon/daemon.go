@@ -214,7 +214,7 @@ func (d *Daemon) build(force, stale bool) (*state, error) {
 		st.paused = helperProblem
 	case ns.Enabled && ns.YieldToFullVPN && st.tunOn && env.FullTunnel() != nil:
 		st.tunOn = false // 系统代理不受影响：遵守系统代理的应用仍经 Velum
-		st.paused = fmt.Sprintf("检测到 %s 全局接管（占据主路由），已暂停 TUN 让路", env.FullTunnel().Iface)
+		st.paused = fmt.Sprintf("检测到 %s 全局接管（其他 VPN 或代理工具的 TUN），已暂停 TUN 让路；退出该工具后自动恢复", env.FullTunnel().Iface)
 	}
 	if ns.Enabled {
 		e := &compiler.Environment{}
@@ -926,7 +926,7 @@ func (d *Daemon) status() rpc.Status {
 		}
 	}
 	if d.NetSnapshot != nil {
-		s.Network = &rpc.NetworkStatus{PrimaryInterface: d.env.PrimaryInterface, VPNs: d.env.VPNs, SplitDNSDomains: d.env.SplitDNSDomains,
+		s.Network = &rpc.NetworkStatus{PrimaryInterface: d.env.PrimaryInterface, VPNs: d.env.VPNs, SplitDNSDomains: d.env.SplitDNSDomains, StaleDNS: d.env.StaleDNS,
 			Captive: string(d.captive), CaptiveDetail: d.captiveDetail}
 	}
 	if st := d.st; st != nil {
@@ -1576,8 +1576,10 @@ func (d *Daemon) repair(w http.ResponseWriter, r *http.Request) {
 		d.senseOnce(ctx, st.cfg.NetworkSense, &probeTracker{}) // 全新 tracker：强制重新探测
 		d.mu.RLock()
 		detail := fmt.Sprintf("主接口 %s，外部 VPN %d 个，连通性 %s", d.env.PrimaryInterface, len(d.env.VPNs), d.captive)
+		env := d.env
 		d.mu.RUnlock()
 		step("重新检测网络环境", nil, detail)
+		steps = append(steps, conflictStep(env))
 	}
 	err := d.Update(ctx)
 	step("重新拉取订阅与规则集并加载", err, "")
@@ -1608,6 +1610,23 @@ func (d *Daemon) repair(w http.ResponseWriter, r *http.Request) {
 		step("节点测速", nil, fmt.Sprintf("%d / %d 个节点可用", ok, total))
 	}
 	writeJSON(w, rpc.RepairResponse{Steps: steps})
+}
+
+// conflictStep 检查其他代理 / VPN 工具的影响：仍在全局接管的隧道（常见为未退出干净的代理工具 TUN），
+// 以及工具退出后没有还原的系统 DNS。两者都需要用户处理，Velum 不替其他工具做决定。
+func conflictStep(env netsense.Assessment) rpc.RepairStep {
+	s := rpc.RepairStep{Name: "检查其他代理工具", OK: true, Detail: "未发现冲突"}
+	var probs []string
+	if f := env.FullTunnel(); f != nil {
+		probs = append(probs, fmt.Sprintf("%s 接管了全部流量；如果不是正在使用的 VPN，请在对应的代理工具中关闭 TUN（及服务模式）并退出，或重启电脑", f.Iface))
+	}
+	if len(env.StaleDNS) > 0 {
+		probs = append(probs, fmt.Sprintf("系统 DNS 仍指向 %s（其他代理工具退出时没有还原），请在网络设置中把 DNS 改回自动获取", strings.Join(env.StaleDNS, "、")))
+	}
+	if len(probs) > 0 {
+		s.OK, s.Warn, s.Detail = false, true, strings.Join(probs, "；")
+	}
+	return s
 }
 
 func (d *Daemon) stream(w http.ResponseWriter, r *http.Request) {

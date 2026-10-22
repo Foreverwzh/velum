@@ -5,7 +5,7 @@ export interface Source { kind: string; file?: string; line?: number; text?: str
 export interface GroupStatus { tag: string; type: string; selected: string; members: string[]; delays?: Record<string, number> }
 export interface VPN { iface: string; full: boolean; routes?: string[]; domains?: string[]; nameservers?: string[] }
 export interface NetworkStatus {
-  primary_interface: string; vpns?: VPN[]; split_dns_domains?: string[];
+  primary_interface: string; vpns?: VPN[]; split_dns_domains?: string[]; stale_dns?: string[];
   captive?: string; captive_detail?: string; paused?: string;
 }
 export interface TUNStatus { name?: string; address: string; address6?: string; routes: string[]; exclude?: string[]; system_dns?: string[] }
@@ -53,7 +53,7 @@ export interface Traffic {
   /** 同一秒内各进程的速率，各项之和等于总速率；process 为空表示未识别出进程。 */
   clients?: { process: string; up_rate: number; down_rate: number; active: number }[];
 }
-export interface RepairStep { name: string; ok: boolean; detail?: string }
+export interface RepairStep { name: string; ok: boolean; detail?: string; warn?: boolean }
 /** overlay 条目。domain 的 value 用 overlay 写法：x = 根域 + 子域，.x = 仅子域，=x = 仅此域名。 */
 export type OverlayKind = "domain" | "cidr" | "host" | "process" | "bypass";
 export interface OverlayEntry { kind: OverlayKind; value: string; ip?: string; line?: number }

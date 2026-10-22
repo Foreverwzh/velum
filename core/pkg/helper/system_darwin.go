@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"unsafe"
 
+	"github.com/Foreverwzh/velum/core/pkg/netsense"
 	"github.com/Foreverwzh/velum/core/pkg/sysproxy"
 
 	"golang.org/x/net/route"
@@ -211,13 +212,7 @@ func (DarwinSystem) SetDNS(servers []string) (func() error, error) {
 		if err != nil {
 			return nil, fmt.Errorf("读取 %s 的 DNS：%w", svc, err)
 		}
-		var cur []string
-		for _, line := range strings.Split(string(out), "\n") {
-			if a, err := netip.ParseAddr(strings.TrimSpace(line)); err == nil {
-				cur = append(cur, a.String())
-			}
-		}
-		orig[svc] = cur
+		orig[svc] = restorable(string(out))
 	}
 	set := func(svc string, vals []string) error {
 		if len(vals) == 0 {
@@ -250,6 +245,19 @@ func (DarwinSystem) SetDNS(servers []string) (func() error, error) {
 	}
 	flushDNSCache()
 	return restore, nil
+}
+
+// restorable 解析 networksetup -getdnsservers 的输出，得到退出时要还原的 DNS。
+// 其他代理工具的虚拟 DNS（198.18.0.0/15，如它的 TUN 内 DNS）不还原：那是它没退出干净的残留，
+// 还原后没有程序应答，解析全部失败；去掉后为空即还原为自动获取。
+func restorable(out string) []string {
+	var cur []string
+	for _, line := range strings.Split(out, "\n") {
+		if a, err := netip.ParseAddr(strings.TrimSpace(line)); err == nil && !netsense.FakeIPRange.Contains(a) {
+			cur = append(cur, a.String())
+		}
+	}
+	return cur
 }
 
 func flushDNSCache() {

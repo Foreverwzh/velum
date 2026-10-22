@@ -65,6 +65,8 @@ type RepairStep struct {
 	Name   string `json:"name"`
 	OK     bool   `json:"ok"`
 	Detail string `json:"detail,omitempty"`
+	// Warn 表示这一步发现了需要用户处理的问题（如其他代理工具的残留），不是执行失败。
+	Warn bool `json:"warn,omitempty"`
 }
 
 type RepairResponse struct {
@@ -136,8 +138,10 @@ type NetworkStatus struct {
 	PrimaryInterface string         `json:"primary_interface"`
 	VPNs             []netsense.VPN `json:"vpns,omitempty"`
 	SplitDNSDomains  []string       `json:"split_dns_domains,omitempty"`
-	Captive          string         `json:"captive,omitempty"` // online / captive / offline
-	CaptiveDetail    string         `json:"captive_detail,omitempty"`
+	// StaleDNS 是系统 DNS 中其他代理工具留下的虚拟地址（198.18.0.0/15，当前没有工具在接管），见 netsense.Assessment。
+	StaleDNS      []string `json:"stale_dns,omitempty"`
+	Captive       string   `json:"captive,omitempty"` // online / captive / offline
+	CaptiveDetail string   `json:"captive_detail,omitempty"`
 	// Paused 非空表示接管被暂停的原因（Captive Portal / 让路给全局型 VPN / TUN 不可用）。
 	Paused string `json:"paused,omitempty"`
 }

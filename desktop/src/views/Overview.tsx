@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ArrowRight, Building2, Gauge, Globe, Network, Split, Wifi, Wrench } from "lucide-react";
+import { ArrowRight, Building2, Gauge, Globe, Network, Split, TriangleAlert, Wifi, Wrench } from "lucide-react";
 import { isRejected } from "./Connections";
 import { api, subscribeConnections, type Connection, type RepairStep, type Status } from "../api";
 import { health } from "../health";
@@ -24,16 +24,17 @@ export default function Overview({ status: s, refresh, go }: { status: Status; r
             <h1 className="text-[22px] font-semibold tracking-[-0.02em]">{h.title}</h1>
             <p className="selectable mt-0.5 text-[13px] text-fg-2">{h.detail}</p>
           </div>
-          <Button icon={Wrench} loading={busy === "repair"} onClick={() => run("repair", async () => setSteps((await api.repair()).steps))}>一键修复</Button>
+          <Button icon={Wrench} loading={busy === "repair"} title={REPAIR_HINT} onClick={() => run("repair", async () => setSteps((await api.repair()).steps))}>一键修复</Button>
         </header>
 
         {steps && (
           <Panel>
+            <div className="border-b border-line px-3.5 py-2 text-[12px] text-fg-3">{REPAIR_HINT}</div>
             {steps.map((st) => (
               <div key={st.name} className="flex items-center gap-3 border-b border-line px-3.5 py-2 text-[12.5px] last:border-0">
-                <Tag tone={st.ok ? "accent" : "err"}>{st.ok ? "完成" : "失败"}</Tag>
-                <span>{st.name}</span>
-                {st.detail && <span className="selectable truncate text-fg-3">{st.detail}</span>}
+                <Tag tone={st.ok ? "accent" : st.warn ? "warn" : "err"}>{st.ok ? "完成" : st.warn ? "需处理" : "失败"}</Tag>
+                <span className="shrink-0">{st.name}</span>
+                {st.detail && <span className={cx("selectable text-fg-3", !st.warn && "truncate")}>{st.detail}</span>}
               </div>
             ))}
           </Panel>
@@ -64,6 +65,8 @@ export default function Overview({ status: s, refresh, go }: { status: Status; r
   );
 }
 
+const REPAIR_HINT = "依次清空系统 DNS 缓存、重新检测网络环境、检查其他代理工具的残留、重新拉取订阅并加载、校正系统代理、节点测速";
+
 function NetworkLine({ status: s }: { status: Status }) {
   const n = s.network;
   if (!n) return null;
@@ -73,10 +76,13 @@ function NetworkLine({ status: s }: { status: Status }) {
     { icon: Globe, text: captive.t, tone: captive.tone },
     ...(n.vpns ?? []).map((v) => ({
       icon: v.full ? Network : Building2,
-      text: v.full ? `其他 VPN 全局接管（${v.iface}）` : `企业 VPN 分流中（${v.iface}）`,
+      text: v.full ? `其他 VPN / 代理工具全局接管（${v.iface}）` : `企业 VPN 分流中（${v.iface}）`,
       tone: v.full ? "text-warn" : undefined,
-      title: v.full ? undefined : `${v.routes?.length ?? 0} 个网段、${v.domains?.length ?? 0} 个域名直连`,
+      title: v.full ? "如果不是正在使用的 VPN，多为其他代理工具的 TUN 没有退出干净：在该工具中关闭 TUN 并退出，或重启电脑" : `${v.routes?.length ?? 0} 个网段、${v.domains?.length ?? 0} 个域名直连`,
     })),
+    ...(n.stale_dns?.length
+      ? [{ icon: TriangleAlert, text: `系统 DNS 残留（${n.stale_dns.join("、")}）`, tone: "text-warn", title: "其他代理工具退出时没有还原系统 DNS，解析会失败或很慢：在网络设置中把 DNS 改回自动获取" }]
+      : []),
     ...(n.split_dns_domains?.length ? [{ icon: Split, text: `DNS 分流 ${n.split_dns_domains.length} 个域名`, title: n.split_dns_domains.join("、") }] : []),
   ];
   return (

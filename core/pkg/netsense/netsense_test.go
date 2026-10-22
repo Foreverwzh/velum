@@ -88,6 +88,36 @@ func TestAnalyzeFullTunnel(t *testing.T) {
 	}
 }
 
+// 代理工具的 TUN 常用一串网段（而不是 0/1 + 128/1）覆盖整个 IPv4，且不改主接口：同样是全局接管，
+// 不能按分流 VPN 把几乎所有直连都送进它（该工具未退出干净时，直连会一直无响应）。
+func TestAnalyzeProxyToolTakeover(t *testing.T) {
+	routes := []netsense.Route{r("0.0.0.0/0", "en0"), r("10.8.32.0/20", "en0")}
+	for _, d := range []string{"1.0.0.0/8", "2.0.0.0/7", "4.0.0.0/6", "8.0.0.0/5", "16.0.0.0/4", "32.0.0.0/3", "64.0.0.0/2", "128.0.0.0/1", "198.18.0.0/16"} {
+		routes = append(routes, r(d, "utun6"))
+	}
+	s := netsense.Snapshot{PrimaryInterface: "en0", Routes: routes,
+		Resolvers: []netsense.Resolver{{Nameservers: []string{"198.18.0.2"}, Iface: "en0"}}}
+	a := netsense.Analyze(s)
+	if f := a.FullTunnel(); f == nil || f.Iface != "utun6" || len(a.Split()) != 0 {
+		t.Fatalf("应判为全局接管：%+v", a.VPNs)
+	}
+	if len(a.StaleDNS) != 0 {
+		t.Fatalf("接管中的工具使用的虚拟 DNS 不是残留：%v", a.StaleDNS)
+	}
+
+	// 工具退出后只剩它改过的系统 DNS
+	s.Routes = routes[:2]
+	if a := netsense.Analyze(s); len(a.VPNs) != 0 || strings.Join(a.StaleDNS, ",") != "198.18.0.2" {
+		t.Fatalf("应报告残留的虚拟 DNS：%+v", a)
+	}
+
+	// 企业 VPN 的几个大网段仍是分流
+	s.Routes = append(routes[:2:2], r("10.0.0.0/8", "utun7"), r("172.16.0.0/12", "utun7"), r("100.64.0.0/10", "utun7"))
+	if a := netsense.Analyze(s); a.FullTunnel() != nil || len(a.Split()) != 1 {
+		t.Fatalf("应为分流：%+v", a.VPNs)
+	}
+}
+
 func TestAssessmentKeyChanges(t *testing.T) {
 	a := netsense.Analyze(splitSnapshot(), "utun9")
 	s2 := splitSnapshot()

@@ -125,7 +125,10 @@ func main() {
 		if r, err = c.Repair(); err == nil {
 			for _, s := range r.Steps {
 				mark := "✓"
-				if !s.OK {
+				switch {
+				case s.Warn:
+					mark = "!"
+				case !s.OK:
 					mark = "✗"
 				}
 				fmt.Printf("%s %s", mark, s.Name)
@@ -167,7 +170,8 @@ func usage() {
   select <组> <成员>  切换策略组（保存，重启后保持）
   sub [订阅地址]      查看 / 设置订阅地址（先拉取并校验，通过后才写入 config.yaml）
   test [组]         对策略组成员测速；不指定组时测试全部节点
-  repair            一键修复（DNS 缓存、网络环境、订阅、系统代理、测速）
+  repair            一键修复：清空 DNS 缓存、重新检测网络环境、检查其他代理工具的残留、
+                    重新拉取订阅并加载、校正系统代理、节点测速
 `)
 }
 
@@ -334,10 +338,13 @@ func printStatus(s *rpc.Status) error {
 		fmt.Println()
 		for _, v := range n.VPNs {
 			if v.Full {
-				fmt.Printf("          外部 VPN %s：全局接管（占据主路由）\n", v.Iface)
+				fmt.Printf("          外部 VPN %s：全局接管（其他 VPN 或代理工具的 TUN）\n", v.Iface)
 			} else {
 				fmt.Printf("          外部 VPN %s：分流 %d 个网段、%d 个域名（经该 VPN 直连）\n", v.Iface, len(v.Routes), len(v.Domains))
 			}
+		}
+		if len(n.StaleDNS) > 0 {
+			fmt.Printf("⚠ 系统 DNS  仍指向 %s（其他代理工具退出时没有还原）：请在网络设置中把 DNS 改回自动获取\n", strings.Join(n.StaleDNS, "、"))
 		}
 		if len(n.SplitDNSDomains) > 0 {
 			fmt.Printf("          系统 DNS 分流：%s（交给系统解析器）\n", strings.Join(n.SplitDNSDomains, "、"))

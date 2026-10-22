@@ -4,6 +4,7 @@ package helper
 
 import (
 	"net/netip"
+	"strings"
 	"testing"
 
 	"golang.org/x/sys/unix"
@@ -45,6 +46,20 @@ func TestScopedDefaultPlan(t *testing.T) {
 		}
 		if ok && add != home {
 			t.Errorf("%s：应补 %+v，实际 %+v", c.name, home, add)
+		}
+	}
+}
+
+// 接管前的 DNS 若是其他代理工具留下的虚拟地址，退出时还原为自动获取，而不是写回一个无人应答的地址。
+func TestRestorableDNS(t *testing.T) {
+	for out, want := range map[string]string{
+		"There aren't any DNS Servers set on Wi-Fi.\n": "",
+		"10.8.3.129\n223.5.5.5\n":                      "10.8.3.129,223.5.5.5",
+		"198.18.0.2\n":                                 "",
+		"198.19.255.1\n114.114.114.114\n":              "114.114.114.114",
+	} {
+		if got := strings.Join(restorable(out), ","); got != want {
+			t.Errorf("%q → %q，期望 %q", out, got, want)
 		}
 	}
 }
