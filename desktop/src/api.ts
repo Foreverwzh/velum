@@ -234,4 +234,19 @@ export const componentText = isWindows
       log: "/Library/Logs/velum-helper.log",
     };
 
-export const errText = (e: unknown) => (typeof e === "string" ? e : String((e as Error)?.message ?? e));
+export const errText = (e: unknown) => {
+  const t = typeof e === "string" ? e : String((e as Error)?.message ?? e);
+  // 旧版本的后台服务没有新功能的接口（如 Windows 服务没有随 App 更新）
+  return t === "HTTP 404" ? "后台服务版本过旧，不支持这个功能：请先更新后台服务（概览页的提示，或设置 → 系统组件）" : t;
+};
+
+/** App 自身的版本（Tauri 中可用）；用于发现仍在运行的旧版本后台服务。 */
+export let appVersion = "";
+if (inTauri) {
+  import("@tauri-apps/api/app").then((m) => m.getVersion()).then((v) => (appVersion = v)).catch(() => undefined);
+}
+
+/** 后台服务（velumd）与 App 版本不同：Windows 服务需要单独更新；macOS 为更新前启动的 velumd 仍在运行。开发版本不比较。 */
+export function staleDaemon(s: Status | null): boolean {
+  return !!(s?.version && appVersion && s.version !== appVersion && !s.version.endsWith("-dev") && !appVersion.endsWith("-dev"));
+}

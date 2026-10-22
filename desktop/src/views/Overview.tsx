@@ -1,12 +1,12 @@
 import { useEffect, useState } from "react";
 import { ArrowRight, Building2, Gauge, Globe, Network, Split, TriangleAlert, Wifi, Wrench } from "lucide-react";
 import { isRejected } from "./Connections";
-import { api, subscribeConnections, type Connection, type RepairStep, type Status } from "../api";
+import { api, isWindows, staleDaemon, subscribeConnections, type Connection, type RepairStep, type Status } from "../api";
 import { health } from "../health";
 import { delayOf, leafOf, pathOf, useAction } from "../hooks";
 import type { Go, Refresh } from "../App";
 import { Button, Chain, Latency, Notice, Panel, Section, StatusMark, Tag, chainSteps, cx } from "../components/ui";
-import { SwitchRows } from "../components/TunToggle";
+import { installHelper, SwitchRows } from "../components/TunToggle";
 import { SubscriptionForm } from "../components/SubscriptionForm";
 import { UsageBar, usageOf } from "../components/Usage";
 
@@ -25,6 +25,9 @@ export default function Overview({ status: s, refresh, go }: { status: Status; r
             <h1 className="text-[22px] font-semibold tracking-[-0.02em]">{h.title}</h1>
             <p className="selectable mt-0.5 text-[13px] text-fg-2">{h.detail}</p>
           </div>
+          {staleDaemon(s) && isWindows && (
+            <Button variant="primary" loading={busy === "service"} disabled={!!busy} onClick={() => run("service", installHelper)}>更新服务</Button>
+          )}
           <Button icon={Wrench} loading={busy === "repair"} title={REPAIR_HINT} onClick={() => run("repair", async () => setSteps((await api.repair()).steps))}>一键修复</Button>
         </header>
 

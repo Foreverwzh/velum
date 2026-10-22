@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ArrowLeftRight, CircleGauge, FileCode2, Search, Settings as SettingsIcon, TriangleAlert, Waypoints, ScanSearch, type LucideIcon } from "lucide-react";
 import { api, type Status } from "./api";
 import { health } from "./health";
-import { Kbd, StatusMark, cx, modKey, titlebarOverlay } from "./components/ui";
+import { Kbd, StatusMark, cx, isMac, modKey, titlebarOverlay } from "./components/ui";
 import { CommandPalette } from "./components/CommandPalette";
 import Overview from "./views/Overview";
 import Groups from "./views/Groups";
@@ -110,9 +110,9 @@ export default function App() {
           onClick={() => setPalette(true)}
           className="mb-3 flex h-7 items-center gap-2 rounded-md border border-line bg-panel px-2 text-[12px] text-fg-3 shadow-raise transition-colors hover:border-line-strong hover:text-fg-2"
         >
-          <Search className="size-3.5" strokeWidth={2} />
-          <span className="flex-1 text-left">切换节点、执行操作</span>
-          <Kbd>{modKey}K</Kbd>
+          <Search className="size-3.5 shrink-0" strokeWidth={2} />
+          <span className="min-w-0 flex-1 truncate whitespace-nowrap text-left">切换节点、执行操作</span>
+          <Kbd>{isMac ? "⌘K" : "Ctrl K"}</Kbd>
         </button>
         <nav className="flex flex-col gap-px">
           {nav.map((n, i) => {

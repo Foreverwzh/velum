@@ -1,4 +1,4 @@
-import type { Status } from "./api";
+import { isWindows, staleDaemon, type Status } from "./api";
 
 export interface Health {
   tone: "green" | "amber" | "red" | "gray";
@@ -16,6 +16,10 @@ export function health(s: Status | null, err?: string): Health {
   if (s.starting) return STARTING;
   if (s.last_error?.includes("协议版本不匹配"))
     return { tone: "amber", title: "TUN 组件需要更新", detail: "Velum 已更新，TUN 组件还是旧版本：在 TUN 开关或「系统组件」中更新即可" };
+  if (staleDaemon(s))
+    return isWindows
+      ? { tone: "amber", title: "后台服务需要更新", detail: `Velum 服务还是 ${s.version}，部分功能不可用：点击「更新服务」（需要管理员授权）` }
+      : { tone: "amber", title: "后台服务需要重启", detail: `仍在运行更新前的 velumd ${s.version}：退出 Velum 后重新打开` };
   if (s.last_error) return { tone: "red", title: "配置有问题", detail: s.last_error };
   if (!s.running) return { tone: "red", title: "引擎未运行", detail: "查看日志或尝试一键修复" };
   if (!s.subscription?.source) return { tone: "gray", title: "还没有订阅", detail: "填写订阅地址后即可开始使用" };

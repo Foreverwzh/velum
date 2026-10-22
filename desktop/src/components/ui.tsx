@@ -221,7 +221,7 @@ export function TextInput({ className, invalid, ...rest }: InputHTMLAttributes<H
 }
 
 export function Kbd({ children }: { children: ReactNode }) {
-  return <kbd className="inline-flex h-[18px] min-w-[18px] items-center justify-center rounded border border-line bg-hover px-1 font-sans text-[10.5px] text-fg-3">{children}</kbd>;
+  return <kbd className="inline-flex h-[18px] min-w-[18px] shrink-0 items-center whitespace-nowrap justify-center rounded border border-line bg-hover px-1 font-sans text-[10.5px] text-fg-3">{children}</kbd>;
 }
 
 // ---------------- 版式 ----------------
