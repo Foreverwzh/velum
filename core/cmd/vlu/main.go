@@ -84,7 +84,10 @@ func main() {
 	case "update":
 		var s *rpc.Status
 		if s, err = c.Update(); err == nil {
-			fmt.Printf("已更新：订阅 %s（%s）；%d 节点 / %d 规则，%d 条告警\n", s.Subscription.Source, s.Subscription.Origin, s.Subscription.Nodes, s.Subscription.Rules, s.Warnings)
+			fmt.Printf("已更新订阅 %s：%d 节点 / %d 规则，%d 条告警；规则集在后台更新\n", s.Subscription.Source, s.Subscription.Nodes, s.Subscription.Rules, s.Warnings)
+			if s.Subscription.FetchErr != "" {
+				fmt.Printf("⚠ 远程拉取失败，正在使用缓存：%s\n", s.Subscription.FetchErr)
+			}
 		}
 	case "why":
 		err = why(c, args)
@@ -161,7 +164,7 @@ func usage() {
   sysproxy on|off|config  系统代理开关（重启后保持，不改 config.yaml；config = 回到 config.yaml 的设置）
   tun on|off|config       TUN 开关（需先 sudo velum-helper）；可与系统代理同时开启
   reload            重新加载配置（config.yaml / overlay.yaml；订阅与规则集按更新间隔使用缓存）
-  update            强制重新拉取订阅、provider 与规则集并加载
+  update            重新拉取订阅并加载；provider 与规则集随后在后台全部重新拉取
   why <目标>        推演请求会怎么走。目标可以是 URL、host:port、域名或 IP
       --live            对照最近的实际连接
       --resolve <ip,..> 提供解析结果，用于推演 IP 规则
@@ -180,7 +183,7 @@ func usage() {
       rm <序号|名称>      删除订阅（正在使用的不能删除）
   test [组]         对策略组成员测速；不指定组时测试全部节点
   repair            一键修复：清空 DNS 缓存、重新检测网络环境、检查其他代理工具的残留、
-                    重新拉取订阅并加载、校正系统代理、节点测速
+                    重新拉取订阅并加载（规则集在后台更新）、校正系统代理、节点测速
 `)
 }
 

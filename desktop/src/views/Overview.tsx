@@ -67,7 +67,7 @@ export default function Overview({ status: s, refresh, go }: { status: Status; r
   );
 }
 
-const REPAIR_HINT = "依次清空系统 DNS 缓存、重新检测网络环境、检查其他代理工具的残留、重新拉取订阅并加载、校正系统代理、节点测速";
+const REPAIR_HINT = "依次清空系统 DNS 缓存、重新检测网络环境、检查其他代理工具的残留、重新拉取订阅并加载（规则集在后台更新）、校正系统代理、节点测速";
 
 function NetworkLine({ status: s }: { status: Status }) {
   const n = s.network;

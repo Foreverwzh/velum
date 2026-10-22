@@ -101,7 +101,7 @@ func saveInfo(cachePath string, h http.Header) {
 		return
 	}
 	if data, err := json.Marshal(in); err == nil {
-		_ = os.WriteFile(infoPath(cachePath), data, 0o600)
+		_ = writeAtomic(infoPath(cachePath), data)
 	}
 }
 

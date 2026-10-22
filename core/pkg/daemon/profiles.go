@@ -88,9 +88,11 @@ func (d *Daemon) verifySubscription(cfg *config.Config, rawURL, ua string) (*sou
 		return nil, fmt.Errorf("订阅地址应以 http:// 或 https:// 开头")
 	}
 	f := source.New(d.Paths.Cache, ua)
-	f.TTL, f.Log = 0, d.Logger.Printf
+	// 订阅本身重新拉取（下面 ttl 为 0）；provider 有缓存就用：校验只需要知道订阅能否解析出节点，
+	// 不必等几十个规则集重新下载，过期的随后在后台更新
+	f.Stale, f.Log = true, d.Logger.Printf
 	if d.Engine.Running() {
-		f.Fallback = &url.URL{Scheme: "http", Host: cfg.ListenAddr().String()}
+		f.Via = &url.URL{Scheme: "http", Host: cfg.ListenAddr().String()}
 	}
 	start := time.Now()
 	defer func() { d.Logger.Printf("拉取并校验订阅：用时 %.1fs", time.Since(start).Seconds()) }()

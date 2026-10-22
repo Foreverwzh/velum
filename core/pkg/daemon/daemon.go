@@ -21,6 +21,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/Foreverwzh/velum/core/pkg/compiler"
@@ -115,19 +116,33 @@ type Daemon struct {
 	starting  bool // 首次加载配置、启动引擎尚未完成
 	lastErr   string
 	reloadMu  sync.Mutex // 串行化重新加载（定时更新、网络变化、界面操作可能同时触发）
-	runCtx    context.Context
-	stop      chan struct{}
-	stopOnce  sync.Once
+	// refreshMu 串行化拉取订阅、provider 与规则集（与重新加载分开：拉取可能很慢，不能挡住切换开关等操作）
+	refreshMu   sync.Mutex
+	refreshedAt time.Time
+	refreshing  atomic.Bool
+	runCtx      context.Context
+	stop        chan struct{}
+	stopOnce    sync.Once
 }
 
 func New(paths config.Paths, eng engine.Engine, logger *log.Logger) *Daemon {
 	return &Daemon{Paths: paths, Engine: eng, Logger: logger, stop: make(chan struct{})}
 }
 
+// fetchMode 决定 build 何时访问网络。
+type fetchMode int
+
+const (
+	// fetchCached：有缓存就用（即使已过期），只拉取没有缓存的内容。重新加载用它：不等网络，
+	// 过期的内容由 refresh 在后台更新（与 Clash / Stash 一致）。
+	fetchCached       fetchMode = iota
+	fetchExpired                // 拉取过期的订阅、provider 与规则集（定时 / 后台更新）
+	fetchSubscription           // 重新拉取订阅本身，provider 与规则集用缓存（「更新订阅」：几秒内完成，其余随后在后台更新）
+	fetchAll                    // 全部重新拉取（vlu update 之后的后台更新）
+)
+
 // build 读取配置并完成「获取订阅 → 转换 → 合并 Overlay → 编译 → 渲染」，不影响正在运行的引擎。
-// force 为 true 时忽略缓存 TTL，强制重新拉取订阅、provider 与规则集（vlu update）。
-// stale 为 true 时有缓存就用（即使已过期），用于启动时立即可用。
-func (d *Daemon) build(force, stale bool) (*state, error) {
+func (d *Daemon) build(mode fetchMode) (*state, error) {
 	cfg, err := config.Load(d.Paths)
 	if err != nil {
 		return nil, err
@@ -136,15 +151,25 @@ func (d *Daemon) build(force, stale bool) (*state, error) {
 	f.PreferLocal = cfg.Subscription.PreferLocalProviders
 	f.Log = d.Logger.Printf
 	if d.Engine.Running() {
-		f.Fallback = &url.URL{Scheme: "http", Host: cfg.ListenAddr().String()}
+		f.Via = &url.URL{Scheme: "http", Host: cfg.ListenAddr().String()}
 	}
 	subTTL, rsTTL := cfg.Subscription.UpdateInterval, cfg.Subscription.RuleSetUpdateInterval
-	if force {
-		f.TTL, subTTL, rsTTL = 0, 0, 0
+	if subTTL > 0 {
+		f.TTL = subTTL // provider 与订阅一起更新（不再每小时重新拉取）
 	}
-	f.Stale = stale && !force
+	switch mode {
+	case fetchAll:
+		f.TTL, subTTL, rsTTL = 0, 0, 0
+	case fetchSubscription:
+		subTTL = 0
+	}
+	f.Stale = mode == fetchCached || mode == fetchSubscription
 	st := &state{cfg: cfg, loadedAt: time.Now()}
-	defer func() { st.stale = f.UsedStale() }()
+	defer func() {
+		st.stale = f.UsedStale()
+		// 引擎还没起来时（首次设置、启动）直连拉取失败的 provider / 规则集：引擎起来后经 Velum 重试
+		st.retryViaProxy = st.retryViaProxy || (f.Via == nil && f.Missing())
+	}()
 
 	var data []byte
 	baseDirs := append([]string(nil), cfg.Subscription.ProviderDirs...)
@@ -181,7 +206,7 @@ func (d *Daemon) build(force, stale bool) (*state, error) {
 	if sub != nil {
 		rsWarnings = f.ResolveRemoteRuleSets(sub, rsTTL)
 		for _, w := range rsWarnings {
-			if w.Level == ir.Unsupported && f.Fallback == nil {
+			if w.Level == ir.Unsupported && f.Via == nil {
 				st.retryViaProxy = true
 			}
 		}
@@ -330,15 +355,80 @@ func orDefault(s, d string) string {
 }
 
 // Reload 重新构建；失败时保留当前运行的配置。
-func (d *Daemon) Reload(ctx context.Context) error { return d.reload(ctx, false) }
+// Reload 用现有缓存重新加载（不等网络）；有过期的内容时随后在后台更新。
+func (d *Daemon) Reload(ctx context.Context) error {
+	if err := d.reload(ctx); err != nil {
+		return err
+	}
+	d.mu.RLock()
+	st := d.st
+	d.mu.RUnlock()
+	if st != nil && (st.stale || st.retryViaProxy) {
+		d.refreshLater(ctx, fetchExpired)
+	}
+	return nil
+}
 
-// Update 强制重新拉取订阅、provider 与规则集后重新加载。
-func (d *Daemon) Update(ctx context.Context) error { return d.reload(ctx, true) }
+// Update 重新拉取订阅并加载（与 Clash Verge 等的「更新订阅」相同，通常几秒内完成）；provider 与规则集随后在后台全部重新拉取，
+// 有变化时再次加载。拉取期间不占用重新加载：切换开关、订阅等操作不必等它。
+func (d *Daemon) Update(ctx context.Context) error {
+	// 不等 refreshMu：后台可能正在拉取几十个过期的规则集，订阅本身不必排在它们后面（缓存文件原子写入）
+	if _, err := d.build(fetchSubscription); err != nil {
+		return err
+	}
+	if err := d.reload(ctx); err != nil {
+		return err
+	}
+	d.refreshLater(ctx, fetchAll)
+	return nil
+}
 
-func (d *Daemon) reload(ctx context.Context, force bool) error {
+// refresh 把需要的内容拉取到缓存（见 fetchMode），不改变正在运行的配置。
+func (d *Daemon) refresh(mode fetchMode) error {
+	d.refreshMu.Lock()
+	defer d.refreshMu.Unlock()
+	start := time.Now()
+	_, err := d.build(mode)
+	d.refreshedAt = time.Now()
+	if took := time.Since(start); err == nil && took > slowRefresh {
+		d.Logger.Printf("更新订阅与规则集：用时 %.1fs", took.Seconds())
+	}
+	return err
+}
+
+const (
+	slowRefresh = 3 * time.Second
+	// refreshRetry 是自动后台更新的最短间隔：拉取失败时仍在用过期缓存，避免反复重试
+	refreshRetry = 10 * time.Minute
+)
+
+// refreshLater 在后台拉取（fetchExpired 或 fetchAll），完成后重新加载（内容未变化时不重启引擎）。同一时间只有一个。
+func (d *Daemon) refreshLater(ctx context.Context, mode fetchMode) {
+	if !d.refreshing.CompareAndSwap(false, true) {
+		return
+	}
+	go func() {
+		defer d.refreshing.Store(false)
+		d.refreshMu.Lock()
+		recent := !d.refreshedAt.IsZero() && time.Since(d.refreshedAt) < refreshRetry
+		d.refreshMu.Unlock()
+		if recent && mode == fetchExpired {
+			return
+		}
+		if err := d.refresh(mode); err != nil {
+			d.Logger.Printf("后台更新订阅与规则集失败：%v", err)
+			return
+		}
+		if err := d.reload(ctx); err != nil {
+			d.Logger.Printf("后台更新后重新加载失败：%v", err)
+		}
+	}()
+}
+
+func (d *Daemon) reload(ctx context.Context) error {
 	d.reloadMu.Lock()
 	defer d.reloadMu.Unlock()
-	st, err := d.build(force, false)
+	st, err := d.build(fetchCached)
 	if err != nil {
 		d.setErr(err)
 		return err
@@ -384,12 +474,11 @@ func (d *Daemon) retryMissing(st *state) {
 	if !st.retryViaProxy || !d.Engine.Running() || ctx == nil {
 		return
 	}
-	go func() {
-		d.Logger.Printf("有规则集直连下载失败，经 Velum 代理重试")
-		if err := d.Reload(ctx); err != nil {
-			d.Logger.Printf("经代理重试规则集失败：%v", err)
-		}
-	}()
+	d.Logger.Printf("有规则集直连下载失败，经 Velum 代理重试")
+	d.refreshMu.Lock()
+	d.refreshedAt = time.Time{} // 不受后台更新间隔限制
+	d.refreshMu.Unlock()
+	d.refreshLater(ctx, fetchExpired)
 }
 
 func (d *Daemon) setErr(err error) {
@@ -432,7 +521,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 	}
 	d.senseInitial()
 	// 有缓存就先用缓存启动（即使已过期）：拉取 30 多个 provider 可能要十几秒，且此时 Velum 自己的代理还没起来
-	st, err := d.build(false, true)
+	st, err := d.build(fetchCached)
 	if err != nil {
 		d.setErr(err) // 配置有误时仍启动 RPC，便于 vlu status 查看原因；修正后 vlu reload
 	} else if err := d.Engine.Start(ctx, d.engineConfig(st)); err != nil {
@@ -444,12 +533,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 		d.syncSysProxy(st)
 		d.Logger.Printf("velumd %s 已启动：listen=%s 系统代理=%v TUN=%v，%d 节点 / %d 规则", Version, st.cfg.Listen, st.sysOn, st.tunOn, st.sub.Nodes, st.sub.Rules)
 		if st.stale || st.retryViaProxy {
-			// 过期的订阅 / provider / 规则集在后台更新；内容未变化时不重启引擎
-			go func() {
-				if err := d.Reload(ctx); err != nil {
-					d.Logger.Printf("后台更新过期缓存失败：%v", err)
-				}
-			}()
+			d.refreshLater(ctx, fetchExpired) // 过期的订阅 / provider / 规则集在后台更新；内容未变化时不重启引擎
 		}
 	}
 	d.mu.Lock()
@@ -640,7 +724,9 @@ func (d *Daemon) updater(ctx context.Context) {
 		case <-d.stop:
 			return
 		case <-time.After(interval):
-			if err := d.Reload(ctx); err == nil {
+			if err := d.refresh(fetchExpired); err != nil {
+				d.Logger.Printf("定时更新失败：%v", err)
+			} else if err := d.reload(ctx); err == nil {
 				d.Logger.Printf("定时更新完成")
 			}
 		}
@@ -1589,7 +1675,7 @@ func (d *Daemon) repair(w http.ResponseWriter, r *http.Request) {
 		steps = append(steps, conflictStep(env))
 	}
 	err := d.Update(ctx)
-	step("重新拉取订阅与规则集并加载", err, "")
+	step("重新拉取订阅并加载", err, "规则集在后台更新")
 	d.mu.RLock()
 	st = d.st
 	d.mu.RUnlock()

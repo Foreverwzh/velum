@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -971,4 +972,64 @@ func TestProfiles(t *testing.T) {
 	if st, err = c.DeleteProfile(alpha); err != nil || len(st.Profiles) != 1 || st.Profiles[0].ID != beta {
 		t.Fatalf("删除：%v %+v", err, st.Profiles)
 	}
+}
+
+// 规则集拉取很慢（如几十个托管在海外的规则集）：「更新订阅」不等它们，切换开关等操作也照常完成。
+func TestUpdateDoesNotBlockReload(t *testing.T) {
+	var slow atomic.Bool
+	gate := make(chan struct{})
+	var srvURL string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/sub":
+			_, _ = io.WriteString(w, "proxies:\n  - {name: n1, type: ss, server: 192.0.2.1, port: 8388, cipher: aes-128-gcm, password: p}\n"+
+				"rule-providers:\n  r1: {type: http, behavior: classical, format: text, url: "+srvURL+"/rules, path: ./r1.txt, interval: 86400}\n"+
+				"rules:\n  - RULE-SET,r1,n1\n  - MATCH,DIRECT\n")
+		case "/rules":
+			if slow.Load() {
+				<-gate
+			}
+			_, _ = io.WriteString(w, "DOMAIN-SUFFIX,example.com\n")
+		}
+	}))
+	defer srv.Close()
+	srvURL = srv.URL
+
+	home, _ := os.MkdirTemp(tmpBase(), "velum-test-")
+	defer os.RemoveAll(home)
+	paths := testPaths(home)
+	_ = config.Ensure(paths)
+	d := daemon.New(paths, &fakeEngine{}, log.New(io.Discard, "", 0))
+	go func() { _ = d.Run(context.Background()) }()
+	defer d.Shutdown()
+	c := rpc.NewClient(paths.Socket)
+	for i := 0; i < 100; i++ {
+		if s, err := c.Status(); err == nil && !s.Starting {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if _, err := c.SetSubscription(rpc.SetSubscriptionRequest{URL: srv.URL + "/sub"}); err != nil {
+		t.Fatal(err)
+	}
+
+	// 「更新订阅」只等订阅本身：规则集很慢时也很快返回，规则集随后在后台重新拉取
+	slow.Store(true)
+	start := time.Now()
+	if _, err := c.Update(); err != nil {
+		t.Fatal(err)
+	}
+	if took := time.Since(start); took > 2*time.Second {
+		t.Fatalf("更新订阅等了规则集 %v", took)
+	}
+	// 后台拉取期间，重新加载不受影响
+	time.Sleep(100 * time.Millisecond)
+	start = time.Now()
+	if _, err := c.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	if took := time.Since(start); took > 2*time.Second {
+		t.Fatalf("重新加载被后台更新挡住了 %v", took)
+	}
+	close(gate)
 }

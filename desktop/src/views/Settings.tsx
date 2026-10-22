@@ -71,7 +71,7 @@ function Subscription({ status: s, refresh }: { status: Status; refresh: Refresh
       {sub.source && (
         <p className="mt-2 px-1 text-[12px] text-fg-3">
           当前订阅：<span className="tnum">{sub.nodes} 个节点 · {sub.groups} 个策略组 · {sub.rules} 条规则 · {sub.rule_sets} 个规则集 · 上次获取 {fetched}</span>
-          {sub.origin === "cache" && "（缓存）"}
+          {sub.fetch_error && "（缓存）"}
         </p>
       )}
       {sub.fetch_error && <div className="mt-2"><Notice tone="warn">远程拉取失败，正在使用缓存：{sub.fetch_error}</Notice></div>}

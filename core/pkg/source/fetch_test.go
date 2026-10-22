@@ -2,8 +2,10 @@ package source_test
 
 import (
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -140,5 +142,37 @@ func TestFetchLogHidesURL(t *testing.T) {
 	}
 	if len(logs) != 1 || strings.Contains(logs[0], "secret") || !strings.Contains(logs[0], "127.0.0.1:9") {
 		t.Fatalf("失败日志应只含主机名：%q", logs)
+	}
+}
+
+// 引擎运行时先经 Velum 的本地端口拉取（按用户规则走），它不通时直连；本机 / 局域网地址始终直连。
+func TestFetchViaVelum(t *testing.T) {
+	var viaHits atomic.Int32
+	via := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		viaHits.Add(1)
+		_, _ = w.Write([]byte("via " + r.URL.String()))
+	}))
+	defer via.Close()
+	viaURL, _ := url.Parse(via.URL)
+
+	f := source.New(t.TempDir(), "test")
+	f.Via = viaURL
+	if b, _, err := f.Get("providers", "http://rules.example/a.list", 0); err != nil || string(b) != "via http://rules.example/a.list" {
+		t.Fatalf("应经 Velum 拉取：%s %v", b, err)
+	}
+
+	direct := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("direct")) }))
+	defer direct.Close()
+	if b, _, _ := f.Get("providers", direct.URL, 0); string(b) != "direct" || viaHits.Load() != 1 {
+		t.Fatalf("本机地址应直连：%s（经 Velum %d 次）", b, viaHits.Load())
+	}
+
+	ln, _ := net.Listen("tcp", "127.0.0.1:0")
+	dead, _ := url.Parse("http://" + ln.Addr().String())
+	ln.Close()
+	f.Via = dead
+	f.Client = source.NewClient(func(*http.Request) (*url.URL, error) { return viaURL, nil }) // 用 via 服务器模拟「直连」到外网
+	if b, _, err := f.Get("providers", "http://rules.example/b.list", 0); err != nil || !strings.HasPrefix(string(b), "via ") {
+		t.Fatalf("Velum 端口不通时应直连：%s %v", b, err)
 	}
 }

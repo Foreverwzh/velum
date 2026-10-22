@@ -9,9 +9,11 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -33,16 +35,21 @@ type Fetcher struct {
 	Stale bool
 	// Log 非空时记录较慢（超过 3 秒）或失败的远程请求，只含主机名（订阅地址可能带 token）。
 	Log func(format string, args ...any)
-	// Fallback 非空时，直连失败（网络错误，不含 HTTP 错误码）后经这个代理重试，一般是 Velum 自己的本地端口：
-	// 首次设置时还没有可用的代理，GitHub 上的规则集等可能直连不通。
-	Fallback  *url.URL
+	// Via 非空时先经这个代理拉取，一般是 Velum 自己的本地端口（与 Stash 等一致：按用户的规则决定直连还是经节点，
+	// 被墙的 provider / 规则集不必先等直连超时）；经它失败（网络错误，不含 HTTP 错误码）时再直连。
+	// 为空（引擎还没起来，如首次设置）时只直连。
+	Via       *url.URL
 	usedStale atomic.Bool
+	missing   atomic.Bool
 }
 
 const slowFetch = 3 * time.Second
 
 // UsedStale 报告本次是否使用了过期缓存（需要在后台更新）。
 func (f *Fetcher) UsedStale() bool { return f.usedStale.Load() }
+
+// Missing 报告本次是否有内容拉取失败且没有缓存（引擎起来后应经 Velum 重试）。
+func (f *Fetcher) Missing() bool { return f.missing.Load() }
 
 // Result 记录一次获取的来源，用于 vlu status 展示与告警。
 type Result struct {
@@ -94,11 +101,18 @@ func (f *Fetcher) Get(kind, rawURL string, ttl time.Duration) ([]byte, Result, e
 		}
 	}
 	start := time.Now()
-	data, hdr, err := f.fetch(f.Client, rawURL)
-	if err != nil && f.Fallback != nil && !errors.As(err, new(statusError)) {
-		if data, hdr, err = f.fetch(NewClient(http.ProxyURL(f.Fallback)), rawURL); err == nil && f.Log != nil {
-			f.Log("直连拉取 %s 失败，已经 Velum 代理拉取", kind)
+	var data []byte
+	var hdr http.Header
+	var err error
+	if f.Via != nil && !localURL(rawURL) {
+		data, hdr, err = f.fetch(NewClient(http.ProxyURL(f.Via)), rawURL)
+		if err != nil && !errors.As(err, new(statusError)) {
+			if data, hdr, err = f.fetch(f.Client, rawURL); err == nil && f.Log != nil {
+				f.Log("经 Velum 拉取 %s 失败，已直连拉取", kind)
+			}
 		}
+	} else {
+		data, hdr, err = f.fetch(f.Client, rawURL)
 	}
 	if took := time.Since(start); f.Log != nil && (err != nil || took > slowFetch) {
 		host := rawURL
@@ -113,7 +127,7 @@ func (f *Fetcher) Get(kind, rawURL string, ttl time.Duration) ([]byte, Result, e
 	}
 	if err == nil {
 		_ = os.MkdirAll(filepath.Dir(cp), 0o700)
-		_ = os.WriteFile(cp, data, 0o600)
+		_ = writeAtomic(cp, data)
 		saveInfo(cp, hdr)
 		return data, Result{Origin: "remote", FetchedAt: time.Now()}, nil
 	}
@@ -121,7 +135,43 @@ func (f *Fetcher) Get(kind, rawURL string, ttl time.Duration) ([]byte, Result, e
 		st, _ := os.Stat(cp)
 		return cached, Result{Origin: "cache", FetchedAt: st.ModTime(), Err: err.Error()}, nil
 	}
+	f.missing.Store(true)
 	return nil, Result{Err: err.Error()}, err
+}
+
+// writeAtomic 写入缓存文件：先写临时文件再改名，同时进行的拉取与读取不会看到写了一半的内容。
+func writeAtomic(path string, data []byte) error {
+	tmp, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".*.tmp")
+	if err != nil {
+		return err
+	}
+	if _, err = tmp.Write(data); err == nil {
+		err = tmp.Chmod(0o600)
+	}
+	if cerr := tmp.Close(); err == nil {
+		err = cerr
+	}
+	if err == nil {
+		err = os.Rename(tmp.Name(), path)
+	}
+	if err != nil {
+		_ = os.Remove(tmp.Name())
+	}
+	return err
+}
+
+// localURL 报告地址是否指向本机或局域网（IP 字面量或 localhost）：这类地址直连，不经代理。
+func localURL(rawURL string) bool {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return false
+	}
+	h := u.Hostname()
+	if strings.EqualFold(h, "localhost") {
+		return true
+	}
+	a, err := netip.ParseAddr(h)
+	return err == nil && (a.IsLoopback() || a.IsPrivate() || a.IsLinkLocalUnicast())
 }
 
 // redactErr 去掉错误信息中的完整地址（url.Error 会带上它，可能含 token）。
