@@ -53,6 +53,7 @@ type state struct {
 	plan             *compiler.Plan
 	rendered         *render.Rendered
 	sub              rpc.SubscriptionStatus
+	profiles         []rpc.ProfileStatus
 	loadedAt         time.Time
 }
 
@@ -160,8 +161,13 @@ func (d *Daemon) build(force, stale bool) (*state, error) {
 		if err != nil {
 			return nil, fmt.Errorf("拉取订阅：%w", err)
 		}
-		st.sub = rpc.SubscriptionStatus{Source: redact(cfg.Subscription.URL), Origin: res.Origin, FetchedAt: res.FetchedAt, FetchErr: res.Err}
+		st.sub = rpc.SubscriptionStatus{Source: redact(cfg.Subscription.URL), Origin: res.Origin, FetchedAt: res.FetchedAt, FetchErr: res.Err,
+			Info: f.Info("subscription", cfg.Subscription.URL)}
 	}
+	if data != nil {
+		st.sub.ID = config.ProfileID(cfg.Subscription.URL, cfg.Subscription.File)
+	}
+	st.profiles, st.sub.Name = d.syncProfiles(cfg, f, st.sub.Info)
 	var sub *ir.Config
 	if data != nil {
 		sub, err = subscription.Parse(data, subscription.Options{File: filepath.Base(st.sub.Source), BaseDirs: baseDirs,
@@ -802,6 +808,12 @@ func (d *Daemon) handler() (h http.Handler) {
 		writeJSON(w, rpc.SubscriptionConfig{URL: cfg.Subscription.URL, File: cfg.Subscription.File, UserAgent: cfg.Subscription.UserAgent})
 	})
 	mux.HandleFunc("PUT /v1/subscription", d.putSubscription)
+	mux.HandleFunc("GET /v1/profiles", d.getProfiles)
+	mux.HandleFunc("POST /v1/profiles", d.addProfile)
+	mux.HandleFunc("PUT /v1/profiles/{id}", d.editProfile)
+	mux.HandleFunc("DELETE /v1/profiles/{id}", d.deleteProfile)
+	mux.HandleFunc("POST /v1/profiles/{id}/activate", d.activateProfile)
+	mux.HandleFunc("POST /v1/profiles/{id}/update", d.updateProfile)
 	mux.HandleFunc("GET /v1/tun/apps", func(w http.ResponseWriter, r *http.Request) {
 		cfg, err := config.Load(d.Paths)
 		if err != nil {
@@ -930,7 +942,7 @@ func (d *Daemon) status() rpc.Status {
 			Captive: string(d.captive), CaptiveDetail: d.captiveDetail}
 	}
 	if st := d.st; st != nil {
-		s.Listen, s.LoadedAt, s.Subscription = st.cfg.Listen, st.loadedAt, st.sub
+		s.Listen, s.LoadedAt, s.Subscription, s.Profiles = st.cfg.Listen, st.loadedAt, st.sub, st.profiles
 		s.SystemProxyOn, s.TUNOn, s.WantSystemProxy, s.WantTUN = st.sysOn, st.tunOn, st.wantSys, st.wantTUN
 		s.Mode = modeName(st.sysOn, st.tunOn)
 		if s.Network == nil && st.paused != "" { // 未启用 NetworkSense 时也要显示暂停原因（如 TUN 不可用）
@@ -1093,37 +1105,20 @@ func (d *Daemon) putSubscription(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.URL != "" {
-		if u, err := url.Parse(req.URL); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-			writeErr(w, http.StatusBadRequest, fmt.Errorf("订阅地址应以 http:// 或 https:// 开头"))
-			return
-		}
 		ua := cfg.Subscription.UserAgent
 		if req.UserAgent != "" {
 			ua = req.UserAgent
 		}
-		f := source.New(d.Paths.Cache, ua)
-		f.TTL, f.Log = 0, d.Logger.Printf
-		if d.Engine.Running() {
-			f.Fallback = &url.URL{Scheme: "http", Host: cfg.ListenAddr().String()}
-		}
-		start := time.Now()
-		defer func() { d.Logger.Printf("设置订阅：用时 %.1fs", time.Since(start).Seconds()) }()
-		data, res, err := f.Get("subscription", req.URL, 0)
-		if err == nil && res.Err != "" {
-			err = errors.New(res.Err) // 拉取失败、回落到了旧缓存：校验时不算成功
-		}
-		if err != nil {
-			writeErr(w, http.StatusUnprocessableEntity, fmt.Errorf("拉取订阅失败：%w", err))
+		if _, err := d.verifySubscription(cfg, req.URL, ua); err != nil {
+			writeErr(w, http.StatusUnprocessableEntity, err)
 			return
 		}
-		sub, err := subscription.Parse(data, subscription.Options{File: "subscription", ReadFile: f.ProviderReader(), GeoRuleSetURL: cfg.Subscription.GeoRuleSetURL})
-		if err != nil {
-			writeErr(w, http.StatusUnprocessableEntity, fmt.Errorf("订阅内容无法识别（需要 Clash / Stash / mihomo 格式）：%w", err))
-			return
-		}
-		if len(sub.Nodes) == 0 {
-			writeErr(w, http.StatusUnprocessableEntity, fmt.Errorf("订阅中没有可用节点"))
-			return
+		// 修改的是当前订阅的地址：列表中的这一项随之改为新地址（保留名称），而不是另加一项
+		if ps, err := config.LoadProfiles(d.Paths.Profiles); err == nil && config.FindProfile(ps, config.ProfileID(req.URL, "")) < 0 {
+			if i := config.FindProfile(ps, config.ProfileID(cfg.Subscription.URL, cfg.Subscription.File)); i >= 0 {
+				ps[i].URL, ps[i].File = req.URL, ""
+				_ = config.SaveProfiles(d.Paths.Profiles, ps)
+			}
 		}
 	}
 	fields := map[string]string{"url": req.URL, "file": ""}

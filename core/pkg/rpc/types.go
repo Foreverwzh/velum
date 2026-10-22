@@ -8,6 +8,7 @@ import (
 	"github.com/Foreverwzh/velum/core/pkg/explain"
 	"github.com/Foreverwzh/velum/core/pkg/ir"
 	"github.com/Foreverwzh/velum/core/pkg/netsense"
+	"github.com/Foreverwzh/velum/core/pkg/source"
 )
 
 type GroupStatus struct {
@@ -94,14 +95,42 @@ type SetSubscriptionRequest struct {
 }
 
 type SubscriptionStatus struct {
-	Source    string    `json:"source"` // url（已脱敏）/ 文件路径
-	Origin    string    `json:"origin"` // remote / cache / file
+	ID        string    `json:"id,omitempty"`   // 订阅标识（见 ProfileStatus）；未配置订阅时为空
+	Name      string    `json:"name,omitempty"` // 订阅列表中的名称
+	Source    string    `json:"source"`         // url（已脱敏）/ 文件路径
+	Origin    string    `json:"origin"`         // remote / cache / file
 	FetchedAt time.Time `json:"fetched_at"`
 	FetchErr  string    `json:"fetch_error,omitempty"`
 	Nodes     int       `json:"nodes"`
 	Groups    int       `json:"groups"`
 	Rules     int       `json:"rules"`
 	RuleSets  int       `json:"rule_sets"`
+	// Info 是订阅服务提供的流量额度、到期时间等（最近一次拉取时的响应头）；没有提供时为空。
+	Info *source.Info `json:"info,omitempty"`
+}
+
+// ProfileStatus 是订阅列表中的一项（profiles.yaml）。
+type ProfileStatus struct {
+	ID        string       `json:"id"`
+	Name      string       `json:"name"`
+	Source    string       `json:"source"` // url（已脱敏）/ 文件路径
+	Kind      string       `json:"kind"`   // url / file
+	Active    bool         `json:"active"` // 正在使用（config.yaml 的 subscription）
+	FetchedAt time.Time    `json:"fetched_at,omitzero"`
+	Info      *source.Info `json:"info,omitempty"`
+}
+
+// AddProfileRequest 添加订阅：先拉取并校验；Activate 为 true 时随即切换到它。
+type AddProfileRequest struct {
+	Name     string `json:"name,omitempty"` // 为空时取订阅服务提供的名称或地址的主机名
+	URL      string `json:"url"`
+	Activate bool   `json:"activate,omitempty"`
+}
+
+// EditProfileRequest 修改订阅的名称或地址（为空表示不改）。
+type EditProfileRequest struct {
+	Name string `json:"name,omitempty"`
+	URL  string `json:"url,omitempty"`
 }
 
 type SysProxyStatus struct {
@@ -192,6 +221,7 @@ type Status struct {
 	Starting     bool               `json:"starting,omitempty"`
 	LoadedAt     time.Time          `json:"loaded_at"`
 	Subscription SubscriptionStatus `json:"subscription"`
+	Profiles     []ProfileStatus    `json:"profiles,omitempty"`
 	Warnings     int                `json:"warnings"`
 	LastError    string             `json:"last_error,omitempty"`
 	Groups       []GroupStatus      `json:"groups"`

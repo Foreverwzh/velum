@@ -9,13 +9,22 @@ export interface NetworkStatus {
   captive?: string; captive_detail?: string; paused?: string;
 }
 export interface TUNStatus { name?: string; address: string; address6?: string; routes: string[]; exclude?: string[]; system_dns?: string[] }
+/** 订阅服务提供的流量额度与到期时间（subscription-userinfo 等响应头）。 */
+export interface SubInfo { upload: number; download: number; total: number; expire?: string; title?: string; web_page?: string; updated_at: string }
+/** 订阅列表中的一项（profiles.yaml）；active 为正在使用的订阅。 */
+export interface Profile { id: string; name: string; source: string; kind: "url" | "file"; active: boolean; fetched_at?: string; info?: SubInfo }
+
 export interface Status {
   pid: number; version: string; running: boolean; mode: string; listen: string; home: string;
   system_proxy_on: boolean; tun_on: boolean; want_system_proxy: boolean; want_tun: boolean; overridden?: boolean;
   /** 首次加载配置、启动引擎尚未完成（其余字段可能为空）。 */
   starting?: boolean;
   started_at: string; loaded_at: string; warnings: number; last_error?: string; groups?: GroupStatus[];
-  subscription: { source: string; origin: string; fetched_at: string; fetch_error?: string; nodes: number; groups: number; rules: number; rule_sets: number };
+  subscription: {
+    id?: string; name?: string; source: string; origin: string; fetched_at: string; fetch_error?: string;
+    nodes: number; groups: number; rules: number; rule_sets: number; info?: SubInfo;
+  };
+  profiles?: Profile[];
   sys_proxy: { supported: boolean; active: boolean; overridden?: boolean; effective?: string; primary_interface?: string };
   tun?: TUNStatus; network?: NetworkStatus;
   /** 最近一次检查新版本的结果；尚未检查过时为空。 */
@@ -99,6 +108,14 @@ export const api = {
   subscription: () => call<{ url: string; file?: string; user_agent?: string }>("GET", "/v1/subscription"),
   /** 先拉取并校验，通过后才写入 config.yaml；空字符串表示清除订阅。 */
   setSubscription: (url: string) => call<Status>("PUT", "/v1/subscription", { url }),
+  /** 添加订阅：先拉取并校验；activate 为 true 时随即切换到它。 */
+  addProfile: (url: string, name?: string, activate?: boolean) => call<Status>("POST", "/v1/profiles", { url, name, activate }),
+  editProfile: (id: string, edit: { name?: string; url?: string }) => call<Status>("PUT", `/v1/profiles/${id}`, edit),
+  deleteProfile: (id: string) => call<Status>("DELETE", `/v1/profiles/${id}`),
+  /** 切换到该订阅（重新加载；失败时保持原订阅）。 */
+  activateProfile: (id: string) => call<Status>("POST", `/v1/profiles/${id}/activate`),
+  /** 重新拉取订阅，同时更新流量额度。 */
+  updateProfile: (id: string) => call<Status>("POST", `/v1/profiles/${id}/update`),
   saveOverlay: (content: string) => call<Status>("PUT", "/v1/overlay", { content }),
   overlayItems: () => call<OverlayItems>("GET", "/v1/overlay/items"),
   /** 按条目增删 overlay（保留文件中的注释），随后重新加载；失败时自动改回。 */

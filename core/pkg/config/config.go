@@ -169,6 +169,8 @@ func Home() (string, error) {
 type Paths struct {
 	// Home 是用户的 Velum 目录：config.yaml、overlay.yaml 等用户可编辑的文件（经 userfs 以用户身份读写）。
 	Home, Config, Overlay string
+	// Profiles 是订阅列表（profiles.yaml）；当前使用的订阅写在 config.yaml 的 subscription 中。
+	Profiles string
 	// Socket 是本地接口地址；ServiceSocket（Windows）是 Velum 服务的 Pipe，客户端在 Socket 不存在时回落到它。
 	Socket, ServiceSocket string
 	// Data 是 Velum 自己维护的数据目录：日志、缓存、状态、快照。默认与 Home 相同；Windows 服务（SYSTEM）
@@ -180,9 +182,10 @@ type Paths struct {
 
 func PathsFor(home string) Paths {
 	p := Paths{
-		Home:    home,
-		Config:  filepath.Join(home, "config.yaml"),
-		Overlay: filepath.Join(home, "overlay.yaml"),
+		Home:     home,
+		Config:   filepath.Join(home, "config.yaml"),
+		Overlay:  filepath.Join(home, "overlay.yaml"),
+		Profiles: filepath.Join(home, "profiles.yaml"),
 	}
 	p.Socket, p.ServiceSocket = socketPaths(home)
 	return p.WithData(home)

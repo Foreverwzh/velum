@@ -94,9 +94,9 @@ func (f *Fetcher) Get(kind, rawURL string, ttl time.Duration) ([]byte, Result, e
 		}
 	}
 	start := time.Now()
-	data, err := f.fetch(f.Client, rawURL)
+	data, hdr, err := f.fetch(f.Client, rawURL)
 	if err != nil && f.Fallback != nil && !errors.As(err, new(statusError)) {
-		if data, err = f.fetch(NewClient(http.ProxyURL(f.Fallback)), rawURL); err == nil && f.Log != nil {
+		if data, hdr, err = f.fetch(NewClient(http.ProxyURL(f.Fallback)), rawURL); err == nil && f.Log != nil {
 			f.Log("直连拉取 %s 失败，已经 Velum 代理拉取", kind)
 		}
 	}
@@ -114,6 +114,7 @@ func (f *Fetcher) Get(kind, rawURL string, ttl time.Duration) ([]byte, Result, e
 	if err == nil {
 		_ = os.MkdirAll(filepath.Dir(cp), 0o700)
 		_ = os.WriteFile(cp, data, 0o600)
+		saveInfo(cp, hdr)
 		return data, Result{Origin: "remote", FetchedAt: time.Now()}, nil
 	}
 	if cached, cerr := os.ReadFile(cp); cerr == nil {
@@ -135,23 +136,24 @@ type statusError int
 
 func (e statusError) Error() string { return fmt.Sprintf("HTTP %d", int(e)) }
 
-func (f *Fetcher) fetch(client *http.Client, rawURL string) ([]byte, error) {
+func (f *Fetcher) fetch(client *http.Client, rawURL string) ([]byte, http.Header, error) {
 	req, err := http.NewRequest(http.MethodGet, rawURL, nil)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if f.UserAgent != "" {
 		req.Header.Set("User-Agent", f.UserAgent)
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil, statusError(resp.StatusCode)
+		return nil, nil, statusError(resp.StatusCode)
 	}
-	return io.ReadAll(io.LimitReader(resp.Body, 64<<20))
+	data, err := io.ReadAll(io.LimitReader(resp.Body, 64<<20))
+	return data, resp.Header, err
 }
 
 // ProviderReader 返回供 subscription.Options.ReadFile 使用的读取函数。

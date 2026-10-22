@@ -19,6 +19,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -26,6 +27,7 @@ import (
 	"github.com/Foreverwzh/velum/core/pkg/engine"
 	"github.com/Foreverwzh/velum/core/pkg/ir"
 	"github.com/Foreverwzh/velum/core/pkg/rpc"
+	"github.com/Foreverwzh/velum/core/pkg/source"
 	"github.com/Foreverwzh/velum/core/pkg/sysproxy"
 )
 
@@ -100,6 +102,8 @@ func main() {
 		}
 	case "sub":
 		err = subCmd(c, args)
+	case "profile":
+		err = profileCmd(c, args)
 	case "test":
 		if len(args) > 1 {
 			err = fmt.Errorf("用法：vlu test [策略组]（不指定时测试全部节点）")
@@ -168,7 +172,12 @@ func usage() {
   conns [-n 20] [-f] 最近的连接；-f 实时跟随
   warnings          订阅转换与编译告警
   select <组> <成员>  切换策略组（保存，重启后保持）
-  sub [订阅地址]      查看 / 设置订阅地址（先拉取并校验，通过后才写入 config.yaml）
+  sub [订阅地址]      查看 / 设置当前订阅的地址（先拉取并校验，通过后才写入 config.yaml）
+  profile           订阅列表（含流量额度）；有多个订阅时切换：
+      use <序号|名称>     切换到该订阅
+      add <地址> [名称]   添加订阅（先拉取并校验，不切换）
+      update <序号|名称>  重新拉取订阅（更新流量额度）
+      rm <序号|名称>      删除订阅（正在使用的不能删除）
   test [组]         对策略组成员测速；不指定组时测试全部节点
   repair            一键修复：清空 DNS 缓存、重新检测网络环境、检查其他代理工具的残留、
                     重新拉取订阅并加载、校正系统代理、节点测速
@@ -375,7 +384,14 @@ func printStatus(s *rpc.Status) error {
 		}
 	}
 	if sub := s.Subscription; sub.Source != "" {
-		fmt.Printf("订阅      %s（%s，%s）\n", sub.Source, sub.Origin, sub.FetchedAt.Format("01-02 15:04"))
+		name := ""
+		if sub.Name != "" {
+			name = sub.Name + " · "
+		}
+		fmt.Printf("订阅      %s%s（%s，%s）\n", name, sub.Source, sub.Origin, sub.FetchedAt.Format("01-02 15:04"))
+		if u := usageText(sub.Info); u != "" {
+			fmt.Printf("流量      %s\n", u)
+		}
 		if sub.FetchErr != "" {
 			fmt.Printf("          ⚠ 远程拉取失败，正在使用缓存：%s\n", sub.FetchErr)
 		}
@@ -754,4 +770,114 @@ func subCmd(c *rpc.Client, args []string) error {
 	}
 	fmt.Printf("订阅已更新：%d 节点 / %d 策略组 / %d 规则\n", s.Subscription.Nodes, s.Subscription.Groups, s.Subscription.Rules)
 	return nil
+}
+
+// usageText 把订阅的流量额度与到期时间写成一行；没有提供时为空。
+func usageText(in *source.Info) string {
+	if in == nil {
+		return ""
+	}
+	var parts []string
+	if in.HasUsage() {
+		used := in.Upload + in.Download
+		parts = append(parts, fmt.Sprintf("已用 %s / %s（%.0f%%），剩余 %s", bytesText(used), bytesText(in.Total),
+			float64(used)*100/float64(in.Total), bytesText(max(in.Total-used, 0))))
+	}
+	if !in.Expire.IsZero() {
+		days := int(time.Until(in.Expire).Hours() / 24)
+		switch {
+		case days < 0:
+			parts = append(parts, "已于 "+in.Expire.Format("2006-01-02")+" 到期")
+		default:
+			parts = append(parts, fmt.Sprintf("%s 到期（%d 天后）", in.Expire.Format("2006-01-02"), days))
+		}
+	}
+	return strings.Join(parts, "；")
+}
+
+func bytesText(n int64) string {
+	const unit = 1024
+	if n < unit {
+		return fmt.Sprintf("%d B", n)
+	}
+	f, i := float64(n), 0
+	for f >= unit && i < 5 {
+		f /= unit
+		i++
+	}
+	return fmt.Sprintf("%.2f %s", f, []string{"B", "KB", "MB", "GB", "TB", "PB"}[i])
+}
+
+func profileCmd(c *rpc.Client, args []string) error {
+	ps, err := c.Profiles()
+	if err != nil {
+		return err
+	}
+	find := func(key string) (rpc.ProfileStatus, error) {
+		if n, err := strconv.Atoi(key); err == nil && n >= 1 && n <= len(ps) {
+			return ps[n-1], nil
+		}
+		for _, p := range ps {
+			if p.Name == key || p.ID == key {
+				return p, nil
+			}
+		}
+		return rpc.ProfileStatus{}, fmt.Errorf("没有找到订阅 %q（vlu profile 查看列表）", key)
+	}
+	if len(args) == 0 {
+		if len(ps) == 0 {
+			fmt.Println("还没有订阅（vlu profile add <订阅地址>）")
+		}
+		for i, p := range ps {
+			mark := " "
+			if p.Active {
+				mark = "●"
+			}
+			fmt.Printf("%s %d. %s  %s\n", mark, i+1, p.Name, p.Source)
+			if u := usageText(p.Info); u != "" {
+				fmt.Printf("     %s\n", u)
+			}
+		}
+		return nil
+	}
+	var s *rpc.Status
+	switch args[0] {
+	case "use", "add", "update", "rm":
+		if len(args) < 2 {
+			return fmt.Errorf("用法：vlu profile %s <%s>", args[0], map[bool]string{true: "地址> [名称", false: "序号|名称"}[args[0] == "add"])
+		}
+	default:
+		return fmt.Errorf("未知的子命令 %q（use / add / update / rm）", args[0])
+	}
+	if args[0] == "add" {
+		fmt.Println("正在拉取并校验订阅…")
+		if s, err = c.AddProfile(rpc.AddProfileRequest{URL: args[1], Name: strings.Join(args[2:], " ")}); err == nil {
+			fmt.Printf("已添加：%s（vlu profile use %d 切换）\n", s.Profiles[len(s.Profiles)-1].Name, len(s.Profiles))
+		}
+		return err
+	}
+	p, err := find(strings.Join(args[1:], " "))
+	if err != nil {
+		return err
+	}
+	switch args[0] {
+	case "use":
+		if s, err = c.ActivateProfile(p.ID); err == nil {
+			fmt.Printf("已切换到 %s：%d 节点 / %d 策略组 / %d 规则\n", p.Name, s.Subscription.Nodes, s.Subscription.Groups, s.Subscription.Rules)
+		}
+	case "update":
+		fmt.Println("正在拉取订阅…")
+		if s, err = c.UpdateProfile(p.ID); err == nil {
+			for _, q := range s.Profiles {
+				if q.ID == p.ID {
+					fmt.Printf("已更新 %s %s\n", q.Name, usageText(q.Info))
+				}
+			}
+		}
+	case "rm":
+		if _, err = c.DeleteProfile(p.ID); err == nil {
+			fmt.Printf("已删除 %s\n", p.Name)
+		}
+	}
+	return err
 }

@@ -8,6 +8,7 @@ import type { Go, Refresh } from "../App";
 import { Button, Chain, Latency, Notice, Panel, Section, StatusMark, Tag, chainSteps, cx } from "../components/ui";
 import { SwitchRows } from "../components/TunToggle";
 import { SubscriptionForm } from "../components/SubscriptionForm";
+import { UsageBar, usageOf } from "../components/Usage";
 
 export default function Overview({ status: s, refresh, go }: { status: Status; refresh: Refresh; go: Go }) {
   const h = health(s);
@@ -56,6 +57,7 @@ export default function Overview({ status: s, refresh, go }: { status: Status; r
           </Section>
         ) : (
           <>
+            <SubscriptionLine status={s} refresh={refresh} go={go} />
             <GroupSummary status={s} go={go} busy={busy} onTest={() => run("test", () => api.test(""))} />
             <RecentConnections go={go} />
           </>
@@ -94,6 +96,36 @@ function NetworkLine({ status: s }: { status: Status }) {
         </span>
       ))}
     </div>
+  );
+}
+
+/** 当前订阅：流量额度与到期；有多个订阅时可直接切换。 */
+function SubscriptionLine({ status: s, refresh, go }: { status: Status; refresh: Refresh; go: Go }) {
+  const { busy, error, run } = useAction(refresh);
+  const profiles = s.profiles ?? [];
+  const u = usageOf(s.subscription.info);
+  if (!u && profiles.length < 2) return null;
+  return (
+    <Panel className="px-3.5 py-2.5">
+      <div className="flex items-center gap-3">
+        <span className="shrink-0 text-[12px] text-fg-3">订阅</span>
+        {profiles.length > 1 ? (
+          <select value={s.subscription.id} disabled={!!busy} onChange={(e) => run("use", () => api.activateProfile(e.target.value))}
+            className="h-7 min-w-0 rounded-md border border-line-strong bg-raised px-2 text-[12.5px] font-medium">
+            {profiles.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+        ) : (
+          <span className="truncate font-medium">{s.subscription.name}</span>
+        )}
+        {busy && <span className="text-[12px] text-fg-3">正在切换…</span>}
+        <div className="min-w-0 flex-1">
+          {u?.pct !== undefined && <UsageBar pct={u.pct} tone={u.tone} />}
+          {u && <div className={cx("tnum mt-1 truncate text-[12px]", u.tone === "err" ? "text-err" : u.tone === "warn" ? "text-warn" : "text-fg-2")}>{u.text}</div>}
+        </div>
+        <Button size="sm" variant="ghost" onClick={() => go("settings")}>管理<ArrowRight className="size-3" /></Button>
+      </div>
+      {error && <div className="mt-2"><Notice tone="err">{error}</Notice></div>}
+    </Panel>
   );
 }
 

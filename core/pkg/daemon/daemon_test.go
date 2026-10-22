@@ -888,3 +888,87 @@ func TestDaemonStartingState(t *testing.T) {
 		t.Fatalf("加载完成后应正常运行：%+v", st)
 	}
 }
+
+// 订阅列表：当前订阅自动加入；添加时校验并带上流量额度；切换改写 config.yaml；正在使用的不能删除。
+func TestProfiles(t *testing.T) {
+	sub := func(node string) string {
+		return "proxies:\n  - {name: " + node + ", type: ss, server: 192.0.2.1, port: 8388, cipher: aes-128-gcm, password: p}\nrules:\n  - MATCH," + node + "\n"
+	}
+	used := "1024"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/a":
+			w.Header().Set("Subscription-Userinfo", "upload=0; download="+used+"; total=4096; expire=1798732800")
+			w.Header().Set("Profile-Title", "Alpha")
+			_, _ = io.WriteString(w, sub("a1"))
+		case "/b":
+			_, _ = io.WriteString(w, strings.Replace(sub("b1"), "rules:", "  - {name: b2, type: ss, server: 192.0.2.2, port: 8388, cipher: aes-128-gcm, password: p}\nrules:", 1))
+		default:
+			_, _ = io.WriteString(w, "<html>")
+		}
+	}))
+	defer srv.Close()
+
+	home, _ := os.MkdirTemp(tmpBase(), "velum-test-")
+	defer os.RemoveAll(home)
+	paths := testPaths(home)
+	_ = config.Ensure(paths)
+	d := daemon.New(paths, &fakeEngine{}, log.New(io.Discard, "", 0))
+	go func() { _ = d.Run(context.Background()) }()
+	defer d.Shutdown()
+	c := rpc.NewClient(paths.Socket)
+	for i := 0; i < 100; i++ {
+		if s, err := c.Status(); err == nil && !s.Starting {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	// 原有的单一订阅：自动加入列表，名称取订阅服务提供的 profile-title
+	st, err := c.SetSubscription(rpc.SetSubscriptionRequest{URL: srv.URL + "/a?token=s"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(st.Profiles) != 1 || !st.Profiles[0].Active || st.Profiles[0].Name != "Alpha" || st.Subscription.Name != "Alpha" ||
+		st.Subscription.ID != st.Profiles[0].ID || strings.Contains(st.Profiles[0].Source, "token") {
+		t.Fatalf("%+v %+v", st.Subscription, st.Profiles)
+	}
+	if in := st.Subscription.Info; in == nil || in.Download != 1024 || in.Total != 4096 || in.Expire.Unix() != 1798732800 {
+		t.Fatalf("流量额度：%+v", in)
+	}
+	alpha := st.Profiles[0].ID
+
+	if _, err := c.AddProfile(rpc.AddProfileRequest{URL: srv.URL + "/bad"}); err == nil {
+		t.Fatal("无法识别的订阅应拒绝")
+	}
+	if _, err := c.AddProfile(rpc.AddProfileRequest{URL: srv.URL + "/a?token=s"}); err == nil {
+		t.Fatal("重复的订阅应拒绝")
+	}
+	st, err = c.AddProfile(rpc.AddProfileRequest{Name: "Beta", URL: srv.URL + "/b"})
+	if err != nil || len(st.Profiles) != 2 || st.Subscription.Name != "Alpha" || st.Profiles[1].Name != "Beta" || st.Profiles[1].Active {
+		t.Fatalf("添加不切换：%v %+v", err, st.Profiles)
+	}
+	beta := st.Profiles[1].ID
+
+	if st, err = c.ActivateProfile(beta); err != nil || st.Subscription.ID != beta || st.Subscription.Nodes != 2 || st.Subscription.Info != nil {
+		t.Fatalf("切换：%v %+v", err, st.Subscription)
+	}
+	if sc, _ := c.Subscription(); sc.URL != srv.URL+"/b" {
+		t.Fatalf("config.yaml 应改为 Beta：%+v", sc)
+	}
+	if _, err := c.DeleteProfile(beta); err == nil {
+		t.Fatal("正在使用的订阅不能删除")
+	}
+
+	// 未使用的订阅也能更新额度
+	used = "2048"
+	if st, err = c.UpdateProfile(alpha); err != nil || st.Profiles[0].Info == nil || st.Profiles[0].Info.Download != 2048 || st.Subscription.ID != beta {
+		t.Fatalf("更新未使用的订阅：%v %+v", err, st.Profiles)
+	}
+	if st, err = c.EditProfile(alpha, rpc.EditProfileRequest{Name: "主力"}); err != nil || st.Profiles[0].Name != "主力" {
+		t.Fatalf("改名：%v %+v", err, st.Profiles)
+	}
+	if st, err = c.DeleteProfile(alpha); err != nil || len(st.Profiles) != 1 || st.Profiles[0].ID != beta {
+		t.Fatalf("删除：%v %+v", err, st.Profiles)
+	}
+}

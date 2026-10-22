@@ -188,6 +188,38 @@ func (c *Client) SetSubscription(req SetSubscriptionRequest) (*Status, error) {
 	return &s, c.do(http.MethodPut, "/v1/subscription", req, &s)
 }
 
+func (c *Client) Profiles() ([]ProfileStatus, error) {
+	var ps []ProfileStatus
+	return ps, c.do(http.MethodGet, "/v1/profiles", nil, &ps)
+}
+
+func (c *Client) AddProfile(req AddProfileRequest) (*Status, error) {
+	var s Status
+	return &s, c.do(http.MethodPost, "/v1/profiles", req, &s)
+}
+
+func (c *Client) EditProfile(id string, req EditProfileRequest) (*Status, error) {
+	var s Status
+	return &s, c.do(http.MethodPut, "/v1/profiles/"+url.PathEscape(id), req, &s)
+}
+
+func (c *Client) DeleteProfile(id string) (*Status, error) {
+	var s Status
+	return &s, c.do(http.MethodDelete, "/v1/profiles/"+url.PathEscape(id), nil, &s)
+}
+
+// ActivateProfile 切换到订阅 id（重新加载，失败时保持原订阅）。
+func (c *Client) ActivateProfile(id string) (*Status, error) {
+	var s Status
+	return &s, c.do(http.MethodPost, "/v1/profiles/"+url.PathEscape(id)+"/activate", nil, &s)
+}
+
+// UpdateProfile 重新拉取订阅 id（同时更新流量额度）。
+func (c *Client) UpdateProfile(id string) (*Status, error) {
+	var s Status
+	return &s, c.do(http.MethodPost, "/v1/profiles/"+url.PathEscape(id)+"/update", nil, &s)
+}
+
 func (c *Client) Helper() (*HelperStatus, error) {
 	var s HelperStatus
 	return &s, c.do(http.MethodGet, "/v1/helper", nil, &s)

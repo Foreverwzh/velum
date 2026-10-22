@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
-import { Download, RefreshCw } from "lucide-react";
-import { api, componentStatus, componentText, isWindows, native, onUpdateProgress, type CliStatus, type HelperStatus, type Status, type UpdateProgress } from "../api";
+import { Download, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
+import { api, componentStatus, componentText, isWindows, native, onUpdateProgress, type CliStatus, type HelperStatus, type Profile, type Status, type UpdateProgress } from "../api";
 import { useAction } from "../hooks";
 import type { Refresh } from "../App";
-import { Button, cx, KV, Notice, PageHeader, Panel, Row, Section, Switch, Tag } from "../components/ui";
+import { Button, cx, IconButton, KV, Notice, PageHeader, Panel, Row, Section, Switch, Tag, TextInput } from "../components/ui";
+import { UsageBar, usageOf } from "../components/Usage";
 import { SubscriptionForm } from "../components/SubscriptionForm";
 import { installHelper } from "../components/TunToggle";
 
@@ -33,34 +34,118 @@ export default function Settings({ status: s, refresh }: { status: Status; refre
 }
 
 function Subscription({ status: s, refresh }: { status: Status; refresh: Refresh }) {
-  const [edit, setEdit] = useState<string>();
+  const [adding, setAdding] = useState(false);
+  const [editing, setEditing] = useState<string>();
   const { busy, error, run } = useAction(refresh);
   const sub = s.subscription;
+  const profiles = s.profiles ?? [];
   const fetched = sub.fetched_at && !sub.fetched_at.startsWith("0001") ? new Date(sub.fetched_at).toLocaleString([], { hour12: false }) : "—";
   return (
     <Section
       title="订阅"
-      actions={edit === undefined && (
+      actions={profiles.length > 0 && !adding && (
         <>
-          <Button size="sm" variant="ghost" icon={RefreshCw} loading={busy === "update"} onClick={() => run("update", api.update)}>立即更新</Button>
-          <Button size="sm" variant="ghost" onClick={() => run("load", async () => setEdit((await api.subscription()).url))}>修改地址</Button>
+          <Button size="sm" variant="ghost" icon={RefreshCw} loading={busy === "update"} disabled={!!busy} onClick={() => run("update", api.update)}>更新当前订阅</Button>
+          <Button size="sm" variant="ghost" icon={Plus} disabled={!!busy} onClick={() => setAdding(true)}>添加订阅</Button>
         </>
       )}
     >
-      <Panel className="px-3.5 py-3">
-        {edit !== undefined ? (
-          <SubscriptionForm initial={edit} autoFocus onCancel={() => setEdit(undefined)} onDone={async () => { setEdit(undefined); await refresh(); }} />
-        ) : (
-          <KV rows={[
-            ["地址", <span className="selectable font-mono text-[12px] break-all">{sub.source || "未配置"}</span>],
-            ["上次获取", <span className="tnum">{fetched}{sub.origin === "cache" && <span className="ml-2 text-fg-3">（缓存）</span>}</span>],
-            ["内容", <span className="tnum">{sub.nodes} 个节点 · {sub.groups} 个策略组 · {sub.rules} 条规则 · {sub.rule_sets} 个规则集</span>],
-          ]} />
-        )}
-      </Panel>
+      {!profiles.length ? (
+        <Panel className="px-3.5 py-3"><SubscriptionForm onDone={refresh} /></Panel>
+      ) : (
+        <Panel>
+          {profiles.map((p) => editing === p.id ? (
+            <ProfileEditor key={p.id} profile={p} onCancel={() => setEditing(undefined)}
+              onSave={(edit) => run("edit", async () => { await api.editProfile(p.id, edit); setEditing(undefined); })} busy={busy === "edit"} />
+          ) : (
+            <ProfileRow key={p.id} profile={p} busy={busy}
+              onUse={() => run("use:" + p.id, () => api.activateProfile(p.id))}
+              onUpdate={() => run("update:" + p.id, () => (p.active ? api.update() : api.updateProfile(p.id)))}
+              onEdit={() => setEditing(p.id)}
+              onDelete={() => run("delete:" + p.id, () => api.deleteProfile(p.id))} />
+          ))}
+          {adding && <AddProfile busy={busy === "add"} onCancel={() => setAdding(false)}
+            onAdd={(url, name, activate) => run("add", async () => { await api.addProfile(url, name, activate); setAdding(false); })} />}
+        </Panel>
+      )}
+      {sub.source && (
+        <p className="mt-2 px-1 text-[12px] text-fg-3">
+          当前订阅：<span className="tnum">{sub.nodes} 个节点 · {sub.groups} 个策略组 · {sub.rules} 条规则 · {sub.rule_sets} 个规则集 · 上次获取 {fetched}</span>
+          {sub.origin === "cache" && "（缓存）"}
+        </p>
+      )}
       {sub.fetch_error && <div className="mt-2"><Notice tone="warn">远程拉取失败，正在使用缓存：{sub.fetch_error}</Notice></div>}
       {error && <div className="mt-2"><Notice tone="err">{error}</Notice></div>}
     </Section>
+  );
+}
+
+function ProfileRow({ profile: p, busy, onUse, onUpdate, onEdit, onDelete }: {
+  profile: Profile; busy?: string; onUse: () => void; onUpdate: () => void; onEdit: () => void; onDelete: () => void;
+}) {
+  const u = usageOf(p.info);
+  return (
+    <div className="flex items-center gap-4 border-b border-line px-3.5 py-2.5 last:border-b-0">
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2">
+          <span className="truncate font-medium">{p.name}</span>
+          {p.active && <Tag tone="accent">使用中</Tag>}
+          {p.info?.web_page && (
+            <a href={p.info.web_page} target="_blank" rel="noreferrer" className="text-[11.5px] text-fg-3 hover:text-fg-2">用户中心</a>
+          )}
+        </div>
+        {u ? (
+          <>
+            {u.pct !== undefined && <UsageBar pct={u.pct} tone={u.tone} className="mt-1.5 max-w-[360px]" />}
+            <div className={cx("tnum mt-1 text-[12px]", u.tone === "err" ? "text-err" : u.tone === "warn" ? "text-warn" : "text-fg-2")}>{u.text}</div>
+          </>
+        ) : (
+          <div className="mt-0.5 text-[12px] text-fg-3">{p.kind === "file" ? "本地文件" : "订阅未提供流量信息"}</div>
+        )}
+        <div className="selectable mt-0.5 truncate font-mono text-[11px] text-fg-3" title={p.source}>{p.source}</div>
+      </div>
+      <div className="flex shrink-0 items-center gap-1">
+        {!p.active && <Button size="sm" loading={busy === "use:" + p.id} disabled={!!busy} onClick={onUse}>使用</Button>}
+        {p.kind === "url" && <IconButton icon={RefreshCw} label="更新（同时刷新流量）" disabled={!!busy} className={cx(busy === "update:" + p.id && "animate-spin")} onClick={onUpdate} />}
+        <IconButton icon={Pencil} label="编辑" disabled={!!busy} onClick={onEdit} />
+        <IconButton icon={Trash2} label={p.active ? "正在使用的订阅不能删除" : "删除"} disabled={!!busy || p.active} onClick={onDelete} />
+      </div>
+    </div>
+  );
+}
+
+function ProfileEditor({ profile: p, busy, onSave, onCancel }: {
+  profile: Profile; busy: boolean; onSave: (edit: { name?: string; url?: string }) => void; onCancel: () => void;
+}) {
+  const [name, setName] = useState(p.name);
+  const [url, setUrl] = useState("");
+  return (
+    <form className="flex flex-col gap-2 border-b border-line px-3.5 py-3 last:border-b-0"
+      onSubmit={(e) => { e.preventDefault(); onSave({ name: name.trim() || undefined, url: url.trim() || undefined }); }}>
+      <TextInput value={name} onChange={(e) => setName(e.target.value)} placeholder="名称" autoFocus />
+      {p.kind === "url" && <TextInput value={url} onChange={(e) => setUrl(e.target.value)} placeholder="新的订阅地址（不改则留空）" className="font-mono text-[12px]" />}
+      <div className="flex items-center gap-2">
+        <Button type="submit" variant="primary" loading={busy}>{busy && url.trim() ? "正在拉取并校验" : "保存"}</Button>
+        <Button type="button" variant="ghost" onClick={onCancel} disabled={busy}>取消</Button>
+      </div>
+    </form>
+  );
+}
+
+function AddProfile({ busy, onAdd, onCancel }: { busy: boolean; onAdd: (url: string, name: string, activate: boolean) => void; onCancel: () => void }) {
+  const [url, setUrl] = useState("");
+  const [name, setName] = useState("");
+  const [activate, setActivate] = useState(false);
+  return (
+    <form className="flex flex-col gap-2 px-3.5 py-3" onSubmit={(e) => { e.preventDefault(); if (url.trim() && !busy) onAdd(url.trim(), name.trim(), activate); }}>
+      <TextInput value={url} onChange={(e) => setUrl(e.target.value)} placeholder="订阅地址 https://…" autoFocus className="font-mono text-[12px]" />
+      <TextInput value={name} onChange={(e) => setName(e.target.value)} placeholder="名称（可选，默认取订阅提供的名称）" />
+      <div className="flex items-center gap-2">
+        <Button type="submit" variant="primary" loading={busy} disabled={!url.trim()} onClick={() => setActivate(false)}>{busy ? "正在拉取并校验" : "添加"}</Button>
+        <Button type="submit" disabled={!url.trim() || busy} onClick={() => setActivate(true)}>添加并使用</Button>
+        <Button type="button" variant="ghost" onClick={onCancel} disabled={busy}>取消</Button>
+      </div>
+    </form>
   );
 }
 

@@ -30,6 +30,9 @@ struct Items {
     autostart: Option<CheckMenuItem<Wry>>,
     upgrade: Option<MenuItem<Wry>>,
     groups: HashMap<String, Submenu<Wry>>,
+    /// 订阅切换（有多个订阅时显示）：子菜单与各订阅（id → 菜单项）
+    profiles_menu: Option<Submenu<Wry>>,
+    profiles: HashMap<String, CheckMenuItem<Wry>>,
     menu: Option<Menu<Wry>>,
     /// 活跃客户端分区：标题、各行、分隔线；没有客户端时整个分区不显示
     client_head: Option<MenuItem<Wry>>,
@@ -74,9 +77,54 @@ fn members(g: &Value) -> Vec<&str> {
         .unwrap_or_default()
 }
 
-/// 决定是否需要重建菜单：组、类型、成员（选择与延迟变化只需就地更新）。
-fn signature(groups: &[Value]) -> String {
-    groups
+fn profile_id(id: &str) -> String {
+    format!("prof{SEP}{id}")
+}
+
+/// 订阅菜单项：名称，右侧为剩余流量（没有额度时为到期日期）。
+fn profile_label(p: &Value) -> String {
+    let name = p["name"].as_str().unwrap_or("");
+    let info = &p["info"];
+    let num = |k: &str| info[k].as_f64().unwrap_or(0.0);
+    if num("total") > 0.0 {
+        let left = (num("total") - num("upload") - num("download")).max(0.0);
+        return format!("{name}\t剩余 {}", bytes(left));
+    }
+    match info["expire"].as_str().and_then(|e| e.get(..10)) {
+        Some(day) => format!("{name}\t{day} 到期"),
+        None => name.to_string(),
+    }
+}
+
+fn profiles_title(profiles: &[Value]) -> String {
+    match profiles.iter().find(|p| p["active"].as_bool() == Some(true)) {
+        Some(p) => format!("订阅\t{}", p["name"].as_str().unwrap_or("")),
+        None => "订阅".into(),
+    }
+}
+
+fn bytes(n: f64) -> String {
+    let units = ["B", "KB", "MB", "GB", "TB", "PB"];
+    let (mut n, mut i) = (n, 0);
+    while n >= 1024.0 && i < units.len() - 1 {
+        n /= 1024.0;
+        i += 1;
+    }
+    if i == 0 {
+        format!("{n:.0} B")
+    } else {
+        format!("{n:.1} {}", units[i])
+    }
+}
+
+/// 决定是否需要重建菜单：订阅列表、组、类型、成员（选择、延迟、流量变化只需就地更新）。
+fn signature(groups: &[Value], profiles: &[Value]) -> String {
+    let profs = profiles
+        .iter()
+        .map(|p| p["id"].as_str().unwrap_or(""))
+        .collect::<Vec<_>>()
+        .join(",");
+    profs + "\n" + &groups
         .iter()
         .map(|g| {
             format!(
@@ -90,7 +138,7 @@ fn signature(groups: &[Value]) -> String {
         .join("\n")
 }
 
-fn build(app: &AppHandle, groups: &[Value]) -> tauri::Result<(Menu<Wry>, Items)> {
+fn build(app: &AppHandle, groups: &[Value], profiles: &[Value]) -> tauri::Result<(Menu<Wry>, Items)> {
     let mut items = Items::default();
     let menu = Menu::new(app)?;
     let sep = || PredefinedMenuItem::separator(app);
@@ -105,6 +153,26 @@ fn build(app: &AppHandle, groups: &[Value]) -> tauri::Result<(Menu<Wry>, Items)>
         Some("CmdOrCtrl+D"),
     )?)?;
     menu.append(&sep()?)?;
+
+    if profiles.len() > 1 {
+        let sub = Submenu::with_id(app, "profiles", profiles_title(profiles), true)?;
+        for p in profiles {
+            let id = p["id"].as_str().unwrap_or("");
+            let item = CheckMenuItem::with_id(
+                app,
+                profile_id(id),
+                profile_label(p),
+                true,
+                p["active"].as_bool() == Some(true),
+                None::<&str>,
+            )?;
+            sub.append(&item)?;
+            items.profiles.insert(id.to_string(), item);
+        }
+        menu.append(&sub)?;
+        menu.append(&sep()?)?;
+        items.profiles_menu = Some(sub);
+    }
 
     if !groups.is_empty() {
         for g in groups {
@@ -223,7 +291,7 @@ fn build(app: &AppHandle, groups: &[Value]) -> tauri::Result<(Menu<Wry>, Items)>
 
 /// 构建初始菜单（velumd 尚未连上时）。
 pub fn initial(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
-    let (menu, items) = build(app, &[])?;
+    let (menu, items) = build(app, &[], &[])?;
     *ITEMS.lock().unwrap() = items;
     Ok(menu)
 }
@@ -234,10 +302,14 @@ pub fn refresh(app: &AppHandle, status: Option<&Value>, text: &str) {
         .and_then(|s| s["groups"].as_array())
         .cloned()
         .unwrap_or_default();
-    let sig = signature(&groups);
+    let profiles = status
+        .and_then(|s| s["profiles"].as_array())
+        .cloned()
+        .unwrap_or_default();
+    let sig = signature(&groups, &profiles);
     let mut it = ITEMS.lock().unwrap();
     if !it.built || sig != it.signature {
-        let Ok((menu, items)) = build(app, &groups) else {
+        let Ok((menu, items)) = build(app, &groups, &profiles) else {
             return;
         };
         if let Some(t) = app.tray_by_id("main") {
@@ -253,6 +325,8 @@ pub fn refresh(app: &AppHandle, status: Option<&Value>, text: &str) {
         upgrade,
         groups: subs,
         members: member_items,
+        profiles_menu,
+        profiles: profile_items,
         last,
         ..
     } = &mut *it;
@@ -287,6 +361,25 @@ pub fn refresh(app: &AppHandle, status: Option<&Value>, text: &str) {
         put("upgrade".into(), upgrade_text(status), false, &|t, _| {
             let _ = item.set_text(t);
         });
+    }
+    if let Some(sub) = profiles_menu {
+        put("profiles".into(), profiles_title(&profiles), false, &|t, _| {
+            let _ = sub.set_text(t);
+        });
+    }
+    for p in &profiles {
+        let id = p["id"].as_str().unwrap_or("");
+        if let Some(item) = profile_items.get(id) {
+            put(
+                profile_id(id),
+                profile_label(p),
+                p["active"].as_bool() == Some(true),
+                &|t, c| {
+                    let _ = item.set_text(t);
+                    let _ = item.set_checked(c);
+                },
+            );
+        }
     }
     for g in &groups {
         let tag = g["tag"].as_str().unwrap_or("");
@@ -583,6 +676,15 @@ pub fn handle(app: &AppHandle, id: &str) {
             let body = serde_json::json!({ "group": group, "member": member }).to_string();
             let _ = velum::call("POST", "/v1/groups/select", Some(&body));
         }
+        (Some("prof"), Some(id), None) => {
+            // 同上：勾选由系统先行切换，刷新时写回实际使用的订阅
+            ITEMS
+                .lock()
+                .unwrap()
+                .last
+                .retain(|k, _| !k.starts_with(&format!("prof{SEP}")));
+            let _ = velum::call("POST", &format!("/v1/profiles/{id}/activate"), None);
+        }
         (Some("test"), Some(group), None) => {
             let body = serde_json::json!({ "group": group }).to_string();
             let _ = velum::call("POST", "/v1/groups/test", Some(&body));
@@ -714,6 +816,17 @@ mod tests {
         assert_eq!(label(r"C:\Program Files\App\app.exe").0, "app");
         assert_eq!(label("/Users/u/.local/share/claude/versions/2.1.306").0, "claude");
         assert_eq!(label("/Users/u/.local/share/claude/versions/2.1.306").0, "claude");
+    }
+
+    #[test]
+    fn profile_labels() {
+        let p = json!({"name": "A", "info": {"upload": 1073741824u64, "download": 1073741824u64, "total": 10737418240u64}});
+        assert_eq!(profile_label(&p), "A\t剩余 8.0 GB");
+        let p = json!({"name": "B", "info": {"upload": 0, "download": 0, "total": 0, "expire": "2026-12-31T00:00:00+08:00"}});
+        assert_eq!(profile_label(&p), "B\t2026-12-31 到期");
+        assert_eq!(profile_label(&json!({"name": "C"})), "C");
+        let ps = [json!({"name": "A"}), json!({"name": "B", "active": true})];
+        assert_eq!(profiles_title(&ps), "订阅\tB");
     }
 
     #[test]
