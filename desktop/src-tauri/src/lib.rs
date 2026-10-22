@@ -199,11 +199,7 @@ pub fn run() {
                         }
                         if connected {
                             let t = velum::call("GET", "/v1/traffic", None).ok();
-                            let conns = velum::call("GET", "/v1/connections?active=1&limit=2000", None)
-                                .ok()
-                                .and_then(|v| v["connections"].as_array().cloned())
-                                .unwrap_or_default();
-                            tray::traffic(&app, t.as_ref(), &conns);
+                            tray::traffic(&app, t.as_ref());
                         }
                         std::thread::sleep(Duration::from_secs(1));
                     }

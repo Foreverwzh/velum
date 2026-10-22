@@ -155,6 +155,15 @@ type Traffic struct {
 	UpRate   int64 `json:"up_rate"`
 	DownRate int64 `json:"down_rate"`
 	Active   int   `json:"active"`
+	// Clients 是同一秒内各进程的速率（有进行中的连接或有流量的进程），按速率排序；各项之和等于总速率。
+	Clients []ClientTraffic `json:"clients,omitempty"`
+}
+
+type ClientTraffic struct {
+	Process  string `json:"process"` // 可执行文件路径；空字符串表示未识别出进程（如 root 进程、局域网设备）
+	UpRate   int64  `json:"up_rate"`
+	DownRate int64  `json:"down_rate"`
+	Active   int    `json:"active"`
 }
 
 type Status struct {

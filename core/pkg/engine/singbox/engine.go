@@ -72,14 +72,17 @@ type Engine struct {
 	next    int
 	subs    map[chan engine.Connection]struct{}
 
-	totalUp, totalDown atomic.Int64 // 引擎启动以来经过 Velum 的总字节数（含已结束的连接）
+	totalUp, totalDown atomic.Int64        // 引擎启动以来经过 Velum 的总字节数（含已结束的连接）
+	procs              map[string]*counter // 按进程累计的字节数（含已结束的连接）；键为进程路径，空字符串表示未识别
 }
+
+type counter struct{ up, down atomic.Int64 }
 
 func New(opts Options) *Engine {
 	if opts.History <= 0 {
 		opts.History = defaultHistory
 	}
-	return &Engine{opts: opts, live: map[uint32]*engine.Connection{}, meters: map[uint32]*meter{}, errs: map[uint32][]string{},
+	return &Engine{opts: opts, live: map[uint32]*engine.Connection{}, meters: map[uint32]*meter{}, procs: map[string]*counter{}, errs: map[uint32][]string{},
 		subs: map[chan engine.Connection]struct{}{}}
 }
 
@@ -322,6 +325,7 @@ func (t *tracker) RoutedPacketConnection(ctx context.Context, conn N.PacketConn,
 func (e *Engine) countFuncs(m *meter) (read, write []N.CountFunc) {
 	read = []N.CountFunc{func(n int64) {
 		m.up.Add(n)
+		m.proc.up.Add(n)
 		e.totalUp.Add(n)
 	}}
 	write = []N.CountFunc{func(n int64) {
@@ -329,17 +333,26 @@ func (e *Engine) countFuncs(m *meter) (read, write []N.CountFunc) {
 			m.firstByte.CompareAndSwap(0, time.Since(m.start).Milliseconds()+1)
 		}
 		m.down.Add(n)
+		m.proc.down.Add(n)
 		e.totalDown.Add(n)
 	}}
 	return
 }
 
-// Traffic 返回引擎启动以来的总字节数与进行中的连接数。
+// Traffic 返回引擎启动以来的总字节数与进行中的连接数，以及按进程的累计。
 func (e *Engine) Traffic() engine.Traffic {
 	e.mu.Lock()
-	active := len(e.live)
-	e.mu.Unlock()
-	return engine.Traffic{Up: e.totalUp.Load(), Down: e.totalDown.Load(), Active: active}
+	defer e.mu.Unlock()
+	t := engine.Traffic{Up: e.totalUp.Load(), Down: e.totalDown.Load(), Active: len(e.live), Processes: make(map[string]engine.ProcessTraffic, len(e.procs))}
+	for p, c := range e.procs {
+		t.Processes[p] = engine.ProcessTraffic{Up: c.up.Load(), Down: c.down.Load()}
+	}
+	for _, c := range e.live {
+		pt := t.Processes[c.Process]
+		pt.Active++
+		t.Processes[c.Process] = pt
+	}
+	return t
 }
 
 func (t *tracker) RoutedFlow(context.Context, adapter.InboundContext, adapter.Rule, adapter.Outbound) tun.FlowTracker {
@@ -372,7 +385,11 @@ func (e *Engine) begin(ctx context.Context, network string, md adapter.InboundCo
 		c.Provenance = ir.Source{Kind: ir.SourceVelum, Text: "route.final"}
 	}
 	om := e.outbound
-	m := &meter{start: c.Start}
+	m := &meter{start: c.Start, proc: e.procs[c.Process]}
+	if m.proc == nil {
+		m.proc = &counter{}
+		e.procs[c.Process] = m.proc
+	}
 	e.live[c.ID] = c
 	e.meters[c.ID] = m
 	e.mu.Unlock()
@@ -424,6 +441,7 @@ func (e *Engine) pushLocked(c engine.Connection) {
 type meter struct {
 	start               time.Time
 	up, down, firstByte atomic.Int64 // firstByte：首个下行字节距开始的毫秒数 + 1，0 表示尚未收到
+	proc                *counter     // 所属进程的累计
 	once                sync.Once
 }
 

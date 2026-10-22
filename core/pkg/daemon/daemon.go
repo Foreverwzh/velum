@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -1526,6 +1527,22 @@ func (d *Daemon) trafficSampler(ctx context.Context) {
 				return int64(float64(b-a) / sec)
 			}
 			v := &rpc.Traffic{Up: cur.Up, Down: cur.Down, UpRate: rate(prev.Up, cur.Up), DownRate: rate(prev.Down, cur.Down), Active: cur.Active}
+			for p, pt := range cur.Processes {
+				c := rpc.ClientTraffic{Process: p, UpRate: rate(prev.Processes[p].Up, pt.Up), DownRate: rate(prev.Processes[p].Down, pt.Down), Active: pt.Active}
+				if c.Active > 0 || c.UpRate > 0 || c.DownRate > 0 {
+					v.Clients = append(v.Clients, c)
+				}
+			}
+			sort.Slice(v.Clients, func(i, j int) bool {
+				a, b := v.Clients[i], v.Clients[j]
+				if ra, rb := a.UpRate+a.DownRate, b.UpRate+b.DownRate; ra != rb {
+					return ra > rb
+				}
+				if a.Active != b.Active {
+					return a.Active > b.Active
+				}
+				return a.Process < b.Process
+			})
 			d.trMu.Lock()
 			d.traffic = v
 			d.trMu.Unlock()

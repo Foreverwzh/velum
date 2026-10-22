@@ -68,13 +68,13 @@ type portKey struct {
 
 var sockets struct {
 	sync.Mutex
-	at   time.Time
+	at   time.Time // 最近一次列出的开始时间
 	pids map[portKey]int
 }
 
 const (
 	socketsTTL       = 500 * time.Millisecond
-	socketsMinRescan = 50 * time.Millisecond // 查不到时重新列出的最短间隔，避免 root 进程等查不到的连接反复扫描
+	socketsMinRescan = 20 * time.Millisecond // 两次列出的最短间隔：同时建立的一批连接共用一次列出，root 进程等查不到的连接不会反复扫描
 	socketsCap       = 65536
 )
 
@@ -100,16 +100,31 @@ func findOwner(proto int, src netip.AddrPort, dst netip.AddrPort) (*adapter.Conn
 	return &adapter.ConnectionOwner{ProcessID: uint32(pid), UserId: -1, ProcessPath: path}, nil
 }
 
+// socketOwner 返回占用本地端口的进程。缓存里没有时，以开始查询之后的一次列出为准：
+// 距上次列出太近就等到可以再次列出（期间别的查询列出了也算），不会因为连接建立得密集而漏查。
 func socketOwner(k portKey) int {
-	sockets.Lock()
-	defer sockets.Unlock()
-	age := time.Since(sockets.at)
-	if pid, ok := sockets.pids[k]; ok && age < socketsTTL {
+	asked := time.Now()
+	for {
+		sockets.Lock()
+		age := time.Since(sockets.at)
+		pid, ok := sockets.pids[k]
+		switch {
+		case ok && age < socketsTTL:
+		case !sockets.at.Before(asked): // 查询开始后已经列出过：确实查不到（如 root 进程）
+		case age >= socketsMinRescan:
+			pid = rescanLocked(k)
+		default:
+			sockets.Unlock()
+			time.Sleep(socketsMinRescan - age)
+			continue
+		}
+		sockets.Unlock()
 		return pid
 	}
-	if age < socketsMinRescan {
-		return 0
-	}
+}
+
+func rescanLocked(k portKey) int {
+	at := time.Now()
 	buf := make([]C.int, socketsCap*3)
 	n := int(C.list_sockets(&buf[0], C.int(socketsCap)))
 	pids := make(map[portKey]int, n)
@@ -119,7 +134,7 @@ func socketOwner(k portKey) int {
 			pids[k] = int(buf[i*3+2])
 		}
 	}
-	sockets.pids, sockets.at = pids, time.Now()
+	sockets.pids, sockets.at = pids, at
 	return pids[k]
 }
 

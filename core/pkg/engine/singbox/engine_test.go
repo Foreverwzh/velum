@@ -352,8 +352,17 @@ func TestEngineLiveTraffic(t *testing.T) {
 	for time.Now().Before(deadline) {
 		cs := eng.Connections(10)
 		if len(cs) > 0 && cs[0].End == nil && cs[0].Download >= 64<<10 {
-			if tr := eng.Traffic(); tr.Down < 64<<10 || tr.Active < 1 || tr.Up == 0 {
+			tr := eng.Traffic()
+			if tr.Down < 64<<10 || tr.Active < 1 || tr.Up == 0 {
 				t.Fatalf("总量 %+v", tr)
+			}
+			// 按进程的累计之和等于总量（计数是分别读取的，允许读取间隔内的少量新增）
+			var sum engine.ProcessTraffic
+			for _, p := range tr.Processes {
+				sum.Up, sum.Down, sum.Active = sum.Up+p.Up, sum.Down+p.Down, sum.Active+p.Active
+			}
+			if sum.Down < tr.Down || sum.Up < tr.Up || sum.Active != tr.Active {
+				t.Fatalf("按进程 %+v，总量 %+v", sum, tr)
 			}
 			return
 		}

@@ -48,7 +48,11 @@ export interface WhyReport {
 export interface WhyResponse { report: WhyReport; chain?: string[]; resolved?: string[]; resolved_by?: string; resolve_error?: string; rule_set_errors?: Record<string, string> }
 export interface Warning { category: string; kind: string; level: string; reason: string; subject?: string; source: Source }
 export interface HelperStatus { socket: string; reachable: boolean; version: string; outdated?: boolean; error?: string }
-export interface Traffic { up: number; down: number; up_rate: number; down_rate: number; active: number }
+export interface Traffic {
+  up: number; down: number; up_rate: number; down_rate: number; active: number;
+  /** 同一秒内各进程的速率，各项之和等于总速率；process 为空表示未识别出进程。 */
+  clients?: { process: string; up_rate: number; down_rate: number; active: number }[];
+}
 export interface RepairStep { name: string; ok: boolean; detail?: string }
 /** overlay 条目。domain 的 value 用 overlay 写法：x = 根域 + 子域，.x = 仅子域，=x = 仅此域名。 */
 export type OverlayKind = "domain" | "cidr" | "host" | "process" | "bypass";

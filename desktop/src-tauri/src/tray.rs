@@ -394,9 +394,6 @@ fn rate(b: i64) -> String {
 /// 菜单中最多列出的活跃客户端数。
 const MAX_CLIENTS: usize = 6;
 
-/// 每条进行中连接上次看到的累计字节数；None 表示还没有采样过（首次采样不计速率）。
-static SEEN: Mutex<Option<HashMap<u64, i64>>> = Mutex::new(None);
-
 /// 进程路径 → (显示名, 图标所取的文件)。
 static LABELS: LazyLock<Mutex<HashMap<String, (String, String)>>> = LazyLock::new(Default::default);
 
@@ -410,6 +407,15 @@ fn label(path: &str) -> (String, String) {
         .or_insert_with(|| {
             let bundles: Vec<&str> = path.match_indices(".app/").map(|(i, _)| &path[..i + 4]).collect();
             let file = path.rsplit(['/', '\\']).next().unwrap_or(path);
+            // 以版本号命名的可执行文件（如 ~/.local/share/claude/versions/2.1.306）取上层的程序目录名
+            let file = if file.starts_with(|c: char| c.is_ascii_digit()) {
+                path.rsplit(['/', '\\'])
+                    .skip(1)
+                    .find(|d| !d.is_empty() && !d.starts_with(|c: char| c.is_ascii_digit()) && !["versions", "bin"].contains(d))
+                    .unwrap_or(file)
+            } else {
+                file
+            };
             let name = match bundles.last() {
                 #[cfg(target_os = "macos")]
                 Some(app) => {
@@ -430,27 +436,23 @@ fn own(path: &str) -> bool {
     DIR.as_deref().is_some_and(|d| std::path::Path::new(path).starts_with(d))
 }
 
-/// 按进行中的连接算出各客户端（进程）在上一秒的速率，按速率、连接数排序。
-fn clients(conns: &[Value]) -> Vec<(String, String, i64)> {
-    let mut seen = SEEN.lock().unwrap();
-    let first = seen.is_none();
-    let prev = seen.take().unwrap_or_default();
-    let mut next = HashMap::new();
-    let mut by: HashMap<String, (String, i64, usize)> = HashMap::new();
-    for c in conns {
-        let Some(path) = c["process"].as_str().filter(|p| !p.is_empty() && !own(p)) else {
+/// 未识别出进程的流量（root 进程、局域网设备等）显示的名称与图标（通用的可执行文件图标）。
+const OTHER: (&str, &str) = ("其他", "/usr/bin/true");
+
+/// 各客户端（进程）在上一秒的速率：velumd 与总速率同一时刻按进程统计（含期间已结束的连接），各项之和等于总速率。
+/// 同名的进程合并，按速率、连接数排序；不含 Velum 自身。
+fn clients(t: Option<&Value>) -> Vec<(String, String, i64)> {
+    let mut by: HashMap<String, (String, i64, i64)> = HashMap::new();
+    for c in t.and_then(|t| t["clients"].as_array()).into_iter().flatten() {
+        let path = c["process"].as_str().unwrap_or("");
+        if own(path) {
             continue;
-        };
-        let id = c["id"].as_u64().unwrap_or(0);
-        let total = c["upload"].as_i64().unwrap_or(0) + c["download"].as_i64().unwrap_or(0);
-        let delta = if first { 0 } else { total - prev.get(&id).copied().unwrap_or(0) };
-        next.insert(id, total);
-        let (name, icon) = label(path);
+        }
+        let (name, icon) = if path.is_empty() { (OTHER.0.to_string(), OTHER.1.to_string()) } else { label(path) };
         let e = by.entry(name).or_insert((icon, 0, 0));
-        e.1 += delta.max(0);
-        e.2 += 1;
+        e.1 += c["up_rate"].as_i64().unwrap_or(0) + c["down_rate"].as_i64().unwrap_or(0);
+        e.2 += c["active"].as_i64().unwrap_or(0);
     }
-    *seen = Some(next);
     let mut out: Vec<_> = by.into_iter().collect();
     out.sort_by(|a, b| (b.1 .1, b.1 .2).cmp(&(a.1 .1, a.1 .2)).then_with(|| a.0.cmp(&b.0)));
     out.into_iter()
@@ -542,8 +544,8 @@ fn set_clients(app: &AppHandle, rows: &[(String, String, i64)]) -> bool {
 }
 
 /// 按 /v1/traffic 与进行中的连接更新活跃客户端与菜单栏网速；traffic 为 None 表示未连上。
-pub fn traffic(app: &AppHandle, t: Option<&Value>, conns: &[Value]) {
-    if set_clients(app, &clients(conns)) {
+pub fn traffic(app: &AppHandle, t: Option<&Value>) {
+    if set_clients(app, &clients(t)) {
         #[cfg(target_os = "macos")]
         crate::menu_tabs::reformat(app);
     }
@@ -710,6 +712,8 @@ mod tests {
         assert_eq!(icon, "/Applications/Velum Test.app");
         assert_eq!(name, "Velum Test Helper");
         assert_eq!(label(r"C:\Program Files\App\app.exe").0, "app");
+        assert_eq!(label("/Users/u/.local/share/claude/versions/2.1.306").0, "claude");
+        assert_eq!(label("/Users/u/.local/share/claude/versions/2.1.306").0, "claude");
     }
 
     #[test]
@@ -725,18 +729,16 @@ mod tests {
 
     #[test]
     fn client_rates() {
-        let conn = |id: u64, p: &str, up: i64, down: i64| json!({"id": id, "process": p, "upload": up, "download": down});
-        // 首次采样只记录基线
-        let rows = clients(&[conn(1, "/usr/bin/a", 10, 100), conn(2, "/usr/bin/b", 0, 50)]);
-        assert!(rows.iter().all(|r| r.2 == 0));
-        // 之后按差值计：a 的两条连接合并，新连接按全部字节计，没有进程的连接忽略
-        let rows = clients(&[
-            conn(1, "/usr/bin/a", 10, 300),
-            conn(3, "/usr/bin/a", 0, 100),
-            conn(2, "/usr/bin/b", 0, 1050),
-            json!({"id": 4, "upload": 0, "download": 9999}),
-        ]);
-        let got: Vec<_> = rows.iter().map(|r| (r.0.as_str(), r.2)).collect();
-        assert_eq!(got, [("b", 1000), ("a", 300)]);
+        let c = |p: &str, up: i64, down: i64, active: i64| json!({"process": p, "up_rate": up, "down_rate": down, "active": active});
+        // 同名进程合并；未识别出进程的流量显示为「其他」；按速率、连接数排序
+        let t = json!({"clients": [
+            c("/usr/bin/a", 10, 300, 1),
+            c("/opt/x/a", 0, 100, 2),
+            c("/usr/bin/b", 0, 1000, 1),
+            c("", 0, 50, 3),
+            c("/usr/bin/idle", 0, 0, 4),
+        ]});
+        let got: Vec<_> = clients(Some(&t)).iter().map(|r| (r.0.clone(), r.2)).collect();
+        assert_eq!(got, [("b".to_string(), 1000), ("a".into(), 410), ("其他".into(), 50), ("idle".into(), 0)]);
     }
 }

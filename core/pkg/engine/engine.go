@@ -93,6 +93,14 @@ type Traffic struct {
 	Up     int64 `json:"up"`   // 引擎启动以来的上行总字节数
 	Down   int64 `json:"down"` // 下行总字节数
 	Active int   `json:"active"`
+	// Processes 按进程（可执行文件路径；空字符串表示未识别出进程）累计的字节数与进行中的连接数，各项之和等于总量。
+	Processes map[string]ProcessTraffic `json:"processes,omitempty"`
+}
+
+type ProcessTraffic struct {
+	Up     int64 `json:"up"`
+	Down   int64 `json:"down"`
+	Active int   `json:"active"`
 }
 
 // Engine 是数据面引擎。
