@@ -33,7 +33,8 @@ func TestLatest(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(`[
 			{"tag_name":"v0.2.0-rc.1","html_url":"https://example.com/rc","prerelease":true,
-			 "assets":[{"name":"Velum-0.2.0-rc.1-macos-arm64.zip","browser_download_url":"https://example.com/rc.zip"}]},
+			 "assets":[{"name":"Velum-0.2.0-rc.1-macos-arm64.zip","browser_download_url":"https://example.com/rc.zip"},
+			           {"name":"latest.json","browser_download_url":"https://example.com/latest.json"}]},
 			{"tag_name":"v0.3.0","draft":true},
 			{"tag_name":"v0.1.0-rc.10","html_url":"https://example.com/old","prerelease":true},
 			{"tag_name":"v0.1.1","html_url":"https://example.com/stable",
@@ -47,7 +48,7 @@ func TestLatest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if r.Version != "0.2.0-rc.1" || r.URL != "https://example.com/rc" || r.Download != "https://example.com/rc.zip" {
+	if r.Version != "0.2.0-rc.1" || r.URL != "https://example.com/rc" || r.Download != "https://example.com/rc.zip" || r.Manifest != "https://example.com/latest.json" {
 		t.Fatalf("含预发布：%+v", r)
 	}
 
@@ -55,7 +56,15 @@ func TestLatest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if r.Version != "0.1.1" || r.Download != "https://example.com/stable.exe" {
+	if r.Version != "0.1.1" || r.Download != "https://example.com/stable.exe" || r.Manifest != "" {
 		t.Fatalf("仅正式版：%+v", r)
+	}
+
+	empty := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`[{"tag_name":"v0.1.0-rc.1","prerelease":true}]`))
+	}))
+	defer empty.Close()
+	if r, err := Latest(ctx, empty.Client(), empty.URL, "test", false, ""); r != nil || err != nil {
+		t.Fatalf("没有正式版：%+v %v", r, err)
 	}
 }

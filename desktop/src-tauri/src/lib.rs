@@ -4,6 +4,7 @@
 mod menu_tabs;
 mod system;
 mod tray;
+mod update;
 mod velum;
 #[cfg(windows)]
 mod winpipe;
@@ -82,6 +83,17 @@ fn open_release(url: String) -> Result<(), String> {
     cmd.map(|_| ()).map_err(|e| e.to_string())
 }
 
+/// 自动更新到 manifest（velumd 查到的发布清单）指向的版本；成功时 App 会重启，不会返回。
+#[tauri::command]
+async fn install_update(app: AppHandle, manifest: String) -> Result<(), String> {
+    update::install(app, manifest).await
+}
+
+#[tauri::command]
+fn update_progress() -> Option<update::Progress> {
+    update::progress()
+}
+
 /// 托盘上的一句话状态（与界面 health 口径一致的简化版）。
 pub(crate) fn summary(s: &serde_json::Value) -> String {
     let on = |k: &str| s[k].as_bool().unwrap_or(false);
@@ -126,7 +138,8 @@ pub(crate) fn show_main(app: &AppHandle) {
 
 pub fn run() {
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![velum_call, helper_install, helper_uninstall, helper_status, cli_status, cli_install, cli_uninstall, autostart_get, autostart_set, open_release])
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .invoke_handler(tauri::generate_handler![velum_call, helper_install, helper_uninstall, helper_status, cli_status, cli_install, cli_uninstall, autostart_get, autostart_set, open_release, install_update, update_progress])
         .setup(|app| {
             let handle = app.handle().clone();
             // 开机启动（--hidden）时只在托盘运行，不弹出窗口

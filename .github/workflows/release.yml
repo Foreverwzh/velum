@@ -22,6 +22,7 @@ jobs:
     uses: ./.github/workflows/desktop.yml
     with:
       version: ${{ needs.version.outputs.version }}
+    secrets: inherit
 
   mobile:
     needs: version
@@ -38,6 +39,21 @@ jobs:
         with:
           path: dist
           merge-multiple: true
+      # 自动更新清单（Tauri updater 格式）：App 经 velumd 找到所选通道中最新发布的 latest.json，下载对应平台的包并校验签名
+      - name: updater manifest
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          base="https://github.com/$GITHUB_REPOSITORY/releases/download/$GITHUB_REF_NAME"
+          mac="Velum-$v-macos-arm64.app.tar.gz"
+          win="Velum-$v-windows-x64-setup.exe"
+          jq -n --arg v "$v" --arg date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --arg macsig "$(cat "dist/$mac.sig")" --arg macurl "$base/$mac" \
+            --arg winsig "$(cat "dist/$win.sig")" --arg winurl "$base/$win" \
+            '{version: $v, pub_date: $date, platforms: {
+              "darwin-aarch64": {signature: $macsig, url: $macurl},
+              "windows-x86_64": {signature: $winsig, url: $winurl}}}' > dist/latest.json
+          rm dist/*.sig
+          cat dist/latest.json
       - name: create release
         env:
           GH_TOKEN: ${{ github.token }}

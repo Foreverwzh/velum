@@ -12,13 +12,31 @@ import (
 	"time"
 )
 
-// ReleasesAPI 是发布列表接口（按发布时间倒序）。
-const ReleasesAPI = "https://api.github.com/repos/Foreverwzh/velum/releases?per_page=20"
+// ReleasesAPI 是发布列表接口（按发布时间倒序）；测试自动更新时可经 -ldflags -X 指向本地服务。
+var ReleasesAPI = "https://api.github.com/repos/Foreverwzh/velum/releases?per_page=20"
+
+// Manifest 是发布中供 App 自动更新的清单文件（Tauri updater 格式，由 .github/workflows/release.yml 生成）。
+const Manifest = "latest.json"
+
+// 更新通道：正式版只更新到正式版本；测试版同时包括预发布版本（取版本号最高的）。
+const (
+	Stable = "stable"
+	Beta   = "beta"
+)
+
+// DefaultChannel 是用户没有选择时的通道：预发布版本的用户在测试版通道，正式版本的用户在正式版通道。
+func DefaultChannel(current string) string {
+	if IsPrerelease(current) {
+		return Beta
+	}
+	return Stable
+}
 
 type Release struct {
 	Version   string    // 不带 v，如 0.1.0-rc.6
 	URL       string    // 发布页
 	Download  string    // 当前平台的安装包；没有时为空
+	Manifest  string    // 自动更新清单；没有时为空（不能自动更新）
 	Published time.Time // 发布时间
 }
 
@@ -34,6 +52,7 @@ func AssetSuffix(goos, goarch string) string {
 }
 
 // Latest 返回版本号最高的发布；prerelease 为 false 时不考虑预发布版本。asset 是安装包文件名结尾（见 AssetSuffix）。
+// 没有符合条件的发布（如还没有正式版本）时返回 nil。
 func Latest(ctx context.Context, client *http.Client, api, ua string, prerelease bool, asset string) (*Release, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, api, nil)
 	if err != nil {
@@ -74,13 +93,13 @@ func Latest(ctx context.Context, client *http.Client, api, ua string, prerelease
 		}
 		best = &Release{Version: v, URL: r.URL, Published: r.Published}
 		for _, a := range r.Assets {
-			if asset != "" && strings.HasSuffix(a.Name, asset) {
+			switch {
+			case asset != "" && strings.HasSuffix(a.Name, asset):
 				best.Download = a.URL
+			case a.Name == Manifest:
+				best.Manifest = a.URL
 			}
 		}
-	}
-	if best == nil {
-		return nil, fmt.Errorf("没有找到可用的发布")
 	}
 	return best, nil
 }

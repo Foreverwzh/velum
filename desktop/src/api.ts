@@ -22,8 +22,14 @@ export interface Status {
   update?: UpdateStatus;
 }
 export interface UpdateStatus {
-  current: string; latest?: string; available: boolean; url?: string; download?: string; checked_at: string; error?: string;
+  current: string; channel: UpdateChannel; latest?: string; available: boolean; url?: string; download?: string;
+  /** 自动更新清单；为空时只能手动下载。 */
+  manifest?: string;
+  checked_at: string; error?: string;
 }
+export type UpdateChannel = "stable" | "beta";
+/** 自动更新进度（App 内）。 */
+export interface UpdateProgress { stage: "download" | "install" | "error"; downloaded: number; total?: number; error?: string }
 export interface Connection {
   id: number; start: string; end?: string; network: string; inbound: string; source: string; process?: string;
   domain?: string; destination: string; resolved?: string[]; sniffed?: string; rule_index: number; rule: string;
@@ -96,6 +102,8 @@ export const api = {
   repair: () => call<{ steps: RepairStep[] }>("POST", "/v1/repair"),
   /** 立即检查新版本（GitHub Releases）。 */
   checkRelease: () => call<UpdateStatus>("POST", "/v1/release/check"),
+  /** 切换更新通道并立即检查。 */
+  setChannel: (channel: UpdateChannel) => call<UpdateStatus>("PUT", "/v1/release/channel", { channel }),
 };
 
 /** 订阅连接结束事件。Tauri 中由 Rust 转发 SSE；浏览器中直接用 EventSource。返回取消函数。 */
@@ -160,7 +168,24 @@ export const native = {
   autostartSet: (on: boolean) => nativeCall<void>("autostart_set", { on }),
   /** 用默认浏览器打开发布页或安装包。 */
   openRelease: (url: string) => nativeCall<void>("open_release", { url }),
+  /** 下载、校验并安装更新，完成后 App 重启。进度见 onUpdateProgress。 */
+  installUpdate: (manifest: string) => nativeCall<void>("install_update", { manifest }),
+  updateProgress: () => nativeCall<UpdateProgress | null>("update_progress"),
 };
+
+/** 订阅自动更新进度；返回取消函数。 */
+export function onUpdateProgress(fn: (p: UpdateProgress | null) => void): () => void {
+  if (!inTauri) return () => {};
+  let unlisten: (() => void) | undefined;
+  let cancelled = false;
+  import("@tauri-apps/api/event").then(({ listen }) =>
+    listen<UpdateProgress | null>("velum://update", (e) => fn(e.payload)).then((u) => (cancelled ? u() : (unlisten = u))),
+  );
+  return () => {
+    cancelled = true;
+    unlisten?.();
+  };
+}
 
 export const isWindows = typeof navigator !== "undefined" && /Windows/.test(navigator.userAgent);
 

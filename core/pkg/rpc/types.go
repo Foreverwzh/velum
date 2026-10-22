@@ -188,10 +188,12 @@ type Status struct {
 // UpdateStatus 是最近一次检查新版本（GitHub Releases）的结果。
 type UpdateStatus struct {
 	Current   string    `json:"current"`
+	Channel   string    `json:"channel"` // stable / beta
 	Latest    string    `json:"latest,omitempty"`
 	Available bool      `json:"available"`          // Latest 比 Current 新
 	URL       string    `json:"url,omitempty"`      // 发布页
 	Download  string    `json:"download,omitempty"` // 当前平台的安装包
+	Manifest  string    `json:"manifest,omitempty"` // 自动更新清单（App 据此下载、校验并安装）；没有时只能手动下载
 	CheckedAt time.Time `json:"checked_at"`
 	Error     string    `json:"error,omitempty"` // 本次检查失败（Latest 等保留上次成功的结果）
 }
@@ -223,6 +225,11 @@ type ConnectionsResponse struct {
 
 type WarningsResponse struct {
 	Warnings []ir.Warning `json:"warnings"`
+}
+
+// ChannelRequest 设置更新通道：stable / beta；空字符串表示按当前版本默认。
+type ChannelRequest struct {
+	Channel string `json:"channel"`
 }
 
 type ErrorResponse struct {

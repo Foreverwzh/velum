@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { Download, RefreshCw } from "lucide-react";
-import { api, componentStatus, componentText, isWindows, native, type CliStatus, type HelperStatus, type Status } from "../api";
+import { api, componentStatus, componentText, isWindows, native, onUpdateProgress, type CliStatus, type HelperStatus, type Status, type UpdateProgress } from "../api";
 import { useAction } from "../hooks";
 import type { Refresh } from "../App";
-import { Button, KV, Notice, PageHeader, Panel, Row, Section, Switch, Tag } from "../components/ui";
+import { Button, cx, KV, Notice, PageHeader, Panel, Row, Section, Switch, Tag } from "../components/ui";
 import { SubscriptionForm } from "../components/SubscriptionForm";
 import { installHelper } from "../components/TunToggle";
 
@@ -64,26 +64,50 @@ function Subscription({ status: s, refresh }: { status: Status; refresh: Refresh
   );
 }
 
-/** 版本与新版本检查：velumd 启动后定时检查（每 6 小时），这里也可以立即检查。 */
+/** 版本与更新：velumd 启动后定时检查（每 6 小时），这里也可以立即检查；有更新清单时一键下载安装并重启。 */
 function Release({ status: s, refresh }: { status: Status; refresh: Refresh }) {
   const { busy, error, run } = useAction(refresh);
+  const [progress, setProgress] = useState<UpdateProgress | null>(null);
+  useEffect(() => {
+    native.updateProgress().then(setProgress).catch(() => {});
+    return onUpdateProgress(setProgress);
+  }, []);
   const u = s.update;
+  const channel = u?.channel ?? (/-/.test(s.version) ? "beta" : "stable");
+  const installing = progress && progress.stage !== "error";
   const checked = u ? new Date(u.checked_at).toLocaleString([], { hour12: false }) : "";
-  const hint = !u ? "尚未检查新版本"
-    : u.available ? <>新版本 <span className="font-mono">{u.latest}</span> 已发布{!u.download && "，当前平台没有安装包，请在发布页查看"}</>
+  const pct = progress?.total ? Math.floor((progress.downloaded / progress.total) * 100) : undefined;
+  const hint = installing ? (progress.stage === "install" ? "正在安装，完成后 Velum 会自动重启…" : `正在下载新版本 ${u?.latest ?? ""}${pct !== undefined ? ` · ${pct}%` : "…"}`)
+    : !u ? "尚未检查新版本"
+    : u.available ? <>新版本 <span className="font-mono">{u.latest}</span> 已发布{!u.manifest && (u.download ? "，需要手动下载安装" : "，当前平台没有安装包，请在发布页查看")}</>
     : u.error ? <span className="text-warn">检查失败：{u.error}</span>
+    : channel === "stable" && /-/.test(s.version) ? `当前是测试版：正式版高于 ${s.version} 后会提示更新 · 检查于 ${checked}`
     : `已是最新版本 · 检查于 ${checked}`;
+  const action = installing ? null
+    : u?.available && u.manifest && native.available
+      ? <Button variant="primary" icon={Download} disabled={!!busy} onClick={() => run("install", () => native.installUpdate(u.manifest!))}>立即更新</Button>
+    : u?.available && u.download
+      ? <Button variant="primary" icon={Download} onClick={() => run("open", () => native.openRelease(u.download!))}>下载</Button>
+    : <Button icon={RefreshCw} loading={busy === "check"} disabled={!!busy} onClick={() => run("check", api.checkRelease)}>检查更新</Button>;
   return (
     <>
       <Panel>
         <Row label={<span className="flex items-center gap-2">Velum <span className="font-mono text-[12px] font-normal">{s.version}</span>{u?.available && <Tag tone="accent">有新版本</Tag>}</span>} hint={hint}>
-          {u?.available && u.url && <Button variant="ghost" onClick={() => run("open", () => native.openRelease(u.url!))}>发布说明</Button>}
-          {u?.available && u.download
-            ? <Button variant="primary" icon={Download} onClick={() => run("open", () => native.openRelease(u.download!))}>下载</Button>
-            : <Button icon={RefreshCw} loading={busy === "check"} disabled={!!busy} onClick={() => run("check", api.checkRelease)}>检查更新</Button>}
+          {u?.available && u.url && !installing && <Button variant="ghost" onClick={() => run("open", () => native.openRelease(u.url!))}>发布说明</Button>}
+          {action}
+        </Row>
+        <Row label="更新通道" hint={channel === "beta" ? "测试版：同时接收预发布版本（rc），更早用上新功能，可能不够稳定" : "正式版：只接收正式版本"}>
+          <div className="inline-flex rounded-md border border-line p-0.5">
+            {([["stable", "正式版"], ["beta", "测试版"]] as const).map(([id, label]) => (
+              <button key={id} disabled={!!busy || !!installing} onClick={() => id !== channel && run("channel", () => api.setChannel(id))}
+                className={cx("inline-flex h-6 items-center rounded px-2.5 text-[12px] transition-colors", channel === id ? "bg-active font-medium text-fg" : "text-fg-2 hover:text-fg")}>
+                {label}
+              </button>
+            ))}
+          </div>
         </Row>
       </Panel>
-      {error && <div className="mt-2"><Notice tone="err">{error}</Notice></div>}
+      {(error || progress?.error) && <div className="mt-2"><Notice tone="err">{error ?? progress?.error}</Notice></div>}
     </>
   );
 }

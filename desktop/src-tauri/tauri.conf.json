@@ -51,5 +51,13 @@
       "signingIdentity": "-",
       "minimumSystemVersion": "12.0"
     }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDQ0NDJDMjE1NTQxNkE0NTAKUldSUXBCWlVGY0pDUkJIbEk0SWpvNmI4VWgwTFMyQXZOaUpOZGdrazcyTzdMdE1NOUUxUlZEOWkK",
+      "windows": {
+        "installMode": "passive"
+      }
+    }
   }
 }

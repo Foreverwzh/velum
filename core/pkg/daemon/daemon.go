@@ -96,8 +96,9 @@ type Daemon struct {
 	trMu    sync.Mutex
 	traffic *rpc.Traffic // 最近一次流量采样（每秒）
 
-	upMu sync.Mutex
-	upd  *rpc.UpdateStatus // 最近一次检查新版本的结果
+	upMu    sync.Mutex
+	upd     *rpc.UpdateStatus // 最近一次检查新版本的结果
+	channel string            // 用户选择的更新通道（持久化到 state.json）；为空表示按当前版本默认
 
 	// 实际生效代理的缓存：读取可能较慢（Windows 服务需在用户会话中启动子进程），状态查询频繁
 	effMu  sync.Mutex
@@ -654,12 +655,22 @@ func (d *Daemon) releaseChecker(ctx context.Context) {
 	}
 }
 
+func (d *Daemon) releaseChannel() string {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	if d.channel != "" {
+		return d.channel
+	}
+	return update.DefaultChannel(Version)
+}
+
 // checkRelease 查询 GitHub 上的新版本：先直连，网络不通时经 Velum 自己的本地端口重试（与拉取规则集相同）。
-// 预发布版本的用户也会收到更新的预发布版本，正式版本的用户只收到正式版本。
+// 只会更新到更高的版本：从测试版切回正式版后，等到正式版本高于当前版本时才会更新（不自动降级）。
 func (d *Daemon) checkRelease(ctx context.Context) rpc.UpdateStatus {
 	ctx, cancel := context.WithTimeout(ctx, time.Minute)
 	defer cancel()
-	ua, asset, pre := "velum/"+Version, update.AssetSuffix(runtime.GOOS, runtime.GOARCH), update.IsPrerelease(Version)
+	channel := d.releaseChannel()
+	ua, asset, pre := "velum/"+Version, update.AssetSuffix(runtime.GOOS, runtime.GOARCH), channel == update.Beta
 	r, err := update.Latest(ctx, source.NewClient(http.ProxyFromEnvironment), update.ReleasesAPI, ua, pre, asset)
 	if err != nil && ctx.Err() == nil {
 		d.mu.RLock()
@@ -674,22 +685,42 @@ func (d *Daemon) checkRelease(ctx context.Context) rpc.UpdateStatus {
 	}
 	d.upMu.Lock()
 	defer d.upMu.Unlock()
-	s := rpc.UpdateStatus{Current: Version}
-	if d.upd != nil {
+	s := rpc.UpdateStatus{Current: Version, Channel: channel}
+	if d.upd != nil && d.upd.Channel == channel {
 		s = *d.upd
 	}
 	s.CheckedAt, s.Error = time.Now(), ""
 	if err != nil {
 		s.Error = err.Error()
 		d.Logger.Printf("检查新版本失败：%v", err)
+	} else if r == nil { // 所选通道还没有发布
+		s.Latest, s.URL, s.Download, s.Manifest, s.Available = "", "", "", "", false
 	} else {
 		if s.Latest != r.Version && update.Newer(r.Version, Version) {
 			d.Logger.Printf("发现新版本 %s（当前 %s）", r.Version, Version)
 		}
-		s.Latest, s.URL, s.Download, s.Available = r.Version, r.URL, r.Download, update.Newer(r.Version, Version)
+		s.Latest, s.URL, s.Download, s.Manifest, s.Available = r.Version, r.URL, r.Download, r.Manifest, update.Newer(r.Version, Version)
 	}
 	d.upd = &s
 	return s
+}
+
+// setChannel 切换更新通道（保存到 state.json）并立即检查。
+func (d *Daemon) setChannel(w http.ResponseWriter, r *http.Request) {
+	var req rpc.ChannelRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	if req.Channel != "" && req.Channel != update.Stable && req.Channel != update.Beta {
+		writeErr(w, http.StatusBadRequest, fmt.Errorf("更新通道无效：%q（可选 stable / beta）", req.Channel))
+		return
+	}
+	d.mu.Lock()
+	d.channel = req.Channel
+	d.mu.Unlock()
+	d.saveState()
+	writeJSON(w, d.checkRelease(r.Context()))
 }
 
 func minPositive(a, b time.Duration) time.Duration {
@@ -749,6 +780,7 @@ func (d *Daemon) handler() (h http.Handler) {
 		writeJSON(w, d.status())
 	})
 	mux.HandleFunc("POST /v1/release/check", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, d.checkRelease(r.Context())) })
+	mux.HandleFunc("PUT /v1/release/channel", d.setChannel)
 	mux.HandleFunc("POST /v1/stop", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]bool{"ok": true})
 		go func() { time.Sleep(100 * time.Millisecond); d.Shutdown() }()
@@ -1298,6 +1330,7 @@ type stateFile struct {
 	Selections  map[string]string `json:"selections,omitempty"`
 	SystemProxy *bool             `json:"system_proxy,omitempty"` // 为空表示按 config.yaml
 	TUN         *bool             `json:"tun,omitempty"`
+	Channel     string            `json:"update_channel,omitempty"` // 为空表示按当前版本默认
 }
 
 func (d *Daemon) loadState() {
@@ -1308,14 +1341,14 @@ func (d *Daemon) loadState() {
 	var s stateFile
 	if json.Unmarshal(data, &s) == nil {
 		d.mu.Lock()
-		d.selections, d.sysOverride, d.tunOverride = s.Selections, s.SystemProxy, s.TUN
+		d.selections, d.sysOverride, d.tunOverride, d.channel = s.Selections, s.SystemProxy, s.TUN, s.Channel
 		d.mu.Unlock()
 	}
 }
 
 func (d *Daemon) saveState() {
 	d.mu.RLock()
-	s := stateFile{Selections: copyStrMap(d.selections), SystemProxy: d.sysOverride, TUN: d.tunOverride}
+	s := stateFile{Selections: copyStrMap(d.selections), SystemProxy: d.sysOverride, TUN: d.tunOverride, Channel: d.channel}
 	d.mu.RUnlock()
 	data, _ := json.MarshalIndent(s, "", "  ")
 	if err := writeFileAtomic(d.Paths.State, data); err != nil {

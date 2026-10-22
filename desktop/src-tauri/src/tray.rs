@@ -320,37 +320,30 @@ pub fn refresh(app: &AppHandle, status: Option<&Value>, text: &str) {
     crate::menu_tabs::reformat(app);
 }
 
-/// 检查更新菜单项：有新版本时改为下载。
+/// 检查更新菜单项：有新版本时改为更新（能自动更新时）或下载。
 fn upgrade_text(status: Option<&Value>) -> String {
-    let u = status.map(|s| &s["update"]);
-    match u.filter(|u| u["available"].as_bool() == Some(true)).and_then(|u| u["latest"].as_str()) {
-        Some(v) => format!("下载新版本 {v}…"),
+    let u = status.map(|s| &s["update"]).filter(|u| u["available"].as_bool() == Some(true));
+    match u.and_then(|u| Some((u["latest"].as_str()?, u["manifest"].is_string()))) {
+        Some((v, true)) => format!("更新到 {v}…"),
+        Some((v, false)) => format!("下载新版本 {v}…"),
         None => "检查更新…".into(),
     }
 }
 
-/// 有新版本时打开安装包下载（当前平台没有安装包时打开发布页）；否则立即检查，并在设置页显示结果。
+/// 有新版本时自动更新（没有更新清单时打开安装包下载）；否则立即检查。都在设置页显示结果与进度。
 fn upgrade(app: &AppHandle) {
-    let available = |u: &Value| {
-        Some(u)
-            .filter(|u| u["available"].as_bool() == Some(true))
-            .and_then(|u| u["download"].as_str().or(u["url"].as_str()))
-            .map(str::to_string)
-    };
-    let status = velum::call("GET", "/v1/status", None).ok();
-    let url = status.as_ref().and_then(|s| available(&s["update"])).or_else(|| {
-        velum::call("POST", "/v1/release/check", None)
-            .ok()
-            .and_then(|u| available(&u))
-    });
-    match url {
-        Some(u) => {
-            let _ = crate::open_release(u);
-        }
-        None => {
-            crate::show_main(app);
-            let _ = app.emit("velum://navigate", "settings");
-        }
+    let available = |u: Value| Some(u).filter(|u| u["available"].as_bool() == Some(true));
+    let update = velum::call("GET", "/v1/status", None)
+        .ok()
+        .and_then(|s| available(s["update"].clone()))
+        .or_else(|| velum::call("POST", "/v1/release/check", None).ok().and_then(available));
+    crate::show_main(app);
+    let _ = app.emit("velum://navigate", "settings");
+    let Some(u) = update else { return };
+    if let Some(m) = u["manifest"].as_str() {
+        let _ = tauri::async_runtime::block_on(crate::update::install(app.clone(), m.to_string()));
+    } else if let Some(url) = u["download"].as_str().or(u["url"].as_str()) {
+        let _ = crate::open_release(url.to_string());
     }
 }
 
@@ -726,6 +719,8 @@ mod tests {
         assert_eq!(upgrade_text(Some(&s)), "检查更新…");
         let s = json!({ "update": { "available": true, "latest": "0.1.0-rc.7" } });
         assert_eq!(upgrade_text(Some(&s)), "下载新版本 0.1.0-rc.7…");
+        let s = json!({ "update": { "available": true, "latest": "0.1.0-rc.7", "manifest": "https://x/latest.json" } });
+        assert_eq!(upgrade_text(Some(&s)), "更新到 0.1.0-rc.7…");
     }
 
     #[test]
