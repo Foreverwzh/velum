@@ -75,7 +75,7 @@ function NetworkLine({ status: s }: { status: Status }) {
   const captive = { online: { t: "网络正常", tone: "text-fg-2" }, captive: { t: "需要网页认证", tone: "text-warn" }, offline: { t: "网络不通", tone: "text-err" } }[n.captive ?? ""] ?? { t: "检测中", tone: "text-fg-3" };
   const items: { icon: typeof Wifi; text: string; tone?: string; title?: string }[] = [
     { icon: Wifi, text: n.primary_interface || "无主接口" },
-    { icon: Globe, text: captive.t, tone: captive.tone },
+    { icon: Globe, text: captive.t, tone: captive.tone, title: n.captive_detail },
     ...(n.vpns ?? []).map((v) => ({
       icon: v.full ? Network : Building2,
       text: v.full ? `其他 VPN / 代理工具全局接管（${v.iface}）` : `企业 VPN 分流中（${v.iface}）`,

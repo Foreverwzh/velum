@@ -97,6 +97,7 @@ type Daemon struct {
 
 	trMu    sync.Mutex
 	traffic *rpc.Traffic // 最近一次流量采样（每秒）
+	lastRx  time.Time    // 最近一次收到数据的时间（用于纠正 Captive 探测的误判）
 
 	upMu    sync.Mutex
 	upd     *rpc.UpdateStatus // 最近一次检查新版本的结果
@@ -558,6 +559,14 @@ func (d *Daemon) senseOnce(ctx context.Context, ns config.NetworkSense, tr *prob
 		own := d.ownDNS()
 		d.mu.RUnlock()
 		captive, detail = check(ctx, probes, physicalPath(snap, own...))
+		// 探测全部失败、但刚刚还在正常收到数据：网络是通的，是探测本身出了问题（探测点被拦截、所在网络的特殊限制等），
+		// 不应显示「网络不通」；保留失败原因以便排查
+		d.trMu.Lock()
+		rx := d.lastRx
+		d.trMu.Unlock()
+		if captive == netsense.Offline && time.Since(rx) < 30*time.Second {
+			captive, detail = netsense.Online, "探测未通过，但仍在正常收发数据（"+detail+"）"
+		}
 	}
 	if a.Key() == prevKey && captive == prevCaptive && !physChanged {
 		return
@@ -1540,6 +1549,9 @@ func (d *Daemon) trafficSampler(ctx context.Context) {
 			})
 			d.trMu.Lock()
 			d.traffic = v
+			if v.DownRate > 0 {
+				d.lastRx = time.Now()
+			}
 			d.trMu.Unlock()
 			prev, prevAt = cur, now
 		}

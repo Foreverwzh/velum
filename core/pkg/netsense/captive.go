@@ -2,10 +2,13 @@ package netsense
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
+	"net/url"
+	"sort"
 	"strings"
 	"syscall"
 	"time"
@@ -75,17 +78,25 @@ func (p PhysicalPath) dialContext() func(ctx context.Context, network, addr stri
 		if err != nil {
 			return nil, err
 		}
-		if ip := net.ParseIP(host); ip == nil {
-			ips, err := r.LookupIPAddr(ctx, host)
-			if err != nil {
-				return nil, err
-			}
-			if len(ips) == 0 {
-				return nil, fmt.Errorf("解析 %s 无结果", host)
-			}
-			host = ips[0].IP.String()
+		if ip := net.ParseIP(host); ip != nil {
+			return d.DialContext(ctx, network, addr)
 		}
-		return d.DialContext(ctx, network, net.JoinHostPort(host, port))
+		ips, err := r.LookupIPAddr(ctx, host)
+		if err != nil {
+			return nil, err
+		}
+		if len(ips) == 0 {
+			return nil, fmt.Errorf("解析 %s 无结果", host)
+		}
+		// 依次尝试各个地址（IPv4 优先）：只试第一个时，它不通（如所在网络的 IPv6 不可用）就会误判为离线
+		sort.SliceStable(ips, func(i, j int) bool { return ips[i].IP.To4() != nil && ips[j].IP.To4() == nil })
+		for _, ip := range ips {
+			var c net.Conn
+			if c, err = d.DialContext(ctx, network, net.JoinHostPort(ip.IP.String(), port)); err == nil {
+				return c, nil
+			}
+		}
+		return nil, err
 	}
 }
 
@@ -100,6 +111,7 @@ func CheckCaptive(ctx context.Context, probes []Probe, path PhysicalPath) (Capti
 		},
 	}
 	captive := ""
+	var errs []string
 	for _, p := range probes {
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, p.URL, nil)
 		if err != nil {
@@ -107,6 +119,7 @@ func CheckCaptive(ctx context.Context, probes []Probe, path PhysicalPath) (Capti
 		}
 		resp, err := client.Do(req)
 		if err != nil {
+			errs = append(errs, probeErr(req.URL.Host, err))
 			continue
 		}
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
@@ -127,5 +140,17 @@ func CheckCaptive(ctx context.Context, probes []Probe, path PhysicalPath) (Capti
 	if captive != "" {
 		return Captive, captive
 	}
-	return Offline, "全部探测失败"
+	if len(errs) == 0 {
+		return Offline, "全部探测失败"
+	}
+	return Offline, "全部探测失败：" + strings.Join(errs, "；")
+}
+
+// probeErr 把探测错误写成简短的一句（去掉 url.Error 中重复的方法与地址）。
+func probeErr(host string, err error) string {
+	var ue *url.Error
+	if errors.As(err, &ue) {
+		err = ue.Err
+	}
+	return host + " " + err.Error()
 }

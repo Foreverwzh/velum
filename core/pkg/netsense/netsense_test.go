@@ -210,6 +210,10 @@ func TestCheckCaptive(t *testing.T) {
 			t.Errorf("%s：got %s（%s）want %s", c.name, got, why, c.want)
 		}
 	}
+	// 离线时给出每个探测的失败原因，便于排查（而不只是「全部探测失败」）
+	if _, why := netsense.CheckCaptive(ctx, []netsense.Probe{{URL: dead, Expect: "Success"}}, d); !strings.Contains(why, strings.TrimPrefix(dead, "http://")+" ") {
+		t.Errorf("离线原因应包含探测地址与错误：%s", why)
+	}
 }
 
 func TestNetworkID(t *testing.T) {
