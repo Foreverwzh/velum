@@ -63,6 +63,20 @@ export default function App() {
     setArg(a);
   }, []);
 
+  // 托盘「检查更新」：打开设置页显示结果
+  useEffect(() => {
+    if (!("__TAURI_INTERNALS__" in window)) return;
+    let unlisten: (() => void) | undefined;
+    let cancelled = false;
+    import("@tauri-apps/api/event").then(({ listen }) =>
+      listen<Page>("velum://navigate", (e) => go(e.payload)).then((u) => (cancelled ? u() : (unlisten = u))),
+    );
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, [go]);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const mod = e.metaKey || e.ctrlKey;
@@ -116,6 +130,7 @@ export default function App() {
                 <n.icon className={cx("size-[15px]", on ? "text-fg" : "text-fg-3")} strokeWidth={1.8} />
                 <span className="flex-1">{n.label}</span>
                 {n.id === "warnings" && !!status?.warnings && <span className="font-mono text-[11px] text-fg-3 tnum">{status.warnings}</span>}
+                {n.id === "settings" && status?.update?.available && <span title="有新版本" className="size-1.5 rounded-full bg-accent" />}
               </button>
             );
           })}

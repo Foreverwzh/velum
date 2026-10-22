@@ -56,14 +56,14 @@ func New(cacheDir, ua string) *Fetcher {
 		CacheDir:  cacheDir,
 		UserAgent: ua,
 		// 遵循 HTTP(S)_PROXY 环境变量；Velum 不写死任何上游。
-		Client: newClient(http.ProxyFromEnvironment),
+		Client: NewClient(http.ProxyFromEnvironment),
 		TTL:    time.Hour,
 	}
 }
 
-// newClient 的连接、握手、等待响应头分别限时：被墙或不通的地址（常见于还没有代理可用的首次设置）尽快失败，
+// NewClient 的连接、握手、等待响应头分别限时：被墙或不通的地址（常见于还没有代理可用的首次设置）尽快失败，
 // 整体 30 秒只留给下载较大的内容。
-func newClient(proxy func(*http.Request) (*url.URL, error)) *http.Client {
+func NewClient(proxy func(*http.Request) (*url.URL, error)) *http.Client {
 	return &http.Client{Timeout: 30 * time.Second, Transport: &http.Transport{
 		Proxy:                 proxy,
 		DialContext:           (&net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
@@ -96,7 +96,7 @@ func (f *Fetcher) Get(kind, rawURL string, ttl time.Duration) ([]byte, Result, e
 	start := time.Now()
 	data, err := f.fetch(f.Client, rawURL)
 	if err != nil && f.Fallback != nil && !errors.As(err, new(statusError)) {
-		if data, err = f.fetch(newClient(http.ProxyURL(f.Fallback)), rawURL); err == nil && f.Log != nil {
+		if data, err = f.fetch(NewClient(http.ProxyURL(f.Fallback)), rawURL); err == nil && f.Log != nil {
 			f.Log("直连拉取 %s 失败，已经 Velum 代理拉取", kind)
 		}
 	}

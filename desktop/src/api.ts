@@ -18,6 +18,11 @@ export interface Status {
   subscription: { source: string; origin: string; fetched_at: string; fetch_error?: string; nodes: number; groups: number; rules: number; rule_sets: number };
   sys_proxy: { supported: boolean; active: boolean; overridden?: boolean; effective?: string; primary_interface?: string };
   tun?: TUNStatus; network?: NetworkStatus;
+  /** 最近一次检查新版本的结果；尚未检查过时为空。 */
+  update?: UpdateStatus;
+}
+export interface UpdateStatus {
+  current: string; latest?: string; available: boolean; url?: string; download?: string; checked_at: string; error?: string;
 }
 export interface Connection {
   id: number; start: string; end?: string; network: string; inbound: string; source: string; process?: string;
@@ -89,6 +94,8 @@ export const api = {
   /** 按条目增删 overlay（保留文件中的注释），随后重新加载；失败时自动改回。 */
   editOverlay: (op: "add" | "remove", entry: OverlayEntry) => call<Status>("POST", "/v1/overlay/items", { op, entry }),
   repair: () => call<{ steps: RepairStep[] }>("POST", "/v1/repair"),
+  /** 立即检查新版本（GitHub Releases）。 */
+  checkRelease: () => call<UpdateStatus>("POST", "/v1/release/check"),
 };
 
 /** 订阅连接结束事件。Tauri 中由 Rust 转发 SSE；浏览器中直接用 EventSource。返回取消函数。 */
@@ -151,6 +158,8 @@ export const native = {
   cliUninstall: () => nativeCall<void>("cli_uninstall"),
   autostartGet: () => nativeCall<boolean>("autostart_get"),
   autostartSet: (on: boolean) => nativeCall<void>("autostart_set", { on }),
+  /** 用默认浏览器打开发布页或安装包。 */
+  openRelease: (url: string) => nativeCall<void>("open_release", { url }),
 };
 
 export const isWindows = typeof navigator !== "undefined" && /Windows/.test(navigator.userAgent);

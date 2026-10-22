@@ -11,7 +11,7 @@ use serde_json::Value;
 use tauri::{
     image::Image,
     menu::{CheckMenuItem, IconMenuItem, IsMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu},
-    AppHandle, Manager, Wry,
+    AppHandle, Emitter, Manager, Wry,
 };
 
 use crate::{system, velum};
@@ -28,6 +28,7 @@ struct Items {
     sysproxy: Option<CheckMenuItem<Wry>>,
     tun: Option<CheckMenuItem<Wry>>,
     autostart: Option<CheckMenuItem<Wry>>,
+    upgrade: Option<MenuItem<Wry>>,
     groups: HashMap<String, Submenu<Wry>>,
     menu: Option<Menu<Wry>>,
     /// 活跃客户端分区：标题、各行、分隔线；没有客户端时整个分区不显示
@@ -188,8 +189,9 @@ fn build(app: &AppHandle, groups: &[Value]) -> tauri::Result<(Menu<Wry>, Items)>
     let reload = MenuItem::with_id(app, "reload", "重新加载配置", true, Some("CmdOrCtrl+R"))?;
     let update = MenuItem::with_id(app, "update", "更新订阅", true, Some("CmdOrCtrl+U"))?;
     let repair = MenuItem::with_id(app, "repair", "一键修复", true, None::<&str>)?;
+    let upgrade = MenuItem::with_id(app, "upgrade", upgrade_text(None), true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "退出 Velum", true, Some("CmdOrCtrl+Q"))?;
-    let rest: [&dyn IsMenuItem<Wry>; 12] = [
+    let rest: [&dyn IsMenuItem<Wry>; 13] = [
         &sysproxy,
         &tun,
         &shell,
@@ -201,6 +203,7 @@ fn build(app: &AppHandle, groups: &[Value]) -> tauri::Result<(Menu<Wry>, Items)>
         &update,
         &repair,
         &sep()?,
+        &upgrade,
         &quit,
     ];
     for it in rest {
@@ -213,6 +216,7 @@ fn build(app: &AppHandle, groups: &[Value]) -> tauri::Result<(Menu<Wry>, Items)>
     items.sysproxy = Some(sysproxy);
     items.tun = Some(tun);
     items.autostart = Some(autostart);
+    items.upgrade = Some(upgrade);
     items.built = true;
     Ok((menu, items))
 }
@@ -246,6 +250,7 @@ pub fn refresh(app: &AppHandle, status: Option<&Value>, text: &str) {
         status: status_item,
         sysproxy,
         tun,
+        upgrade,
         groups: subs,
         members: member_items,
         last,
@@ -278,6 +283,11 @@ pub fn refresh(app: &AppHandle, status: Option<&Value>, text: &str) {
             });
         }
     }
+    if let Some(item) = upgrade {
+        put("upgrade".into(), upgrade_text(status), false, &|t, _| {
+            let _ = item.set_text(t);
+        });
+    }
     for g in &groups {
         let tag = g["tag"].as_str().unwrap_or("");
         if let Some(sub) = subs.get(tag) {
@@ -308,6 +318,40 @@ pub fn refresh(app: &AppHandle, status: Option<&Value>, text: &str) {
     // 菜单打开时改写标题会清掉右对齐排版，重新应用
     #[cfg(target_os = "macos")]
     crate::menu_tabs::reformat(app);
+}
+
+/// 检查更新菜单项：有新版本时改为下载。
+fn upgrade_text(status: Option<&Value>) -> String {
+    let u = status.map(|s| &s["update"]);
+    match u.filter(|u| u["available"].as_bool() == Some(true)).and_then(|u| u["latest"].as_str()) {
+        Some(v) => format!("下载新版本 {v}…"),
+        None => "检查更新…".into(),
+    }
+}
+
+/// 有新版本时打开安装包下载（当前平台没有安装包时打开发布页）；否则立即检查，并在设置页显示结果。
+fn upgrade(app: &AppHandle) {
+    let available = |u: &Value| {
+        Some(u)
+            .filter(|u| u["available"].as_bool() == Some(true))
+            .and_then(|u| u["download"].as_str().or(u["url"].as_str()))
+            .map(str::to_string)
+    };
+    let status = velum::call("GET", "/v1/status", None).ok();
+    let url = status.as_ref().and_then(|s| available(&s["update"])).or_else(|| {
+        velum::call("POST", "/v1/release/check", None)
+            .ok()
+            .and_then(|u| available(&u))
+    });
+    match url {
+        Some(u) => {
+            let _ = crate::open_release(u);
+        }
+        None => {
+            crate::show_main(app);
+            let _ = app.emit("velum://navigate", "settings");
+        }
+    }
 }
 
 // ---------------- 实时流量 ----------------
@@ -576,6 +620,7 @@ pub fn handle(app: &AppHandle, id: &str) {
         (Some("update"), ..) => {
             let _ = velum::call("POST", "/v1/update", None);
         }
+        (Some("upgrade"), ..) => upgrade(app),
         (Some("repair"), ..) => {
             let _ = velum::call("POST", "/v1/repair", None);
         }
@@ -672,6 +717,15 @@ mod tests {
         assert_eq!(icon, "/Applications/Velum Test.app");
         assert_eq!(name, "Velum Test Helper");
         assert_eq!(label(r"C:\Program Files\App\app.exe").0, "app");
+    }
+
+    #[test]
+    fn upgrade_label() {
+        assert_eq!(upgrade_text(None), "检查更新…");
+        let s = json!({ "update": { "available": false, "latest": "0.1.0-rc.6" } });
+        assert_eq!(upgrade_text(Some(&s)), "检查更新…");
+        let s = json!({ "update": { "available": true, "latest": "0.1.0-rc.7" } });
+        assert_eq!(upgrade_text(Some(&s)), "下载新版本 0.1.0-rc.7…");
     }
 
     #[test]

@@ -182,6 +182,18 @@ type Status struct {
 	Warnings     int                `json:"warnings"`
 	LastError    string             `json:"last_error,omitempty"`
 	Groups       []GroupStatus      `json:"groups"`
+	Update       *UpdateStatus      `json:"update,omitempty"` // 尚未检查过新版本时为空
+}
+
+// UpdateStatus 是最近一次检查新版本（GitHub Releases）的结果。
+type UpdateStatus struct {
+	Current   string    `json:"current"`
+	Latest    string    `json:"latest,omitempty"`
+	Available bool      `json:"available"`          // Latest 比 Current 新
+	URL       string    `json:"url,omitempty"`      // 发布页
+	Download  string    `json:"download,omitempty"` // 当前平台的安装包
+	CheckedAt time.Time `json:"checked_at"`
+	Error     string    `json:"error,omitempty"` // 本次检查失败（Latest 等保留上次成功的结果）
 }
 
 type WhyRequest struct {

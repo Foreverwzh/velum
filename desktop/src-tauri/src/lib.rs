@@ -66,6 +66,22 @@ fn autostart_set(on: bool) -> Result<(), String> {
     system::autostart_set(on)
 }
 
+/// 用默认浏览器打开 Velum 的发布页或安装包（链接来自 velumd 查询的 GitHub Releases，只允许这个仓库）。
+#[tauri::command]
+fn open_release(url: String) -> Result<(), String> {
+    if !url.starts_with("https://github.com/Foreverwzh/velum/") {
+        return Err(format!("不是 Velum 的发布链接：{url}"));
+    }
+    #[cfg(target_os = "macos")]
+    let cmd = std::process::Command::new("/usr/bin/open").arg(&url).status();
+    // explorer 打开链接后退出码不为 0，不检查
+    #[cfg(windows)]
+    let cmd = std::process::Command::new("explorer").arg(&url).status();
+    #[cfg(not(any(target_os = "macos", windows)))]
+    let cmd = std::process::Command::new("xdg-open").arg(&url).status();
+    cmd.map(|_| ()).map_err(|e| e.to_string())
+}
+
 /// 托盘上的一句话状态（与界面 health 口径一致的简化版）。
 pub(crate) fn summary(s: &serde_json::Value) -> String {
     let on = |k: &str| s[k].as_bool().unwrap_or(false);
@@ -110,7 +126,7 @@ pub(crate) fn show_main(app: &AppHandle) {
 
 pub fn run() {
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![velum_call, helper_install, helper_uninstall, helper_status, cli_status, cli_install, cli_uninstall, autostart_get, autostart_set])
+        .invoke_handler(tauri::generate_handler![velum_call, helper_install, helper_uninstall, helper_status, cli_status, cli_install, cli_uninstall, autostart_get, autostart_set, open_release])
         .setup(|app| {
             let handle = app.handle().clone();
             // 开机启动（--hidden）时只在托盘运行，不弹出窗口

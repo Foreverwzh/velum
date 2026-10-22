@@ -36,6 +36,7 @@ import (
 	"github.com/Foreverwzh/velum/core/pkg/source"
 	"github.com/Foreverwzh/velum/core/pkg/subscription"
 	"github.com/Foreverwzh/velum/core/pkg/sysproxy"
+	"github.com/Foreverwzh/velum/core/pkg/update"
 	"github.com/Foreverwzh/velum/core/pkg/userfs"
 )
 
@@ -94,6 +95,9 @@ type Daemon struct {
 
 	trMu    sync.Mutex
 	traffic *rpc.Traffic // 最近一次流量采样（每秒）
+
+	upMu sync.Mutex
+	upd  *rpc.UpdateStatus // 最近一次检查新版本的结果
 
 	// 实际生效代理的缓存：读取可能较慢（Windows 服务需在用户会话中启动子进程），状态查询频繁
 	effMu  sync.Mutex
@@ -443,6 +447,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 	d.starting = false
 	d.mu.Unlock()
 	go d.updater(ctx)
+	go d.releaseChecker(ctx)
 	go d.netMonitor(ctx)
 	go d.trafficSampler(ctx)
 	select {
@@ -625,6 +630,68 @@ func (d *Daemon) updater(ctx context.Context) {
 	}
 }
 
+const (
+	releaseFirstCheck = time.Minute
+	releaseInterval   = 6 * time.Hour
+)
+
+// releaseChecker 定时检查新版本（启动后稍等再查，不与启动抢网络）；开发版本不自动检查。
+func (d *Daemon) releaseChecker(ctx context.Context) {
+	if strings.HasSuffix(Version, "-dev") {
+		return
+	}
+	wait := releaseFirstCheck
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-d.stop:
+			return
+		case <-time.After(wait):
+			d.checkRelease(ctx)
+			wait = releaseInterval
+		}
+	}
+}
+
+// checkRelease 查询 GitHub 上的新版本：先直连，网络不通时经 Velum 自己的本地端口重试（与拉取规则集相同）。
+// 预发布版本的用户也会收到更新的预发布版本，正式版本的用户只收到正式版本。
+func (d *Daemon) checkRelease(ctx context.Context) rpc.UpdateStatus {
+	ctx, cancel := context.WithTimeout(ctx, time.Minute)
+	defer cancel()
+	ua, asset, pre := "velum/"+Version, update.AssetSuffix(runtime.GOOS, runtime.GOARCH), update.IsPrerelease(Version)
+	r, err := update.Latest(ctx, source.NewClient(http.ProxyFromEnvironment), update.ReleasesAPI, ua, pre, asset)
+	if err != nil && ctx.Err() == nil {
+		d.mu.RLock()
+		var proxy *url.URL
+		if d.st != nil && d.Engine.Running() {
+			proxy = &url.URL{Scheme: "http", Host: d.st.cfg.ListenAddr().String()}
+		}
+		d.mu.RUnlock()
+		if proxy != nil {
+			r, err = update.Latest(ctx, source.NewClient(http.ProxyURL(proxy)), update.ReleasesAPI, ua, pre, asset)
+		}
+	}
+	d.upMu.Lock()
+	defer d.upMu.Unlock()
+	s := rpc.UpdateStatus{Current: Version}
+	if d.upd != nil {
+		s = *d.upd
+	}
+	s.CheckedAt, s.Error = time.Now(), ""
+	if err != nil {
+		s.Error = err.Error()
+		d.Logger.Printf("检查新版本失败：%v", err)
+	} else {
+		if s.Latest != r.Version && update.Newer(r.Version, Version) {
+			d.Logger.Printf("发现新版本 %s（当前 %s）", r.Version, Version)
+		}
+		s.Latest, s.URL, s.Download, s.Available = r.Version, r.URL, r.Download, update.Newer(r.Version, Version)
+	}
+	d.upd = &s
+	return s
+}
+
 func minPositive(a, b time.Duration) time.Duration {
 	switch {
 	case a <= 0:
@@ -681,6 +748,7 @@ func (d *Daemon) handler() (h http.Handler) {
 		}
 		writeJSON(w, d.status())
 	})
+	mux.HandleFunc("POST /v1/release/check", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, d.checkRelease(r.Context())) })
 	mux.HandleFunc("POST /v1/stop", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]bool{"ok": true})
 		go func() { time.Sleep(100 * time.Millisecond); d.Shutdown() }()
@@ -806,9 +874,12 @@ func (d *Daemon) status() rpc.Status {
 	d.trMu.Lock()
 	traffic := d.traffic
 	d.trMu.Unlock()
+	d.upMu.Lock()
+	upd := d.upd
+	d.upMu.Unlock()
 	d.mu.RLock()
 	defer d.mu.RUnlock()
-	s := rpc.Status{Traffic: traffic, PID: os.Getpid(), Version: Version, Running: d.Engine.Running(), Home: d.Paths.Home, StartedAt: d.startedAt, Starting: d.starting, LastError: d.lastErr,
+	s := rpc.Status{Traffic: traffic, Update: upd, PID: os.Getpid(), Version: Version, Running: d.Engine.Running(), Home: d.Paths.Home, StartedAt: d.startedAt, Starting: d.starting, LastError: d.lastErr,
 		Overridden: d.sysOverride != nil || d.tunOverride != nil}
 	if d.SysProxy != nil {
 		s.SysProxy = rpc.SysProxyStatus{Supported: true, Active: d.SysProxy.HasSnapshot()}

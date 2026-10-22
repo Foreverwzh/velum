@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { RefreshCw } from "lucide-react";
+import { Download, RefreshCw } from "lucide-react";
 import { api, componentStatus, componentText, isWindows, native, type CliStatus, type HelperStatus, type Status } from "../api";
 import { useAction } from "../hooks";
 import type { Refresh } from "../App";
@@ -16,7 +16,8 @@ export default function Settings({ status: s, refresh }: { status: Status; refre
           <Subscription status={s} refresh={refresh} />
           <Components status={s} refresh={refresh} />
           <Section title="关于">
-            <Panel className="px-3.5 py-3">
+            <Release status={s} refresh={refresh} />
+            <Panel className="mt-2 px-3.5 py-3">
               <KV rows={[
                 ["核心", <span className="font-mono text-[12px]">velumd {s.version} · pid {s.pid}</span>],
                 ["本地端口", <span className="selectable font-mono text-[12px]">{s.listen || "—"}</span>],
@@ -60,6 +61,30 @@ function Subscription({ status: s, refresh }: { status: Status; refresh: Refresh
       {sub.fetch_error && <div className="mt-2"><Notice tone="warn">远程拉取失败，正在使用缓存：{sub.fetch_error}</Notice></div>}
       {error && <div className="mt-2"><Notice tone="err">{error}</Notice></div>}
     </Section>
+  );
+}
+
+/** 版本与新版本检查：velumd 启动后定时检查（每 6 小时），这里也可以立即检查。 */
+function Release({ status: s, refresh }: { status: Status; refresh: Refresh }) {
+  const { busy, error, run } = useAction(refresh);
+  const u = s.update;
+  const checked = u ? new Date(u.checked_at).toLocaleString([], { hour12: false }) : "";
+  const hint = !u ? "尚未检查新版本"
+    : u.available ? <>新版本 <span className="font-mono">{u.latest}</span> 已发布{!u.download && "，当前平台没有安装包，请在发布页查看"}</>
+    : u.error ? <span className="text-warn">检查失败：{u.error}</span>
+    : `已是最新版本 · 检查于 ${checked}`;
+  return (
+    <>
+      <Panel>
+        <Row label={<span className="flex items-center gap-2">Velum <span className="font-mono text-[12px] font-normal">{s.version}</span>{u?.available && <Tag tone="accent">有新版本</Tag>}</span>} hint={hint}>
+          {u?.available && u.url && <Button variant="ghost" onClick={() => run("open", () => native.openRelease(u.url!))}>发布说明</Button>}
+          {u?.available && u.download
+            ? <Button variant="primary" icon={Download} onClick={() => run("open", () => native.openRelease(u.download!))}>下载</Button>
+            : <Button icon={RefreshCw} loading={busy === "check"} disabled={!!busy} onClick={() => run("check", api.checkRelease)}>检查更新</Button>}
+        </Row>
+      </Panel>
+      {error && <div className="mt-2"><Notice tone="err">{error}</Notice></div>}
+    </>
   );
 }
 
