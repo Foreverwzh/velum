@@ -4,6 +4,8 @@
 //! （NSMenuDidBeginTrackingNotification）把含 '\t' 的标题改为带右对齐制表位的富文本；
 //! Windows 的菜单原生把 '\t' 之后的文字右对齐，无需处理。
 //!
+//! 节点的延迟（「123 ms」「超时」）按快慢着色，阈值与界面中的延迟标签一致。
+//!
 //! 同时提供 Tauri 做不到的其他 macOS 菜单栏能力：活跃客户端的应用图标与名称、菜单栏图标旁的两行网速。
 
 use std::cell::RefCell;
@@ -23,8 +25,8 @@ use objc2_app_kit::{
     NSTextAlignment, NSTextTab, NSWorkspace,
 };
 use objc2_foundation::{
-    NSArray, NSAttributedString, NSAttributedStringKey, NSDictionary, NSFileManager,
-    NSNotification, NSNotificationCenter, NSNumber, NSPoint, NSRect, NSSize, NSString,
+    NSArray, NSAttributedString, NSAttributedStringKey, NSDictionary, NSFileManager, NSMutableAttributedString,
+    NSNotification, NSNotificationCenter, NSNumber, NSPoint, NSRange, NSRect, NSSize, NSString,
 };
 use tauri::AppHandle;
 
@@ -196,8 +198,43 @@ fn format(menu: &NSMenu, top: bool) {
         };
         let style = NSMutableParagraphStyle::new();
         style.setTabStops(Some(&NSArray::from_retained_slice(&[tab])));
-        let s = unsafe { NSAttributedString::new_with_attributes(&NSString::from_str(&title), &attrs(&font, Some(&style), None, None)) };
+        let s = unsafe {
+            NSMutableAttributedString::initWithString_attributes(
+                NSMutableAttributedString::alloc(),
+                &NSString::from_str(&title),
+                Some(&attrs(&font, Some(&style), None, None)),
+            )
+        };
+        let (l, r) = title.split_once('\t').unwrap_or_default();
+        if let Some(color) = delay_color(r) {
+            // NSRange 按 UTF-16 计数
+            let start = l.encode_utf16().count() + 1;
+            let range = NSRange::new(start, r.encode_utf16().count());
+            unsafe { s.addAttribute_value_range(NSForegroundColorAttributeName, &color, range) };
+        }
         item.setAttributedTitle(Some(&s));
+    }
+}
+
+/// 延迟文字（「123 ms」「超时」）的颜色：300 ms 以下绿、800 ms 以下橙，更慢或超时红；其他文字不着色。
+fn delay_color(text: &str) -> Option<Retained<NSColor>> {
+    if text == "超时" {
+        return Some(NSColor::systemRedColor());
+    }
+    let ms: u32 = text.strip_suffix(" ms")?.parse().ok()?;
+    Some(match delay_tone(ms) {
+        0 => NSColor::systemGreenColor(),
+        1 => NSColor::systemOrangeColor(),
+        _ => NSColor::systemRedColor(),
+    })
+}
+
+/// 0 = 快、1 = 一般、2 = 慢（与界面 delayTone 的阈值一致）。
+fn delay_tone(ms: u32) -> u8 {
+    match ms {
+        0..300 => 0,
+        300..800 => 1,
+        _ => 2,
     }
 }
 
@@ -284,4 +321,14 @@ fn attrs(
         values.push(b.as_ref());
     }
     NSDictionary::from_slices(&keys, &values)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn delay_tones() {
+        assert_eq!([0, 299, 300, 799, 800, 1410].map(delay_tone), [0, 0, 1, 1, 2, 2]);
+    }
 }

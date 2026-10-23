@@ -21,7 +21,7 @@ tauri-plugin-updater = "2"
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
 block2 = "0.6"
-objc2-foundation = { version = "0.3", default-features = false, features = ["std", "block2", "NSArray", "NSAttributedString", "NSDictionary", "NSFileManager", "NSGeometry", "NSNotification", "NSObject", "NSData", "NSOperation", "NSString", "NSValue"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "block2", "NSArray", "NSAttributedString", "NSDictionary", "NSFileManager", "NSGeometry", "NSNotification", "NSObject", "NSData", "NSOperation", "NSRange", "NSString", "NSValue"] }
 objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "objc2-core-foundation", "NSAttributedString", "NSBitmapImageRep", "NSButton", "NSColor", "NSControl", "NSFont", "NSFontDescriptor", "NSGraphics", "NSGraphicsContext", "NSImage", "NSImageRep", "NSMenu", "NSMenuItem", "NSParagraphStyle", "NSResponder", "NSStatusBar", "NSStatusBarButton", "NSStatusItem", "NSStringDrawing", "NSText", "NSView", "NSWorkspace"] }
 
 [target.'cfg(windows)'.dependencies]

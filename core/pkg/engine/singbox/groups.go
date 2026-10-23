@@ -42,7 +42,12 @@ func (e *Engine) SelectMember(group, member string) error {
 	return nil
 }
 
-// TestGroup 对组内每个成员测速（毫秒；失败为 -1），并写入测速历史。URL 使用 sing-box 默认测速地址。
+// directTestURL 是直连的测速地址。默认地址（Google 的 generate_204）在国内直连很慢甚至不通，
+// 测出的延迟不反映本地网络；与 Surge 的 internet-test-url 一样，直连改测全球都有就近节点的 Apple 地址。
+const directTestURL = "http://captive.apple.com/hotspot-detect.html"
+
+// TestGroup 对组内每个成员测速（毫秒；失败为 -1），并写入测速历史。节点使用 sing-box 默认测速地址，
+// 直连使用 directTestURL。
 // group 为空时测试全部节点（测速历史按节点全局保存，各组共享）。
 func (e *Engine) TestGroup(ctx context.Context, group string) (map[string]int, error) {
 	om, bctx, err := e.runtime()
@@ -100,7 +105,11 @@ func (e *Engine) TestGroup(ctx context.Context, group string) (map[string]int, e
 			defer func() { <-sem }()
 			tctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 			defer cancel()
-			d, err := urltest.URLTest(tctx, "", member)
+			link := ""
+			if member.Type() == C.TypeDirect {
+				link = directTestURL
+			}
+			d, err := urltest.URLTest(tctx, link, member)
 			mu.Lock()
 			defer mu.Unlock()
 			if err != nil {
