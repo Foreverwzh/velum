@@ -6,6 +6,8 @@
 //!
 //! 节点的延迟（「123 ms」「超时」）按快慢着色，阈值与界面中的延迟标签一致。
 //!
+//! 「延迟测试」换成自绘的视图菜单项：点击后菜单不关闭，可以直接看到刷新的延迟。
+//!
 //! 同时提供 Tauri 做不到的其他 macOS 菜单栏能力：活跃客户端的应用图标与名称、菜单栏图标旁的两行网速。
 
 use std::cell::RefCell;
@@ -16,9 +18,9 @@ use std::sync::{LazyLock, Mutex};
 use block2::RcBlock;
 use objc2::rc::Retained;
 use objc2::runtime::AnyObject;
-use objc2::{AllocAnyThread, MainThreadMarker};
+use objc2::{define_class, msg_send, AllocAnyThread, MainThreadMarker, MainThreadOnly};
 use objc2_app_kit::{
-    NSAttributedStringNSStringDrawing, NSBaselineOffsetAttributeName, NSBitmapImageFileType,
+    NSApplication, NSAttributedStringNSStringDrawing, NSAutoresizingMaskOptions, NSBezierPath, NSEvent, NSView, NSBaselineOffsetAttributeName, NSBitmapImageFileType,
     NSBitmapImageRep, NSColor, NSDeviceRGBColorSpace, NSGraphicsContext, NSFont, NSFontAttributeName, NSFontWeightMedium,
     NSForegroundColorAttributeName, NSMenu, NSMenuItem, NSMenuDidBeginTrackingNotification,
     NSMenuDidEndTrackingNotification, NSMutableParagraphStyle, NSParagraphStyleAttributeName,
@@ -42,6 +44,11 @@ const IMAGE_GAP: f64 = 6.0;
 const CLIENT_ICON: f64 = 18.0;
 /// 菜单栏两行网速的基线下移量（点）。
 const BASELINE: f64 = -4.5;
+/// 自绘菜单项：标题起点、高亮背景的左右缩进与圆角、行高比文字高出的部分（点，按系统菜单实测）。
+const ITEM_TEXT_X: f64 = 29.5;
+const ITEM_INSET: f64 = 5.0;
+const ITEM_RADIUS: f64 = 5.0;
+const ITEM_PADDING: f64 = 8.0;
 
 thread_local! {
     /// 正在显示的菜单（只在主线程访问）。
@@ -163,6 +170,9 @@ fn format(menu: &NSMenu, top: bool) {
         if let Some(sub) = item.submenu() {
             format(&sub, false);
         }
+        if item.view().is_none() && item.title().to_string() == crate::tray::TEST_TITLE {
+            keep_open(&item);
+        }
         // 图标把标题往右推：制表位从标题起点算，带图标的行要相应前移
         let indent = match item.image() {
             Some(img) => {
@@ -214,6 +224,71 @@ fn format(menu: &NSMenu, top: bool) {
         }
         item.setAttributedTitle(Some(&s));
     }
+}
+
+define_class!(
+    /// 点击后不关闭菜单的菜单项：自行绘制标题与高亮，点击时直接触发菜单项的动作。
+    #[unsafe(super(NSView))]
+    #[name = "VelumKeepOpenMenuItemView"]
+    #[thread_kind = MainThreadOnly]
+    struct KeepOpenView;
+
+    impl KeepOpenView {
+        #[unsafe(method(drawRect:))]
+        fn draw_rect(&self, _dirty: NSRect) {
+            let Some(item) = self.enclosingMenuItem() else {
+                return;
+            };
+            let b = self.bounds();
+            let lit = item.isHighlighted() && item.isEnabled();
+            if lit {
+                NSColor::selectedContentBackgroundColor().setFill();
+                let r = NSRect::new(
+                    NSPoint::new(b.origin.x + ITEM_INSET, b.origin.y),
+                    NSSize::new(b.size.width - 2.0 * ITEM_INSET, b.size.height),
+                );
+                NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(r, ITEM_RADIUS, ITEM_RADIUS).fill();
+            }
+            let color = if !item.isEnabled() {
+                NSColor::disabledControlTextColor()
+            } else if lit {
+                NSColor::selectedMenuItemTextColor()
+            } else {
+                NSColor::labelColor()
+            };
+            let font = NSFont::menuFontOfSize(0.0);
+            let s = unsafe { NSAttributedString::new_with_attributes(&item.title(), &attrs(&font, None, Some(&color), None)) };
+            let y = b.origin.y + (b.size.height - s.size().height) / 2.0;
+            s.drawAtPoint(NSPoint::new(ITEM_TEXT_X, y));
+        }
+
+        #[unsafe(method(mouseUp:))]
+        fn mouse_up(&self, _event: &NSEvent) {
+            let Some(item) = self.enclosingMenuItem() else {
+                return;
+            };
+            if let (true, Some(action)) = (item.isEnabled(), item.action()) {
+                let target = item.target();
+                unsafe { NSApplication::sharedApplication(self.mtm()).sendAction_to_from(action, target.as_deref(), Some(&item)) };
+            }
+        }
+    }
+);
+
+/// 把菜单项换成 KeepOpenView：带视图的菜单项被点击时菜单不会关闭。
+fn keep_open(item: &NSMenuItem) {
+    let Some(mtm) = MainThreadMarker::new() else {
+        return;
+    };
+    let font = NSFont::menuFontOfSize(0.0);
+    let text = unsafe { NSAttributedString::new_with_attributes(&item.title(), &attrs(&font, None, None, None)) }.size();
+    let frame = NSRect::new(
+        NSPoint::new(0.0, 0.0),
+        NSSize::new(ITEM_TEXT_X + text.width + GAP, (text.height + ITEM_PADDING).round()),
+    );
+    let view: Retained<KeepOpenView> = unsafe { msg_send![KeepOpenView::alloc(mtm), initWithFrame: frame] };
+    view.setAutoresizingMask(NSAutoresizingMaskOptions::ViewWidthSizable);
+    item.setView(Some(&view));
 }
 
 /// 延迟文字（「123 ms」「超时」）的颜色：300 ms 以下绿、800 ms 以下橙，更慢或超时红；其他文字不着色。

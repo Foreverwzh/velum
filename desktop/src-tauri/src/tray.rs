@@ -18,6 +18,8 @@ use crate::{system, velum};
 
 /// 菜单项 id 中分隔组名与成员名（名称里不会出现的控制字符）。
 const SEP: char = '\u{1f}';
+/// 策略组子菜单中「延迟测试」的标题（macOS 上点击后菜单保持打开，见 menu_tabs）。
+pub const TEST_TITLE: &str = "延迟测试";
 
 #[derive(Default)]
 struct Items {
@@ -181,7 +183,7 @@ fn build(app: &AppHandle, groups: &[Value], profiles: &[Value]) -> tauri::Result
             sub.append(&MenuItem::with_id(
                 app,
                 format!("test{SEP}{tag}"),
-                "延迟测试",
+                TEST_TITLE,
                 true,
                 None::<&str>,
             )?)?;
