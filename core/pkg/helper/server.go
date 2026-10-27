@@ -45,6 +45,8 @@ type Server struct {
 	Logger   *log.Logger
 	// PeerCred 返回对端 uid / pid；默认用 LOCAL_PEERCRED，测试可替换。
 	PeerCred func(*net.UnixConn) (uid, pid int, err error)
+	// Requirement 非空时，对端进程的代码签名必须满足它（见 PeerRequirement），否则拒绝连接。
+	Requirement string
 	// RouteSettle 是路由变化后等待其稳定再补作用域默认路由的时间（默认 0.3 秒）。
 	RouteSettle time.Duration
 
@@ -187,7 +189,13 @@ func (s *Server) handle(conn *net.UnixConn) {
 		_ = send(conn, Response{Error: "unauthorized"}, -1)
 		return
 	}
-	// TODO(M2)：校验对端代码签名（SecCodeCopyGuestWithAttributes + SecRequirement）。
+	if s.Requirement != "" {
+		if err := verifyPeerCode(conn, s.Requirement); err != nil {
+			s.Logger.Printf("拒绝 %s：%v", peer, err)
+			_ = send(conn, Response{Error: "unauthorized"}, -1)
+			return
+		}
+	}
 	x := &session{srv: s, peer: peer, tunFd: -1}
 	s.mu.Lock()
 	s.sessions[x] = struct{}{}

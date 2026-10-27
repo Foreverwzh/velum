@@ -45,7 +45,7 @@ func main() {
 	}
 	// 任何用户可连接，鉴权在 accept 后按对端 uid 进行
 	_ = os.Chmod(*sock, 0o666)
-	srv := &helper.Server{Sys: helper.DarwinSystem{}, AllowUID: *allowUID, Logger: logger}
+	srv := &helper.Server{Sys: helper.DarwinSystem{}, AllowUID: *allowUID, Logger: logger, Requirement: helper.PeerRequirement()}
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
@@ -53,8 +53,15 @@ func main() {
 		srv.Shutdown(fmt.Sprintf("收到信号 %s", s))
 		ln.Close()
 	}()
-	logger.Printf("监听 %s，允许 uid=%d（协议 %s）", *sock, *allowUID, helper.Version)
+	logger.Printf("监听 %s，允许 uid=%d（协议 %s），签名要求：%s", *sock, *allowUID, helper.Version, orNone(srv.Requirement))
 	_ = srv.Serve(ln)
 	_ = os.Remove(*sock)
 	logger.Printf("已退出")
+}
+
+func orNone(s string) string {
+	if s == "" {
+		return "无（未签名构建，只按 uid 鉴权）"
+	}
+	return s
 }

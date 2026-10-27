@@ -336,3 +336,29 @@ func TestResetDNS(t *testing.T) {
 		t.Fatalf("resets=%d", sys.resets)
 	}
 }
+
+// 签名要求：对端（这里就是测试进程自身，链接器 ad-hoc 签名）满足要求才接受连接。
+func TestPeerCodeRequirement(t *testing.T) {
+	helper.TeamID = "H3H5ULV8KR"
+	defer func() { helper.TeamID = "" }()
+	for req, ok := range map[string]bool{"always": true, "never": false, helper.PeerRequirement(): false} {
+		sys := newFake()
+		dir, _ := os.MkdirTemp("/tmp", "vh-")
+		sock := filepath.Join(dir, "h.sock")
+		ln, err := net.ListenUnix("unix", &net.UnixAddr{Name: sock, Net: "unix"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		srv := &helper.Server{Sys: sys, AllowUID: os.Getuid(), Logger: log.New(io.Discard, "", 0), Requirement: req}
+		go func() { _ = srv.Serve(ln) }()
+		c, err := helper.Dial(sock)
+		if ok != (err == nil) {
+			t.Errorf("要求 %q：期望接受=%v，实际 err=%v", req, ok, err)
+		}
+		if c != nil {
+			_ = c.Close()
+		}
+		ln.Close()
+		os.RemoveAll(dir)
+	}
+}

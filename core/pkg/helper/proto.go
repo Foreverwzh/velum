@@ -11,7 +11,7 @@ import (
 )
 
 // Version 是 helper 协议版本，velumd 连接时通过 ping 核对。
-const Version = "7" // 2：TUN IPv6 地址、set_dns；3：打开 TUN 时为物理网卡补作用域默认路由；4：close（同步清理）；5：网络变化后重新补作用域默认路由；6：替换旧网络留下的作用域默认路由，等待缩短到 0.3 秒；7：reset_dns
+const Version = "8" // 2：TUN IPv6 地址、set_dns；3：打开 TUN 时为物理网卡补作用域默认路由；4：close（同步清理）；5：网络变化后重新补作用域默认路由；6：替换旧网络留下的作用域默认路由，等待缩短到 0.3 秒；7：reset_dns；8：发布构建校验对端代码签名（升版本以提示更新）
 
 // ErrVersionMismatch 表示 helper 在运行，但协议版本与 velumd 不一致（需要更新 helper）。
 var ErrVersionMismatch = errors.New("helper 协议版本不匹配")

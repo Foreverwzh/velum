@@ -19,6 +19,18 @@ on:
         required: false
       TAURI_SIGNING_PRIVATE_KEY_PASSWORD:
         required: false
+      APPLE_CERTIFICATE:
+        required: false
+      APPLE_CERTIFICATE_PASSWORD:
+        required: false
+      APPLE_SIGNING_IDENTITY:
+        required: false
+      APPLE_API_ISSUER:
+        required: false
+      APPLE_API_KEY:
+        required: false
+      APPLE_API_PRIVATE_KEY:
+        required: false
   pull_request:
     paths: ["desktop/**", "core/**", "mise.toml", ".github/workflows/desktop.yml"]
 
@@ -61,7 +73,8 @@ jobs:
         working-directory: desktop/src-tauri
         run: cargo clippy -- -D warnings && cargo test --lib
 
-  # 打包安装包供测试机安装（未签名）。只在推送到 main 或手动触发时运行，PR 不打包。
+  # 打包安装包供测试机安装。只在推送到 main 或手动触发时运行，PR 不打包。
+  # macOS：配置了 Developer ID 证书（APPLE_*）时签名并公证，velum-helper 只接受同一团队签名的 velumd；否则 ad-hoc 签名。
   package:
     if: github.event_name != 'pull_request'
     needs: check
@@ -98,7 +111,21 @@ jobs:
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # Developer ID 签名（证书为 base64 的 .p12）与公证（App Store Connect API 密钥）
+          APPLE_CERTIFICATE: ${{ runner.os == 'macOS' && secrets.APPLE_CERTIFICATE || '' }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ runner.os == 'macOS' && secrets.APPLE_CERTIFICATE_PASSWORD || '' }}
+          APPLE_SIGNING_IDENTITY: ${{ runner.os == 'macOS' && secrets.APPLE_SIGNING_IDENTITY || '' }}
+          APPLE_API_ISSUER: ${{ runner.os == 'macOS' && secrets.APPLE_API_ISSUER || '' }}
+          APPLE_API_KEY: ${{ runner.os == 'macOS' && secrets.APPLE_API_KEY || '' }}
+          APPLE_API_PRIVATE_KEY: ${{ runner.os == 'macOS' && secrets.APPLE_API_PRIVATE_KEY || '' }}
         run: |
+          if [ -n "$APPLE_SIGNING_IDENTITY" ]; then
+            export VELUM_TEAM_ID=H3H5ULV8KR # 与签名证书的团队一致
+          fi
+          if [ -n "$APPLE_API_PRIVATE_KEY" ]; then
+            export APPLE_API_KEY_PATH="$RUNNER_TEMP/AuthKey_$APPLE_API_KEY.p8"
+            printf '%s' "$APPLE_API_PRIVATE_KEY" > "$APPLE_API_KEY_PATH"
+          fi
           if [ -n "$VELUM_VERSION" ]; then
             bun tauri build --config "{\"version\":\"$VELUM_VERSION\",\"bundle\":{\"createUpdaterArtifacts\":true}}"
           else
