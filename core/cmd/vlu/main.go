@@ -182,7 +182,7 @@ func usage() {
       update <序号|名称>  重新拉取订阅（更新流量额度）
       rm <序号|名称>      删除订阅（正在使用的不能删除）
   test [组]         对策略组成员测速；不指定组时测试全部节点
-  repair            一键修复：清空 DNS 缓存、重新检测网络环境、检查其他代理工具的残留、
+  repair            一键修复：清空 DNS 缓存、重新检测网络环境、还原残留的系统 DNS、检查其他代理工具的残留、
                     重新拉取订阅并加载（规则集在后台更新）、校正系统代理、节点测速
 `)
 }
@@ -356,7 +356,7 @@ func printStatus(s *rpc.Status) error {
 			}
 		}
 		if len(n.StaleDNS) > 0 {
-			fmt.Printf("⚠ 系统 DNS  仍指向 %s（其他代理工具退出时没有还原）：请在网络设置中把 DNS 改回自动获取\n", strings.Join(n.StaleDNS, "、"))
+			fmt.Printf("⚠ 系统 DNS  仍指向 %s（代理工具退出时没有还原）：请在网络设置中把 DNS 改回自动获取\n", strings.Join(n.StaleDNS, "、"))
 		}
 		if len(n.SplitDNSDomains) > 0 {
 			fmt.Printf("          系统 DNS 分流：%s（交给系统解析器）\n", strings.Join(n.SplitDNSDomains, "、"))

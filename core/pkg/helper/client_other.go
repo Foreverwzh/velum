@@ -15,6 +15,7 @@ func (*Client) OpenTun(uint32, []string, []string, []string) (int, string, error
 	return -1, "", errUnsupported
 }
 func (*Client) SetDNS(...string) error                { return errUnsupported }
+func (*Client) ResetDNS(...string) ([]string, error)  { return nil, errUnsupported }
 func (*Client) AddRoutes(...string) ([]string, error) { return nil, errUnsupported }
 func (*Client) DelRoutes(...string) ([]string, error) { return nil, errUnsupported }
 func (*Client) Close() error                          { return nil }

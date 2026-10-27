@@ -50,15 +50,17 @@ func TestScopedDefaultPlan(t *testing.T) {
 	}
 }
 
-// 接管前的 DNS 若是其他代理工具留下的虚拟地址，退出时还原为自动获取，而不是写回一个无人应答的地址。
+// 接管前的 DNS 若是代理工具（包括 Velum 自己）留下的虚拟地址，退出时还原为自动获取，而不是写回一个无人应答的地址。
 func TestRestorableDNS(t *testing.T) {
 	for out, want := range map[string]string{
 		"There aren't any DNS Servers set on Wi-Fi.\n": "",
 		"10.8.3.129\n223.5.5.5\n":                      "10.8.3.129,223.5.5.5",
 		"198.18.0.2\n":                                 "",
 		"198.19.255.1\n114.114.114.114\n":              "114.114.114.114",
+		"172.19.0.2\n":                                 "",
+		"172.19.0.2\n10.8.3.129\n":                     "10.8.3.129",
 	} {
-		if got := strings.Join(restorable(out), ","); got != want {
+		if got := strings.Join(restorable(out, []string{"172.19.0.2"}), ","); got != want {
 			t.Errorf("%q → %q，期望 %q", out, got, want)
 		}
 	}

@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -64,6 +65,8 @@ type SysProxy interface {
 	Restore() error
 	Heal() (sysproxy.HealResult, error)
 	HasSnapshot() bool
+	// ClearOwn 关闭未接管时仍指向 Velum 自己的系统代理，返回是否做了修改。
+	ClearOwn(host string, port int) (bool, error)
 }
 
 type Daemon struct {
@@ -84,6 +87,9 @@ type Daemon struct {
 
 	// NetSnapshot 采集网络状态（nil 表示不启用 NetworkSense，如测试）。
 	NetSnapshot func() (netsense.Snapshot, error)
+	// ResetDNS 把系统 DNS 中的残留地址改回自动获取（一键修复用），返回改动的网络服务；
+	// 为 nil 时 macOS 上经 velum-helper 执行，其他平台不支持。
+	ResetDNS func(servers []string) ([]string, error)
 	// CaptiveCheck 覆盖 Captive 探测（测试用）。
 	CaptiveCheck func(ctx context.Context, probes []netsense.Probe, path netsense.PhysicalPath) (netsense.CaptiveState, string)
 
@@ -557,6 +563,11 @@ func (d *Daemon) Run(ctx context.Context) error {
 		} else {
 			d.Logger.Printf("系统代理已还原")
 		}
+	} else if d.SysProxy != nil {
+		d.mu.RLock()
+		st := d.st
+		d.mu.RUnlock()
+		d.clearOwnSysProxy(st)
 	}
 	err = d.Engine.Stop()
 	d.Logger.Printf("velumd 已退出")
@@ -621,6 +632,15 @@ func (d *Daemon) senseOnce(ctx context.Context, ns config.NetworkSense, tr *prob
 	}
 	a := netsense.Analyze(snap, own...)
 	d.mu.RLock()
+	if len(own) == 0 && d.st != nil && !d.st.tunOn { // TUN 未运行，系统 DNS 却仍指向 Velum 的 TUN 内 DNS：上次没还原干净，或被其他代理工具写了回来
+		if ns := d.tunDNS(); ns != "" {
+			for _, rv := range snap.Resolvers {
+				if rv.Domain == "" && !rv.Scoped && slices.Contains(rv.Nameservers, ns) && !slices.Contains(a.StaleDNS, ns) {
+					a.StaleDNS = append(a.StaleDNS, ns)
+				}
+			}
+		}
+	}
 	prevKey, prevCaptive := d.env.Key(), d.captive
 	phys := snap.PhysicalDNS(d.ownDNS()...)
 	physChanged := strings.Join(phys, ",") != strings.Join(d.physDNS, ",") && len(phys) > 0
@@ -699,6 +719,18 @@ func (d *Daemon) senseInitial() {
 }
 
 // ownDNS 返回 Velum 接管系统 DNS 时使用的地址（需从物理 DNS 中剔除）。
+// tunDNS 返回 TUN 开启时 Velum 写入系统的 DNS 地址（TUN 地址的下一个地址，见 compiler）。
+func (d *Daemon) tunDNS() string {
+	if d.st == nil {
+		return ""
+	}
+	p, err := netip.ParsePrefix(d.st.cfg.TUN.Address)
+	if err != nil {
+		return ""
+	}
+	return p.Addr().Next().String()
+}
+
 func (d *Daemon) ownDNS() []string {
 	if d.st != nil && len(d.st.plan.Route.SystemDNS) > 0 {
 		return d.st.plan.Route.SystemDNS
@@ -858,6 +890,21 @@ func (d *Daemon) syncSysProxy(st *state) {
 			return
 		}
 		d.Logger.Printf("系统代理已还原")
+		return
+	}
+	d.clearOwnSysProxy(st)
+}
+
+// clearOwnSysProxy：未接管（无快照）时系统代理仍指向 Velum，多为其他代理工具把 Velum 的设置当作原值写了回来，
+// 关掉它，否则用户关闭系统代理后它仍在生效，Velum 退出后还会指向已关闭的端口。
+func (d *Daemon) clearOwnSysProxy(st *state) {
+	if st == nil {
+		return
+	}
+	if changed, err := d.SysProxy.ClearOwn(st.plan.SysProxy.Host, int(st.plan.SysProxy.Port)); err != nil {
+		d.Logger.Printf("关闭残留的系统代理失败：%v", err)
+	} else if changed {
+		d.Logger.Printf("系统代理仍指向 Velum 但未接管，已关闭")
 	}
 }
 
@@ -1668,6 +1715,14 @@ func (d *Daemon) repair(w http.ResponseWriter, r *http.Request) {
 	if d.NetSnapshot != nil && st != nil && st.cfg.NetworkSense.Enabled {
 		d.senseOnce(ctx, st.cfg.NetworkSense, &probeTracker{}) // 全新 tracker：强制重新探测
 		d.mu.RLock()
+		stale := d.env.StaleDNS
+		d.mu.RUnlock()
+		if reset := d.resetDNS(st); len(stale) > 0 && reset != nil {
+			svcs, err := reset(stale)
+			step("还原系统 DNS", err, fmt.Sprintf("%s 的 DNS 已改回自动获取（原为 %s）", strings.Join(svcs, "、"), strings.Join(stale, "、")))
+			d.senseOnce(ctx, st.cfg.NetworkSense, &probeTracker{})
+		}
+		d.mu.RLock()
 		detail := fmt.Sprintf("主接口 %s，外部 VPN %d 个，连通性 %s", d.env.PrimaryInterface, len(d.env.VPNs), d.captive)
 		env := d.env
 		d.mu.RUnlock()
@@ -1705,6 +1760,21 @@ func (d *Daemon) repair(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, rpc.RepairResponse{Steps: steps})
 }
 
+// resetDNS 返回清理残留系统 DNS 的方法；不支持时为 nil。
+func (d *Daemon) resetDNS(st *state) func([]string) ([]string, error) {
+	if d.ResetDNS != nil || runtime.GOOS != "darwin" {
+		return d.ResetDNS
+	}
+	return func(servers []string) ([]string, error) {
+		c, err := helper.Dial(orDefault(st.cfg.TUN.HelperSocket, helper.DefaultSocket))
+		if err != nil {
+			return nil, fmt.Errorf("需要 TUN 组件（在「系统组件」中安装或更新）：%w", err)
+		}
+		defer c.Close()
+		return c.ResetDNS(servers...)
+	}
+}
+
 // conflictStep 检查其他代理 / VPN 工具的影响：仍在全局接管的隧道（常见为未退出干净的代理工具 TUN），
 // 以及工具退出后没有还原的系统 DNS。两者都需要用户处理，Velum 不替其他工具做决定。
 func conflictStep(env netsense.Assessment) rpc.RepairStep {
@@ -1714,7 +1784,7 @@ func conflictStep(env netsense.Assessment) rpc.RepairStep {
 		probs = append(probs, fmt.Sprintf("%s 接管了全部流量；如果不是正在使用的 VPN，请在对应的代理工具中关闭 TUN（及服务模式）并退出，或重启电脑", f.Iface))
 	}
 	if len(env.StaleDNS) > 0 {
-		probs = append(probs, fmt.Sprintf("系统 DNS 仍指向 %s（其他代理工具退出时没有还原），请在网络设置中把 DNS 改回自动获取", strings.Join(env.StaleDNS, "、")))
+		probs = append(probs, fmt.Sprintf("系统 DNS 仍指向 %s（代理工具退出时没有还原），请在网络设置中把 DNS 改回自动获取", strings.Join(env.StaleDNS, "、")))
 	}
 	if len(probs) > 0 {
 		s.OK, s.Warn, s.Detail = false, true, strings.Join(probs, "；")

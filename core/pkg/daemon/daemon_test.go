@@ -251,7 +251,8 @@ func (f *fakeSysProxy) Heal() (sysproxy.HealResult, error) {
 	f.heals++
 	return f.healRes, nil
 }
-func (f *fakeSysProxy) HasSnapshot() bool { f.mu.Lock(); defer f.mu.Unlock(); return f.active }
+func (f *fakeSysProxy) HasSnapshot() bool                  { f.mu.Lock(); defer f.mu.Unlock(); return f.active }
+func (f *fakeSysProxy) ClearOwn(string, int) (bool, error) { return false, nil }
 
 func TestDaemonSysProxyLifecycle(t *testing.T) {
 	home, _ := os.MkdirTemp(tmpBase(), "velum-test-")
@@ -463,6 +464,91 @@ func TestDaemonNetworkSense(t *testing.T) {
 	})
 	set(netsense.Snapshot{PrimaryInterface: "en0", Routes: []netsense.Route{{Dst: netip.MustParsePrefix("0.0.0.0/0"), Iface: "en0"}}}, netsense.Online)
 	until("认证后恢复", func(s *rpc.Status) bool { return s.TUN != nil && s.Network.Paused == "" })
+}
+
+// TUN 未开启，系统 DNS 却仍指向 Velum 的 TUN 内 DNS（上次没还原干净，或被其他代理工具写回）：报告为残留。
+func TestDaemonStaleOwnDNS(t *testing.T) {
+	home, _ := os.MkdirTemp(tmpBase(), "velum-test-")
+	defer os.RemoveAll(home)
+	paths := testPaths(home)
+	_ = config.Ensure(paths)
+	d := daemon.New(paths, &fakeEngine{}, log.New(io.Discard, "", 0))
+	d.NetSnapshot = func() (netsense.Snapshot, error) {
+		return netsense.Snapshot{PrimaryInterface: "en0",
+			Routes:    []netsense.Route{{Dst: netip.MustParsePrefix("0.0.0.0/0"), Iface: "en0"}},
+			Resolvers: []netsense.Resolver{{Nameservers: []string{"172.19.0.2"}, Iface: "en0"}}}, nil
+	}
+	d.CaptiveCheck = func(context.Context, []netsense.Probe, netsense.PhysicalPath) (netsense.CaptiveState, string) {
+		return netsense.Online, ""
+	}
+	go func() { _ = d.Run(context.Background()) }()
+	defer d.Shutdown()
+	c := rpc.NewClient(paths.Socket)
+	for i := 0; i < 100; i++ {
+		if s, err := c.Status(); err == nil && !s.Starting && s.Network != nil && strings.Join(s.Network.StaleDNS, ",") == "172.19.0.2" {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatal("应报告残留的 Velum TUN 内 DNS")
+}
+
+// 一键修复：发现残留的系统 DNS 时交给 helper 改回自动获取，之后重新检测，不再报告冲突。
+func TestRepairResetsStaleDNS(t *testing.T) {
+	home, _ := os.MkdirTemp(tmpBase(), "velum-test-")
+	defer os.RemoveAll(home)
+	paths := testPaths(home)
+	_ = config.Ensure(paths)
+	d := daemon.New(paths, &fakeEngine{}, log.New(io.Discard, "", 0))
+	var mu sync.Mutex
+	dns := []string{"172.19.0.2"}
+	var asked []string
+	d.NetSnapshot = func() (netsense.Snapshot, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		return netsense.Snapshot{PrimaryInterface: "en0",
+			Routes:    []netsense.Route{{Dst: netip.MustParsePrefix("0.0.0.0/0"), Iface: "en0"}},
+			Resolvers: []netsense.Resolver{{Nameservers: dns, Iface: "en0"}}}, nil
+	}
+	d.ResetDNS = func(servers []string) ([]string, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		asked, dns = servers, []string{"192.168.1.1"}
+		return []string{"Wi-Fi"}, nil
+	}
+	d.CaptiveCheck = func(context.Context, []netsense.Probe, netsense.PhysicalPath) (netsense.CaptiveState, string) {
+		return netsense.Online, ""
+	}
+	go func() { _ = d.Run(context.Background()) }()
+	defer d.Shutdown()
+	c := rpc.NewClient(paths.Socket)
+	for i := 0; i < 100; i++ {
+		if s, err := c.Status(); err == nil && !s.Starting {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	r, err := c.Repair()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var reset, conflict *rpc.RepairStep
+	for i := range r.Steps {
+		switch r.Steps[i].Name {
+		case "还原系统 DNS":
+			reset = &r.Steps[i]
+		case "检查其他代理工具":
+			conflict = &r.Steps[i]
+		}
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if reset == nil || !reset.OK || strings.Join(asked, ",") != "172.19.0.2" {
+		t.Fatalf("应还原残留 DNS：%+v asked=%v", r.Steps, asked)
+	}
+	if conflict == nil || !conflict.OK {
+		t.Fatalf("还原后应不再报告冲突：%+v", conflict)
+	}
 }
 
 // 接管系统 DNS：有物理 DNS 时，TUN 内的 DNS 地址交给 helper；原本经系统解析器的 DNS 改用物理 DNS 防回环。

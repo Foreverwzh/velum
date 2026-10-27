@@ -94,8 +94,9 @@ func (m *WinManager) Restore() error {
 		return err
 	}
 	if w := snap.Windows; w != nil {
-		// 接管时开着的其他代理工具已退出：不写回指向本机失效端口的代理（见 Manager.dropDeadLocal）
-		if host, port := ParseWinServer(w.Server); w.Flags&WinProxyManual != 0 && isLoopbackHost(host) && port > 0 && !listening(m.Listening, host, port) {
+		// 接管时开着的其他代理工具已退出、或原值就是 Velum 自己：不写回这个本机代理（见 Manager.dropDeadLocal）
+		if host, port := ParseWinServer(w.Server); w.Flags&WinProxyManual != 0 && isLoopbackHost(host) && port > 0 &&
+			((host == snap.Host && port == snap.Port) || !listening(m.Listening, host, port)) {
 			w.Flags &^= WinProxyManual
 			w.Flags |= WinProxyDirect
 			if m.Logf != nil {
@@ -127,6 +128,26 @@ func (m *WinManager) Heal() (HealResult, error) {
 		return HealRestored, m.Restore()
 	}
 	return HealDiscarded, os.Remove(m.SnapshotPath)
+}
+
+// ClearOwn 与 Manager.ClearOwn 相同：未接管时关闭仍指向 Velum 自己的手动代理。
+func (m *WinManager) ClearOwn(host string, port int) (bool, error) {
+	cur, err := m.Backend.Read()
+	if err != nil {
+		return false, err
+	}
+	if h, p := ParseWinServer(cur.Server); cur.Flags&WinProxyManual == 0 || h != host || p != port {
+		return false, nil
+	}
+	cur.Flags &^= WinProxyManual
+	cur.Flags |= WinProxyDirect
+	if err := m.Backend.Write(cur); err != nil {
+		return false, err
+	}
+	if m.Logf != nil {
+		m.Logf("系统代理：仍指向 Velum（%s:%d）但未接管，已关闭", host, port)
+	}
+	return true, nil
 }
 
 // Effective 读取当前生效的 WinINet 代理（与 macOS 的 EffectiveReader 对应）。

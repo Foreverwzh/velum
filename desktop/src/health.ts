@@ -25,7 +25,7 @@ export function health(s: Status | null, err?: string): Health {
   if (!s.subscription?.source) return { tone: "gray", title: "还没有订阅", detail: "填写订阅地址后即可开始使用" };
   if (s.network?.paused) return { tone: "amber", title: "已暂停接管", detail: s.network.paused };
   if (s.network?.stale_dns?.length)
-    return { tone: "amber", title: "系统 DNS 有残留", detail: `系统 DNS 仍指向 ${s.network.stale_dns.join("、")}（其他代理工具退出时没有还原），域名解析会失败或很慢：在网络设置中把 DNS 改回自动获取` };
+    return { tone: "amber", title: "系统 DNS 有残留", detail: `系统 DNS 仍指向 ${s.network.stale_dns.join("、")}（代理工具退出时没有还原），域名解析会失败或很慢：在网络设置中把 DNS 改回自动获取` };
   if (s.network?.captive === "captive") return { tone: "amber", title: "需要网页认证", detail: "当前网络需要先在浏览器中完成登录" };
   if (s.network?.captive === "offline") return { tone: "amber", title: "网络不通", detail: "物理网络无法访问互联网" };
   if (s.sys_proxy.active && s.sys_proxy.overridden)

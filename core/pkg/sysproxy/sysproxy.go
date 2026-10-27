@@ -303,7 +303,7 @@ func (m *Manager) Restore() error {
 		return err
 	}
 	for _, s := range snap.Services {
-		m.dropDeadLocal(&s)
+		m.dropDeadLocal(&s, snap.Host, snap.Port)
 		if err := m.writeService(s); err != nil {
 			return err
 		}
@@ -311,18 +311,56 @@ func (m *Manager) Restore() error {
 	return os.Remove(m.SnapshotPath)
 }
 
+// ClearOwn 关闭仍指向 Velum 自己（host:port）的代理，用于没有快照的情况：
+// 快照已被还原或丢弃，设置却又被写成 Velum 的地址（多为其他代理工具把它当作原值记下、退出时写回），
+// 不接管时没有快照可还原，Velum 退出后这些设置就指向已关闭的端口。返回是否做了修改。
+func (m *Manager) ClearOwn(host string, port int) (bool, error) {
+	cur, err := m.Read()
+	if err != nil {
+		return false, err
+	}
+	changed := false
+	for _, s := range cur {
+		own := false
+		for _, p := range []*Proxy{&s.Web, &s.SecureWeb, &s.Socks} {
+			if p.Enabled && p.Server == host && p.Port == port {
+				p.Enabled, own = false, true
+			}
+		}
+		if !own {
+			continue
+		}
+		if err := m.writeService(s); err != nil {
+			return changed, err
+		}
+		changed = true
+		if m.Logf != nil {
+			m.Logf("系统代理：%s 仍指向 Velum（%s:%d）但未接管，已关闭", s.Name, host, port)
+		}
+	}
+	return changed, nil
+}
+
 // dropDeadLocal：快照里启用的代理若指向本机端口、而该端口已无程序监听（接管时开着的其他代理工具已退出），
 // 还原它只会让网络不可用，因此改为关闭。指向其他主机的代理照常还原。
-func (m *Manager) dropDeadLocal(s *Service) {
+// 指向 Velum 自己（host:port）的代理同样关闭：那是上次没还原干净、或被其他代理工具当作原值记下又写回的设置，
+// 还原时 Velum 尚未停止监听，探测不出它即将失效。
+func (m *Manager) dropDeadLocal(s *Service, host string, port int) {
 	for _, p := range []*Proxy{&s.Web, &s.SecureWeb, &s.Socks} {
 		if !p.Enabled || !isLoopbackHost(p.Server) || p.Port <= 0 {
 			continue
 		}
-		if m.listening(p.Server, p.Port) {
+		own := p.Server == host && p.Port == port
+		if !own && m.listening(p.Server, p.Port) {
 			continue
 		}
 		p.Enabled = false
-		if m.Logf != nil {
+		if m.Logf == nil {
+			continue
+		}
+		if own {
+			m.Logf("还原系统代理：%s 原先的代理 %s:%d 就是 Velum 自己（残留的接管设置），改为关闭", s.Name, p.Server, p.Port)
+		} else {
 			m.Logf("还原系统代理：%s 原先的代理 %s:%d 已无程序监听（原代理工具已退出），改为关闭", s.Name, p.Server, p.Port)
 		}
 	}

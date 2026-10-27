@@ -86,7 +86,7 @@ function NetworkLine({ status: s }: { status: Status }) {
       title: v.full ? "如果不是正在使用的 VPN，多为其他代理工具的 TUN 没有退出干净：在该工具中关闭 TUN 并退出，或重启电脑" : `${v.routes?.length ?? 0} 个网段、${v.domains?.length ?? 0} 个域名直连`,
     })),
     ...(n.stale_dns?.length
-      ? [{ icon: TriangleAlert, text: `系统 DNS 残留（${n.stale_dns.join("、")}）`, tone: "text-warn", title: "其他代理工具退出时没有还原系统 DNS，解析会失败或很慢：在网络设置中把 DNS 改回自动获取" }]
+      ? [{ icon: TriangleAlert, text: `系统 DNS 残留（${n.stale_dns.join("、")}）`, tone: "text-warn", title: "代理工具退出时没有还原系统 DNS，解析会失败或很慢：在网络设置中把 DNS 改回自动获取" }]
       : []),
     ...(n.split_dns_domains?.length ? [{ icon: Split, text: `DNS 分流 ${n.split_dns_domains.length} 个域名`, title: n.split_dns_domains.join("、") }] : []),
   ];

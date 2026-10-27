@@ -73,6 +73,12 @@ func (c *Client) SetDNS(servers ...string) error {
 	return err
 }
 
+// ResetDNS 让 helper 把系统 DNS 含有这些地址的网络服务改回自动获取，返回改动的服务。
+func (c *Client) ResetDNS(servers ...string) ([]string, error) {
+	resp, _, err := c.call(Request{Op: OpResetDNS, DNS: servers})
+	return resp.Services, err
+}
+
 func (c *Client) AddRoutes(routes ...string) ([]string, error) {
 	resp, _, err := c.call(Request{Op: OpAddRoutes, Routes: routes})
 	return resp.Routes, err

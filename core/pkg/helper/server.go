@@ -25,6 +25,8 @@ type System interface {
 	CloseTun(fd int) error
 	// SetDNS 设置系统 DNS 并返回还原函数。
 	SetDNS(servers []string) (restore func() error, err error)
+	// ResetDNS 把系统 DNS 含有 servers 中任一地址的网络服务改回自动获取，返回改动的服务。
+	ResetDNS(servers []string) (services []string, err error)
 	// EnsureScopedDefaults 确保物理网卡有作用域默认路由（IPv4 / IPv6），返回补上的路由说明与撤销函数（未补时为 nil）。
 	//
 	// velumd 把自己的出站连接绑定到物理网卡（IP_BOUND_IF）以免绕回 TUN；macOS 对绑定网卡的连接只查该网卡作用域内的路由，
@@ -48,6 +50,7 @@ type Server struct {
 
 	mu       sync.Mutex
 	sessions map[*session]struct{}
+	dnsHeld  int // 正接管系统 DNS 的会话数（受 mu 保护）
 }
 
 type session struct {
@@ -281,8 +284,34 @@ func (x *session) dispatch(req Request) (Response, int) {
 			return Response{Error: "设置系统 DNS：" + err.Error()}, -1
 		}
 		x.restoreDNS = restore
+		x.srv.mu.Lock()
+		x.srv.dnsHeld++
+		x.srv.mu.Unlock()
 		x.srv.Logger.Printf("%s 接管系统 DNS → %v", x.peer, req.DNS)
 		return Response{OK: true, Name: x.name}, -1
+	case OpResetDNS:
+		if len(req.DNS) == 0 {
+			return Response{Error: "缺少 DNS 地址"}, -1
+		}
+		for _, d := range req.DNS {
+			if _, err := netip.ParseAddr(d); err != nil {
+				return Response{Error: fmt.Sprintf("DNS 地址无效：%q", d)}, -1
+			}
+		}
+		x.srv.mu.Lock()
+		held := x.srv.dnsHeld
+		x.srv.mu.Unlock()
+		if held > 0 {
+			return Response{Error: "TUN 正在接管系统 DNS，不能还原"}, -1
+		}
+		svcs, err := x.srv.Sys.ResetDNS(req.DNS)
+		if err != nil {
+			return Response{Error: "还原系统 DNS：" + err.Error(), Services: svcs}, -1
+		}
+		if len(svcs) > 0 {
+			x.srv.Logger.Printf("%s 清理残留 DNS %v：%v 改回自动获取", x.peer, req.DNS, svcs)
+		}
+		return Response{OK: true, Services: svcs}, -1
 	case OpClose:
 		x.cleanupLocked("velumd 关闭会话")
 		return Response{OK: true}, -1
@@ -391,6 +420,9 @@ func (x *session) cleanupLocked(reason string) {
 			x.srv.Logger.Printf("已还原系统 DNS")
 		}
 		x.restoreDNS = nil
+		x.srv.mu.Lock()
+		x.srv.dnsHeld--
+		x.srv.mu.Unlock()
 	}
 	for i := len(x.routes) - 1; i >= 0; i-- {
 		gw, _ := x.gateway(x.routes[i])

@@ -167,7 +167,7 @@ type NetworkStatus struct {
 	PrimaryInterface string         `json:"primary_interface"`
 	VPNs             []netsense.VPN `json:"vpns,omitempty"`
 	SplitDNSDomains  []string       `json:"split_dns_domains,omitempty"`
-	// StaleDNS 是系统 DNS 中其他代理工具留下的虚拟地址（198.18.0.0/15，当前没有工具在接管），见 netsense.Assessment。
+	// StaleDNS 是系统 DNS 中代理工具留下的虚拟地址（198.18.0.0/15，或 TUN 未运行时 Velum 自己的 TUN 内 DNS），见 netsense.Assessment。
 	StaleDNS      []string `json:"stale_dns,omitempty"`
 	Captive       string   `json:"captive,omitempty"` // online / captive / offline
 	CaptiveDetail string   `json:"captive_detail,omitempty"`

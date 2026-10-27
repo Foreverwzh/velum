@@ -176,3 +176,32 @@ func TestWinRestoreDropsDeadLocalProxy(t *testing.T) {
 		t.Fatalf("还原后：%+v %v", b.cur, err)
 	}
 }
+
+// 接管前的代理就是 Velum 自己：还原时 Velum 仍在监听，也要关闭手动代理（见 TestRestoreDropsOwnProxy）。
+func TestWinRestoreDropsOwnProxy(t *testing.T) {
+	orig := sysproxy.WinSettings{Flags: sysproxy.WinProxyDirect | sysproxy.WinProxyManual, Server: "127.0.0.1:7899"}
+	b := &fakeWin{cur: orig}
+	m := sysproxy.NewWindows(filepath.Join(t.TempDir(), "snap.json"), b)
+	m.Listening = func(string, int) bool { return true }
+	if err := m.Apply(winPlan); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Restore(); err != nil {
+		t.Fatal(err)
+	}
+	if b.cur.Flags&sysproxy.WinProxyManual != 0 {
+		t.Fatalf("指向 Velum 自己的代理不应还原：%+v", b.cur)
+	}
+}
+
+func TestWinClearOwn(t *testing.T) {
+	b := &fakeWin{cur: sysproxy.WinSettings{Flags: sysproxy.WinProxyDirect | sysproxy.WinProxyManual, Server: "127.0.0.1:7899", Bypass: "<local>"}}
+	m := sysproxy.NewWindows(filepath.Join(t.TempDir(), "snap.json"), b)
+	if changed, err := m.ClearOwn("127.0.0.1", 7899); err != nil || !changed || b.cur.Flags != sysproxy.WinProxyDirect || b.cur.Bypass != "<local>" {
+		t.Fatalf("应关闭指向 Velum 的手动代理：%+v %v %v", b.cur, changed, err)
+	}
+	b.cur = sysproxy.WinSettings{Flags: sysproxy.WinProxyDirect | sysproxy.WinProxyManual, Server: "127.0.0.1:7890"}
+	if changed, _ := m.ClearOwn("127.0.0.1", 7899); changed || b.cur.Flags&sysproxy.WinProxyManual == 0 {
+		t.Fatal("其他代理不应修改")
+	}
+}

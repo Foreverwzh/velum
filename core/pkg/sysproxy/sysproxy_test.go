@@ -184,6 +184,25 @@ func TestRestoreDropsDeadLocalProxy(t *testing.T) {
 	}
 }
 
+// 接管前的系统代理就是 Velum 自己（上次没还原干净，或被其他代理工具当作原值记下又写回）：
+// 还原时 Velum 仍在监听，但不能写回，否则退出后系统代理指向已关闭的端口。
+func TestRestoreDropsOwnProxy(t *testing.T) {
+	f := newFake()
+	w := f.state["Wi-Fi"]
+	w.Web = sysproxy.Proxy{Enabled: true, Server: "127.0.0.1", Port: 7899}
+	w.SecureWeb = sysproxy.Proxy{Enabled: true, Server: "127.0.0.1", Port: 7899}
+	m := newManager(t, f)
+	if err := m.Apply(plan()); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Restore(); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.state["Wi-Fi"]; got.Web.Enabled || got.SecureWeb.Enabled || got.Socks.Enabled {
+		t.Fatalf("指向 Velum 自己的代理不应还原：%+v", got)
+	}
+}
+
 func TestApplyAndRestoreRoundTrip(t *testing.T) {
 	f := newFake()
 	orig := f.clone()
@@ -305,5 +324,28 @@ func TestParseScutilProxy(t *testing.T) {
 	}
 	if !e.Overridden("127.0.0.1", 7899) || e.Overridden("127.0.0.1", 7890) {
 		t.Fatal("Overridden 判断错误")
+	}
+}
+
+// 未接管（无快照）时系统代理仍指向 Velum：只关闭指向 Velum 的代理，其他服务与设置不动。
+func TestClearOwn(t *testing.T) {
+	f := newFake()
+	f.state["Wi-Fi"].Web = sysproxy.Proxy{Enabled: true, Server: "127.0.0.1", Port: 7899}
+	f.state["Wi-Fi"].Socks = sysproxy.Proxy{Enabled: true, Server: "127.0.0.1", Port: 7899}
+	orig := f.clone()
+	m := newManager(t, f)
+	changed, err := m.ClearOwn("127.0.0.1", 7899)
+	if err != nil || !changed {
+		t.Fatalf("应关闭指向 Velum 的代理：changed=%v err=%v", changed, err)
+	}
+	got := f.clone()
+	if w := got["Wi-Fi"]; w.Web.Enabled || w.Socks.Enabled || !reflect.DeepEqual(w.Bypass, orig["Wi-Fi"].Bypass) {
+		t.Fatalf("Wi-Fi：%+v", w)
+	}
+	if !reflect.DeepEqual(got["USB LAN"], orig["USB LAN"]) || !reflect.DeepEqual(got["Corp VPN"], orig["Corp VPN"]) {
+		t.Fatal("其他服务不应修改")
+	}
+	if changed, _ := m.ClearOwn("127.0.0.1", 7899); changed {
+		t.Fatal("没有指向 Velum 的代理时应为空操作")
 	}
 }

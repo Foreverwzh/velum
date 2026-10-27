@@ -22,6 +22,7 @@ import (
 type fakeSystem struct {
 	dns      []string
 	restored int
+	resets   int
 	mu       sync.Mutex
 	routes   map[netip.Prefix]bool
 	existing map[netip.Prefix]bool // 模拟已被其他 VPN 占用的路由
@@ -54,6 +55,13 @@ func (f *fakeSystem) SetDNS(servers []string) (func() error, error) {
 	defer f.mu.Unlock()
 	f.dns = servers
 	return func() error { f.mu.Lock(); f.dns, f.restored = nil, f.restored+1; f.mu.Unlock(); return nil }, nil
+}
+
+func (f *fakeSystem) ResetDNS(servers []string) ([]string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.resets++
+	return []string{"Wi-Fi"}, nil
 }
 
 func (f *fakeSystem) OpenTun(mtu uint32, inet4, inet6 []netip.Prefix) (int, string, error) {
@@ -285,4 +293,46 @@ func TestScopedDefaultsReensuredOnRouteChange(t *testing.T) {
 	waitFor(t, func() bool { return scoped() == 2 })
 	_ = c.Close()
 	waitFor(t, func() bool { return scoped() == 0 })
+}
+
+// reset_dns 不需要 TUN；有会话正接管系统 DNS 时拒绝，该会话结束后才允许。
+func TestResetDNS(t *testing.T) {
+	sys := newFake()
+	sock := start(t, sys, os.Getuid())
+	r, err := helper.Dial(sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	if _, err := r.ResetDNS("bogus"); err == nil {
+		t.Fatal("无效地址应报错")
+	}
+	if svcs, err := r.ResetDNS("172.19.0.2"); err != nil || strings.Join(svcs, ",") != "Wi-Fi" {
+		t.Fatalf("reset: %v %v", svcs, err)
+	}
+
+	tun, err := helper.Dial(sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fd, _, err := tun.OpenTun(9000, []string{"172.19.0.1/30"}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unix.Close(fd)
+	if err := tun.SetDNS("172.19.0.2"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.ResetDNS("172.19.0.2"); err == nil {
+		t.Fatal("TUN 接管系统 DNS 期间应拒绝")
+	}
+	_ = tun.Close()
+	if _, err := r.ResetDNS("172.19.0.2"); err != nil {
+		t.Fatalf("TUN 会话结束后应允许：%v", err)
+	}
+	sys.mu.Lock()
+	defer sys.mu.Unlock()
+	if sys.resets != 2 {
+		t.Fatalf("resets=%d", sys.resets)
+	}
 }

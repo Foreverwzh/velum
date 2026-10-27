@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/netip"
 	"os/exec"
+	"slices"
 	"strings"
 	"syscall"
 	"unsafe"
@@ -212,7 +213,7 @@ func (DarwinSystem) SetDNS(servers []string) (func() error, error) {
 		if err != nil {
 			return nil, fmt.Errorf("读取 %s 的 DNS：%w", svc, err)
 		}
-		orig[svc] = restorable(string(out))
+		orig[svc] = restorable(string(out), servers)
 	}
 	set := func(svc string, vals []string) error {
 		if len(vals) == 0 {
@@ -247,13 +248,41 @@ func (DarwinSystem) SetDNS(servers []string) (func() error, error) {
 	return restore, nil
 }
 
+// ResetDNS 把系统 DNS 含有 servers 中任一地址的硬件网络服务改回自动获取（Empty）。
+func (DarwinSystem) ResetDNS(servers []string) ([]string, error) {
+	svcs, err := sysproxy.New("").Services()
+	if err != nil {
+		return nil, err
+	}
+	var reset []string
+	for _, svc := range svcs {
+		out, err := exec.Command("/usr/sbin/networksetup", "-getdnsservers", svc).Output()
+		if err != nil {
+			return reset, fmt.Errorf("读取 %s 的 DNS：%w", svc, err)
+		}
+		if !slices.ContainsFunc(strings.Fields(string(out)), func(f string) bool { return slices.Contains(servers, f) }) {
+			continue // 不含要清理的地址
+		}
+		if out, err := exec.Command("/usr/sbin/networksetup", "-setdnsservers", svc, "Empty").CombinedOutput(); err != nil {
+			return reset, fmt.Errorf("还原 %s 的 DNS：%v %s", svc, err, strings.TrimSpace(string(out)))
+		}
+		reset = append(reset, svc)
+	}
+	if len(reset) > 0 {
+		flushDNSCache()
+	}
+	return reset, nil
+}
+
 // restorable 解析 networksetup -getdnsservers 的输出，得到退出时要还原的 DNS。
 // 其他代理工具的虚拟 DNS（198.18.0.0/15，如它的 TUN 内 DNS）不还原：那是它没退出干净的残留，
 // 还原后没有程序应答，解析全部失败；去掉后为空即还原为自动获取。
-func restorable(out string) []string {
+// 即将设置的 own（Velum 自己的 TUN 内 DNS）同理：它出现在原值里，说明上次没还原干净，
+// 或被其他代理工具当作原值记下、退出时又写了回来。
+func restorable(out string, own []string) []string {
 	var cur []string
 	for _, line := range strings.Split(out, "\n") {
-		if a, err := netip.ParseAddr(strings.TrimSpace(line)); err == nil && !netsense.FakeIPRange.Contains(a) {
+		if a, err := netip.ParseAddr(strings.TrimSpace(line)); err == nil && !netsense.FakeIPRange.Contains(a) && !slices.Contains(own, a.String()) {
 			cur = append(cur, a.String())
 		}
 	}

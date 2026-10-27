@@ -11,7 +11,7 @@ import (
 )
 
 // Version 是 helper 协议版本，velumd 连接时通过 ping 核对。
-const Version = "6" // 2：TUN IPv6 地址、set_dns；3：打开 TUN 时为物理网卡补作用域默认路由；4：close（同步清理）；5：网络变化后重新补作用域默认路由；6：替换旧网络留下的作用域默认路由，等待缩短到 0.3 秒
+const Version = "7" // 2：TUN IPv6 地址、set_dns；3：打开 TUN 时为物理网卡补作用域默认路由；4：close（同步清理）；5：网络变化后重新补作用域默认路由；6：替换旧网络留下的作用域默认路由，等待缩短到 0.3 秒；7：reset_dns
 
 // ErrVersionMismatch 表示 helper 在运行，但协议版本与 velumd 不一致（需要更新 helper）。
 var ErrVersionMismatch = errors.New("helper 协议版本不匹配")
@@ -29,6 +29,9 @@ const (
 	// OpClose 同步清理本会话（还原 DNS、删除路由、关闭 utun）后应答。velumd 重建 TUN 前用它关闭旧会话：
 	// 仅断开连接时 helper 异步清理，新会话加路由可能与旧会话的路由冲突。
 	OpClose = "close"
+	// OpResetDNS 把系统 DNS 含有指定地址的硬件网络服务改回自动获取（DHCP），用于清理代理工具没还原的残留；
+	// 有会话正接管系统 DNS 时拒绝，不与 TUN 争抢。
+	OpResetDNS = "reset_dns"
 )
 
 type Request struct {
@@ -37,7 +40,7 @@ type Request struct {
 	Inet4  []string `json:"inet4,omitempty"`  // TUN 地址，如 "172.19.0.1/30"
 	Inet6  []string `json:"inet6,omitempty"`  // TUN IPv6 地址，如 "fdfe:dcba:9876::1/126"
 	Routes []string `json:"routes,omitempty"` // 经 TUN 的路由，如 "0.0.0.0/1"、"::/1"
-	DNS    []string `json:"dns,omitempty"`    // set_dns：系统 DNS 服务器
+	DNS    []string `json:"dns,omitempty"`    // set_dns：系统 DNS 服务器；reset_dns：要清理的残留地址
 }
 
 type Response struct {
@@ -46,6 +49,8 @@ type Response struct {
 	Name    string   `json:"name,omitempty"`    // utun 名称
 	Routes  []string `json:"routes,omitempty"`  // 当前会话持有的路由
 	Version string   `json:"version,omitempty"` // ping 返回
+	// Services 是 reset_dns 改回自动获取的网络服务。
+	Services []string `json:"services,omitempty"`
 }
 
 // ValidateRoute 校验 helper 允许添加的路由：不允许 /0（不替换默认路由），不触碰回环与 IPv6 链路本地。
