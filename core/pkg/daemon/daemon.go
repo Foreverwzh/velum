@@ -83,6 +83,9 @@ type Daemon struct {
 	// EffectiveProxy 读取系统实际生效的代理，用于发现「写入了但被其他 VPN 覆盖」；为 nil 时不检查。
 	EffectiveProxy func() (sysproxy.Effective, error)
 
+	spMu      sync.Mutex
+	spApplied *compiler.SysProxyPlan // 上次成功写入的系统代理设置；未接管时为 nil
+
 	sysOverride, tunOverride *bool // 界面 / vlu 设置的开关（持久化到 state.json，覆盖 config.yaml）；nil 表示按 config.yaml
 
 	// NetSnapshot 采集网络状态（nil 表示不启用 NetworkSense，如测试）。
@@ -877,13 +880,19 @@ func (d *Daemon) syncSysProxy(st *state) {
 		return
 	}
 	if st.plan.SysProxy.Enabled {
+		if d.sysProxyCurrent(st.plan.SysProxy) {
+			return
+		}
 		if err := d.SysProxy.Apply(st.plan.SysProxy); err != nil {
+			d.setSysApplied(nil)
 			d.setErr(fmt.Errorf("接管系统代理：%w", err))
 			return
 		}
+		d.setSysApplied(&st.plan.SysProxy)
 		d.Logger.Printf("已接管系统代理 → %s:%d（%d 条豁免）", st.plan.SysProxy.Host, st.plan.SysProxy.Port, len(st.plan.SysProxy.Exceptions))
 		return
 	}
+	d.setSysApplied(nil)
 	if d.SysProxy.HasSnapshot() {
 		if err := d.SysProxy.Restore(); err != nil {
 			d.setErr(fmt.Errorf("还原系统代理：%w", err))
@@ -893,6 +902,32 @@ func (d *Daemon) syncSysProxy(st *state) {
 		return
 	}
 	d.clearOwnSysProxy(st)
+}
+
+// sysProxyCurrent 报告系统代理是否已是 plan 的设置：与上次写入的相同、仍在接管，且系统实际生效的代理仍指向 Velum。
+// 每次写入要对每个网络服务执行多条 networksetup（4 个服务约 1 秒），切换 TUN 等不涉及系统代理的重新加载因此跳过。
+// 只核对主网络服务；其他服务被改动时由一键修复的「校正系统代理」强制写入。
+func (d *Daemon) sysProxyCurrent(plan compiler.SysProxyPlan) bool {
+	d.spMu.Lock()
+	same := d.spApplied != nil && reflect.DeepEqual(*d.spApplied, plan)
+	d.spMu.Unlock()
+	if !same || d.EffectiveProxy == nil || !d.SysProxy.HasSnapshot() {
+		return false
+	}
+	e, err := d.EffectiveProxy()
+	return err == nil && !e.Overridden(plan.Host, int(plan.Port))
+}
+
+func (d *Daemon) setSysApplied(p *compiler.SysProxyPlan) {
+	d.spMu.Lock()
+	defer d.spMu.Unlock()
+	if p == nil {
+		d.spApplied = nil
+		return
+	}
+	c := *p
+	c.Exceptions = slices.Clone(p.Exceptions)
+	d.spApplied = &c
 }
 
 // clearOwnSysProxy：未接管（无快照）时系统代理仍指向 Velum，多为其他代理工具把 Velum 的设置当作原值写了回来，

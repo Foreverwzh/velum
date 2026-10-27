@@ -24,6 +24,8 @@ export function SwitchRows({ status, disabled, onDone }: { status: Status; disab
   const [prompt, setPrompt] = useState<HelperStatus>();
   const [busy, setBusy] = useState<string>();
   const [err, setErr] = useState<string>();
+  // 点击后立即显示目标状态，生效（刷新状态）后清除；失败时清除即回到实际状态
+  const [want, setWant] = useState<{ sys?: boolean; tun?: boolean }>({});
   const paused = status.network?.paused;
 
   const act = async (label: string, fn: () => Promise<unknown>) => {
@@ -34,11 +36,17 @@ export function SwitchRows({ status, disabled, onDone }: { status: Status; disab
     } catch (e) {
       setErr(errText(e));
     } finally {
-      setBusy(undefined);
       await onDone();
+      setBusy(undefined);
+      setWant({});
     }
   };
-  const setTun = (v: boolean) =>
+  const setSys = (v: boolean) => {
+    setWant({ sys: v });
+    act("sys", () => api.setSwitch("system_proxy", v ? "on" : "off"));
+  };
+  const setTun = (v: boolean) => {
+    setWant({ tun: v });
     act("tun", async () => {
       setPrompt(undefined);
       if (v) {
@@ -47,6 +55,7 @@ export function SwitchRows({ status, disabled, onDone }: { status: Status; disab
       }
       await api.setSwitch("tun", v ? "on" : "off");
     });
+  };
   const install = () =>
     act("install", async () => {
       await installHelper();
@@ -61,14 +70,15 @@ export function SwitchRows({ status, disabled, onDone }: { status: Status; disab
         label={<span className="flex items-center gap-2">系统代理{status.want_system_proxy && !status.system_proxy_on && <Tag tone="warn">已暂停</Tag>}</span>}
         hint={pausedHint(status.want_system_proxy, status.system_proxy_on) ?? "浏览器等遵守系统代理设置的应用经过 Velum"}
       >
-        <Switch label="系统代理" checked={status.want_system_proxy} paused={status.want_system_proxy && !status.system_proxy_on}
-          disabled={disabled || !!busy} onChange={(v) => act("sys", () => api.setSwitch("system_proxy", v ? "on" : "off"))} />
+        <Switch label="系统代理" checked={want.sys ?? status.want_system_proxy} paused={want.sys === undefined && status.want_system_proxy && !status.system_proxy_on}
+          disabled={disabled} pending={busy === "sys"} busy={!!busy} onChange={setSys} />
       </Row>
       <Row
         label={<span className="flex items-center gap-2">TUN{status.want_tun && !status.tun_on && <Tag tone="warn">已暂停</Tag>}</span>}
         hint={pausedHint(status.want_tun, status.tun_on) ?? `接管所有应用的流量${status.tun?.system_dns?.length ? "，并接管系统 DNS" : ""}；可与系统代理同时开启`}
       >
-        <Switch label="TUN" checked={status.want_tun} paused={status.want_tun && !status.tun_on} disabled={disabled || !!busy} onChange={setTun} />
+        <Switch label="TUN" checked={want.tun ?? status.want_tun} paused={want.tun === undefined && status.want_tun && !status.tun_on}
+          disabled={disabled} pending={busy === "tun"} busy={!!busy} onChange={setTun} />
       </Row>
       {prompt && (
         <div className="flex items-start gap-3 border-t border-line bg-info-soft px-3.5 py-3">

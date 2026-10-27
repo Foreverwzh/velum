@@ -306,6 +306,50 @@ func TestDaemonSysProxyLifecycle(t *testing.T) {
 	}
 }
 
+// 系统代理已是当前设置（仍在接管、实际生效的仍指向 Velum）时，重新加载不再重复写入；设置变化或被改走时才写。
+func TestDaemonSysProxySkipsUnchanged(t *testing.T) {
+	home, _ := os.MkdirTemp(tmpBase(), "velum-test-")
+	defer os.RemoveAll(home)
+	paths := testPaths(home)
+	_ = config.Ensure(paths)
+	sp := &fakeSysProxy{}
+	d := daemon.New(paths, &fakeEngine{}, log.New(io.Discard, "", 0))
+	d.SysProxy = sp
+	var mu sync.Mutex
+	effPort := 7899
+	d.EffectiveProxy = func() (sysproxy.Effective, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		return sysproxy.Effective{HTTP: sysproxy.Proxy{Enabled: true, Server: "127.0.0.1", Port: effPort}}, nil
+	}
+	go func() { _ = d.Run(context.Background()) }()
+	defer d.Shutdown()
+	c := rpc.NewClient(paths.Socket)
+	for i := 0; i < 100; i++ {
+		if s, err := c.Status(); err == nil && !s.Starting {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	applied := func() int { sp.mu.Lock(); defer sp.mu.Unlock(); return len(sp.applied) }
+	if _, err := c.Switch(rpc.SwitchRequest{SystemProxy: "on"}); err != nil || applied() != 1 {
+		t.Fatalf("开启应写入：%v applied=%d", err, applied())
+	}
+	if _, err := c.Reload(); err != nil || applied() != 1 {
+		t.Fatalf("设置未变化时不应重复写入：applied=%d", applied())
+	}
+	_ = os.WriteFile(paths.Overlay, []byte("system_proxy:\n  bypass: [localhost]\n"), 0o600)
+	if _, err := c.Reload(); err != nil || applied() != 2 {
+		t.Fatalf("豁免变化后应重新写入：applied=%d", applied())
+	}
+	mu.Lock()
+	effPort = 7890 // 被其他代理工具改走
+	mu.Unlock()
+	if _, err := c.Reload(); err != nil || applied() != 3 {
+		t.Fatalf("被改走后应重新写入：applied=%d", applied())
+	}
+}
+
 type fakeOpener struct {
 	calls [][]string
 	dns   [][]string

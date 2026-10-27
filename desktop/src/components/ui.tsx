@@ -69,26 +69,30 @@ export function IconButton({ icon: Icon, label, className, ...rest }: ButtonHTML
 
 // ---------------- 开关 ----------------
 
-/** 开关：checked 是用户意图；paused 表示已开启但当前被暂停（琥珀色）。 */
-export function Switch({ checked, paused, disabled, onChange, label }: {
-  checked: boolean; paused?: boolean; disabled?: boolean; onChange: (v: boolean) => void; label: string;
+/** 开关：checked 是用户意图；paused 表示已开启但当前被暂停（琥珀色）。
+ *  pending 表示正在生效：已显示为目标状态，暂不响应点击（不变暗，与 disabled 区分）；busy 表示其他操作进行中，同样暂不响应。 */
+export function Switch({ checked, paused, disabled, pending, busy, onChange, label }: {
+  checked: boolean; paused?: boolean; disabled?: boolean; pending?: boolean; busy?: boolean; onChange: (v: boolean) => void; label: string;
 }) {
   return (
     <button
       role="switch"
       aria-checked={checked}
       aria-label={label}
+      aria-busy={pending || undefined}
       disabled={disabled}
-      onClick={() => onChange(!checked)}
+      onClick={() => !pending && !busy && onChange(!checked)}
       className={cx(
         "relative h-[18px] w-[30px] shrink-0 rounded-full transition-colors duration-200 disabled:opacity-45",
         checked ? (paused ? "bg-warn" : "bg-accent") : "bg-line-strong",
+        (pending || busy) && "cursor-default",
       )}
     >
       <span
         className={cx(
           "absolute top-[2px] size-[14px] rounded-full bg-white shadow-[0_1px_2px_rgba(0,0,0,0.3)] transition-[left] duration-200 ease-out-expo",
           checked ? "left-[14px]" : "left-[2px]",
+          pending && "motion-safe:animate-pulse",
         )}
       />
     </button>
