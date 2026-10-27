@@ -1715,18 +1715,24 @@ func (d *Daemon) repair(w http.ResponseWriter, r *http.Request) {
 	if d.NetSnapshot != nil && st != nil && st.cfg.NetworkSense.Enabled {
 		d.senseOnce(ctx, st.cfg.NetworkSense, &probeTracker{}) // 全新 tracker：强制重新探测
 		d.mu.RLock()
+		detail := fmt.Sprintf("主接口 %s，外部 VPN %d 个，连通性 %s", d.env.PrimaryInterface, len(d.env.VPNs), d.captive)
 		stale := d.env.StaleDNS
 		d.mu.RUnlock()
+		step("重新检测网络环境", nil, detail)
 		if reset := d.resetDNS(st); len(stale) > 0 && reset != nil {
 			svcs, err := reset(stale)
-			step("还原系统 DNS", err, fmt.Sprintf("%s 的 DNS 已改回自动获取（原为 %s）", strings.Join(svcs, "、"), strings.Join(stale, "、")))
-			d.senseOnce(ctx, st.cfg.NetworkSense, &probeTracker{})
+			detail := fmt.Sprintf("%s 的 DNS 已改回自动获取（原为 %s）", strings.Join(svcs, "、"), strings.Join(stale, "、"))
+			if len(svcs) == 0 {
+				detail = fmt.Sprintf("没有网络服务的 DNS 设为 %s（可能来自 VPN 或描述文件）", strings.Join(stale, "、"))
+			}
+			step("还原系统 DNS", err, detail)
+			if err == nil && len(svcs) > 0 {
+				d.awaitDNSCleared(ctx, st, stale)
+			}
 		}
 		d.mu.RLock()
-		detail := fmt.Sprintf("主接口 %s，外部 VPN %d 个，连通性 %s", d.env.PrimaryInterface, len(d.env.VPNs), d.captive)
 		env := d.env
 		d.mu.RUnlock()
-		step("重新检测网络环境", nil, detail)
 		steps = append(steps, conflictStep(env))
 	}
 	err := d.Update(ctx)
@@ -1758,6 +1764,25 @@ func (d *Daemon) repair(w http.ResponseWriter, r *http.Request) {
 		step("节点测速", nil, fmt.Sprintf("%d / %d 个节点可用", ok, total))
 	}
 	writeJSON(w, rpc.RepairResponse{Steps: steps})
+}
+
+// awaitDNSCleared 在还原 DNS 后重新检测，直到解析器配置不再含这些地址（最多约 3 秒）：
+// networksetup 返回后，scutil --dns 要稍后才反映新设置，立即检测会把刚清理的地址再报一次。
+func (d *Daemon) awaitDNSCleared(ctx context.Context, st *state, cleared []string) {
+	for i := 0; i < 10; i++ {
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(300 * time.Millisecond):
+		}
+		d.senseOnce(ctx, st.cfg.NetworkSense, &probeTracker{})
+		d.mu.RLock()
+		left := slices.ContainsFunc(d.env.StaleDNS, func(s string) bool { return slices.Contains(cleared, s) })
+		d.mu.RUnlock()
+		if !left {
+			return
+		}
+	}
 }
 
 // resetDNS 返回清理残留系统 DNS 的方法；不支持时为 nil。

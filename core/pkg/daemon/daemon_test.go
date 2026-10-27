@@ -503,17 +503,23 @@ func TestRepairResetsStaleDNS(t *testing.T) {
 	var mu sync.Mutex
 	dns := []string{"172.19.0.2"}
 	var asked []string
+	lag := 0 // 还原后系统解析器配置晚一次才更新（scutil --dns 的实际表现）
 	d.NetSnapshot = func() (netsense.Snapshot, error) {
 		mu.Lock()
 		defer mu.Unlock()
+		cur := dns
+		if lag > 0 {
+			lag--
+			cur = []string{"172.19.0.2"}
+		}
 		return netsense.Snapshot{PrimaryInterface: "en0",
 			Routes:    []netsense.Route{{Dst: netip.MustParsePrefix("0.0.0.0/0"), Iface: "en0"}},
-			Resolvers: []netsense.Resolver{{Nameservers: dns, Iface: "en0"}}}, nil
+			Resolvers: []netsense.Resolver{{Nameservers: cur, Iface: "en0"}}}, nil
 	}
 	d.ResetDNS = func(servers []string) ([]string, error) {
 		mu.Lock()
 		defer mu.Unlock()
-		asked, dns = servers, []string{"192.168.1.1"}
+		asked, dns, lag = servers, []string{"192.168.1.1"}, 1
 		return []string{"Wi-Fi"}, nil
 	}
 	d.CaptiveCheck = func(context.Context, []netsense.Probe, netsense.PhysicalPath) (netsense.CaptiveState, string) {
