@@ -1,0 +1,69 @@
+name: VelumNESpike
+options:
+  bundleIdPrefix: dev.velum.spike
+  deploymentTarget:
+    macOS: "27.0"
+settings:
+  base:
+    DEVELOPMENT_TEAM: H3H5ULV8KR
+    CODE_SIGN_STYLE: Automatic
+    ENABLE_HARDENED_RUNTIME: YES
+    SWIFT_VERSION: "5.0"
+    ARCHS: arm64
+targets:
+  VelumNESpike:
+    type: application
+    platform: macOS
+    sources: [App]
+    info:
+      path: App/Info.plist
+      properties:
+        CFBundleDisplayName: Velum NE Spike
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        LSUIElement: true
+    entitlements:
+      path: App/App.entitlements
+      properties:
+        com.apple.developer.system-extension.install: true
+        com.apple.developer.networking.networkextension: [packet-tunnel-provider]
+        com.apple.security.application-groups: [H3H5ULV8KR.dev.velum.spike]
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: dev.velum.spike.ne
+    dependencies:
+      - target: VelumNESpikeTunnel
+        embed: true
+      - sdk: NetworkExtension.framework
+      - sdk: SystemExtensions.framework
+  VelumNESpikeTunnel:
+    type: system-extension
+    platform: macOS
+    sources: [Tunnel]
+    info:
+      path: Tunnel/Info.plist
+      properties:
+        CFBundleDisplayName: Velum NE Spike Tunnel
+        CFBundlePackageType: SYSX
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSSystemExtensionUsageDescription: Velum NE Spike
+        NetworkExtension:
+          NEMachServiceName: H3H5ULV8KR.dev.velum.spike.tunnel
+          NEProviderClasses:
+            com.apple.networkextension.packet-tunnel: $(PRODUCT_MODULE_NAME).PacketTunnelProvider
+    entitlements:
+      path: Tunnel/Tunnel.entitlements
+      properties:
+        com.apple.security.app-sandbox: true
+        com.apple.security.network.client: true
+        com.apple.security.network.server: true
+        com.apple.developer.networking.networkextension: [packet-tunnel-provider]
+        com.apple.security.application-groups: [H3H5ULV8KR.dev.velum.spike]
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: dev.velum.spike.ne.tunnel
+      # 系统扩展的包名必须与 bundle ID 相同
+      PRODUCT_NAME: dev.velum.spike.ne.tunnel
+      PRODUCT_MODULE_NAME: VelumNESpikeTunnel
+      FRAMEWORK_SEARCH_PATHS: $(PROJECT_DIR)/build/Mobilebind.xcframework/macos-arm64_x86_64
+      OTHER_LDFLAGS: [-framework, Mobilebind, -lresolv]
+    dependencies:
+      - sdk: NetworkExtension.framework
+      - sdk: SystemConfiguration.framework

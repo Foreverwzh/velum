@@ -195,7 +195,7 @@ func (o opener) OpenTUN(r engine.TUNRequest) (int, string, io.Closer, error) {
 	if fd < 0 {
 		return -1, "", nil, errors.New("建立 VPN：未获得 TUN 文件描述符（可能未授权 VPN）")
 	}
-	return int(fd), "tun", closerFunc(o.host.CloseTun), nil
+	return int(fd), tunName(int(fd)), closerFunc(o.host.CloseTun), nil
 }
 
 // FindOwner 实现 engine.OwnerFinder：内核经它识别 VPN 中连接所属的应用。
