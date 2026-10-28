@@ -609,13 +609,13 @@ iOS（⛔ 阻塞：需要付费 Apple 开发者账号）：
 - **验收**：Ubuntu 24.04 GNOME 上安装 .deb 后，系统代理与 TUN 均可开关；`kill -9 velumd` 后系统代理被还原、网络恢复；连接 / 断开 WireGuard 或 OpenVPN 时内网可用。
 
 
-### 🧊 MN：macOS TUN 评估改用 NetworkExtension（低优先级，未排期）
+### 🎯 MN：macOS TUN 改用 NetworkExtension（已验证，实施计划见 `docs/MN-PLAN.md`）
 
 背景：D4 选择 helper + utun，换来与企业 NE VPN 共存、无内存限制、免扩展审批；代价是路由由 Velum 自己维护（作用域默认路由、换网与睡眠唤醒后的重建，见 §3.2「M1.5 实测」）。NEPacketTunnelProvider 下这些由系统负责：隧道成为主服务，物理网卡的默认路由自动转为作用域路由，隧道进程自身的连接不回流。
 
 前提：付费 Apple 开发者账号（Network Extension entitlement、签名与公证），与 D6 一起决定。开工前需重新评估 D4 的理由：
 
-- [ ] 实测与常用企业 VPN（NE 类）同时运行时是否互斥 / 抢占；
-- [ ] 内存：macOS 上 NE 进程的内存约束与 sing-box + 规则集的稳态占用；
-- [ ] 公开分发后的场景兼容：系统扩展的首次批准与升级后重新批准、MDM 管理的设备禁止安装扩展、已有其他 NE VPN 或代理工具的机器，各自如何安装、降级与提示（必要时保留 helper 方案作为回退）；
-- [ ] 结论回写 D4；若迁移，复用 iOS `NEPacketTunnelProvider` 的实现（M3）。
+- [x] 实测与常用企业 VPN 同时运行时是否互斥 / 抢占：不互斥，更具体的路由优先（`spikes/mn-netext`）；
+- [x] 内存：真实订阅下稳态约 75～117MB，未遇到上限；
+- [x] 公开分发后的场景兼容：首次两次批准、升级替换无需重新批准、MDM 托管设备为「用户批准」；保留 helper 作为回退（MN-PLAN MN.7）；
+- [ ] 结论回写 D4；实施后 iOS（M3）复用同一扩展实现。
