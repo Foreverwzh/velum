@@ -146,14 +146,20 @@ final class Host: NSObject, MobilebindHostProtocol {
         let routes4 = (r.routes ?? []).compactMap(cidr).filter { !$0.0.contains(":") }
         if let a = v4.first {
             let ip = NEIPv4Settings(addresses: [a.0], subnetMasks: [mask4(a.1)])
-            ip.includedRoutes = routes4.map { NEIPv4Route(destinationAddress: $0.0, subnetMask: mask4($0.1)) }
+            // 核心的全局接管是 0/1 + 128/1（不替换默认路由）；NE 下改为默认路由，隧道才成为主服务，
+            // 系统随之把物理网卡的默认路由转为作用域路由，引擎绑定物理网卡的出站才可达
+            let full4 = Set(routes4.map { "\($0.0)/\($0.1)" }).isSuperset(of: ["0.0.0.0/1", "128.0.0.0/1"])
+            ip.includedRoutes = full4 ? [NEIPv4Route.default()]
+                : routes4.map { NEIPv4Route(destinationAddress: $0.0, subnetMask: mask4($0.1)) }
             s.ipv4Settings = ip
         }
         let v6 = (r.inet6 ?? []).compactMap(cidr)
         let routes6 = (r.routes ?? []).compactMap(cidr).filter { $0.0.contains(":") }
         if let a = v6.first {
             let ip = NEIPv6Settings(addresses: [a.0], networkPrefixLengths: [NSNumber(value: a.1)])
-            ip.includedRoutes = routes6.map { NEIPv6Route(destinationAddress: $0.0, networkPrefixLength: NSNumber(value: $0.1)) }
+            let full6 = Set(routes6.map { "\($0.0)/\($0.1)" }).isSuperset(of: ["::/1", "8000::/1"])
+            ip.includedRoutes = full6 ? [NEIPv6Route.default()]
+                : routes6.map { NEIPv6Route(destinationAddress: $0.0, networkPrefixLength: NSNumber(value: $0.1)) }
             s.ipv6Settings = ip
         }
         if let dns = r.dns, !dns.isEmpty {
