@@ -384,6 +384,16 @@ system_proxy:
      > 默认的 `direct` 出站在 `auto_detect_interface` 下会绑定 `en0`，会把内网流量从物理网卡送出去。`direct-os` 不会形成回环，前提是这些网段已从 Velum 的 TUN 中排除。
    - **系统代理层**：对应的域后缀与网段加入豁免列表。
 3. **全局型 VPN**（对方接管默认路由）：进入「让路模式」，即暂停 TUN 并通过通知告知用户。系统代理不受影响：遵守系统代理的应用仍经 Velum，出站再由对方 VPN 承载。
+4. **不声明域名的 VPN DNS**：有的企业 VPN 客户端只在本机运行 DNS 代理（如 `127.0.0.1`），注册的解析器不带任何域名，Velum 无从知道哪些域名属于它。此时 overlay 的直连域名改由该 VPN 的 DNS 解析（回环地址经 `lo0` 询问）；只改解析、不改出站：内网地址由网段规则送进 VPN，公网地址照常直连。
+5. **VPN 抢占系统 DNS**（采用方案 B）：
+   - **现象**（实测某企业 VPN 客户端）：它在 `State:/Network/Service/<id>/DNS` 注册本机 DNS 代理（`127.0.0.1` / `::1`），`SupplementalMatchDomains` 为空字符串（匹配所有域名）且优先级高于 Velum。系统的全部查询（A 与 AAAA）都交给它，Velum 的 DNS 接管整体失效：没有 Fake-IP（引擎报 `missing fakeip record`）、DNS 规则不生效、`ipv6: false` 时也拿得到真实 IPv6 地址。注意它**没有**注册 IPv6 服务状态，`scutil --nwi` 仍显示无 IPv6，AAAA 查询照样发出。
+   - **IPv4**：应用拿到真实地址连入 TUN，靠嗅探得到域名后按规则分流，仍可用。
+   - **IPv6**：订阅 `ipv6: false` 时被拒绝。拒绝发生在嗅探之后，TUN 已在本地完成 TCP 握手，应用收到的是 `ECONNRESET` 而不是 `ECONNREFUSED`。浏览器、curl 会换 IPv4 重试；部分网络库（实测 Claude Code）不会，持续失败。
+   - **候选方案**：
+     - **A. 夺回系统 DNS**（实测不可行）：手工注册匹配所有域名、优先级更高的补充解析器后，系统确实先问 Velum，但该 VPN 连接期间发往 Velum DNS 的查询全部没有应答（推测其防火墙只放行发给它自己的 DNS，或与其 DNS 代理互相转发成环），外网与内网都无法解析。与 VPN 争抢 DNS 风险大，放弃。
+     - **B. 握手前拒绝**（采用）：订阅 `ipv6: false` 时，在嗅探之前加一条只匹配 IPv6 TCP 的规则，渲染为内核的 `reject` 动作（`ir.Action.Immediate`）；sing-box 预匹配阶段即回绝，应用收到 `ECONNREFUSED` 后回落 IPv4。分流 VPN / overlay 声明的 IPv6 网段与 TUN 自身网段放行。嗅探之后原有的拒绝规则保留（UDP 等）。订阅支持 IPv6 时不拒绝。不解决 DNS 被抢占的其他影响（Fake-IP 失效，靠嗅探按域名分流）。
+     - **C. 改写为 IPv4**：对嗅探到域名的 IPv6 连接重新解析为 IPv4 再路由；对应用透明，但改动大，且依赖 sing-box 用新地址拨号。
+   - 进一步：是否以「本机有无可用的 IPv6 出口」统一处理，而不只看订阅的 `ipv6: false`。
 
 #### 4.3.3 健康熔断
 

@@ -319,8 +319,17 @@ func Compile(sub *ir.Config, ov *overlay.Overlay, opts Options) (*Plan, error) {
 	// 系统 DNS 被其他工具（如企业 VPN 客户端）抢先应答时，应用会拿到真实的 IPv6 地址；经不支持 IPv6 的节点转发只会卡住。
 	// 放在 Overlay 与 VPN 规则之后：显式的直连 / VPN 网段不受影响。
 	if opts.Mode == ModeTUN && sub.IPv6Disabled {
-		rules = append(rules, ir.Rule{Match: ir.Leaf(ir.Cond{IPCIDR: []string{"::/0"}, NoResolve: true}), Action: ir.Action{Kind: ir.ActionReject},
-			Source: ir.Source{Kind: ir.SourceSubscription, Text: "ipv6: false（拒绝 IPv6 连接，应用回落到 IPv4）"}})
+		src := ir.Source{Kind: ir.SourceSubscription, Text: "ipv6: false（拒绝 IPv6 连接，应用回落到 IPv4）"}
+		rules = append(rules, ir.Rule{Match: ir.Leaf(ir.Cond{IPCIDR: []string{"::/0"}, NoResolve: true}), Action: ir.Action{Kind: ir.ActionReject}, Source: src})
+		// TCP 在嗅探之前就拒绝：嗅探要等首个数据包，TUN 已在本地完成握手，此时拒绝应用收到的是「连接被重置」，
+		// 有的网络库（如 Claude Code）不会换 IPv4 重试；握手前拒绝则是「连接被拒绝」，应用随即尝试下一个地址。
+		// 显式经 VPN / overlay 直连的 IPv6 网段与 TUN 自身网段不受影响（它们的规则在嗅探之后，这里先放行）。
+		m := ir.Leaf(ir.Cond{IPCIDR: []string{"::/0"}, Network: []string{"tcp"}, NoResolve: true})
+		if keep := keptIPv6(opts, ov); len(keep) > 0 {
+			m = ir.Match{Logical: "and", Children: []ir.Match{m,
+				{Logical: "or", Invert: true, Children: []ir.Match{ir.Leaf(ir.Cond{IPCIDR: keep, NoResolve: true})}}}}
+		}
+		rules = append([]ir.Rule{{Match: m, Action: ir.Action{Kind: ir.ActionReject, Immediate: true}, Source: src}}, rules...)
 	}
 
 	// ---- 订阅规则，并在首条需要解析的规则前插入 resolve ----
@@ -416,6 +425,29 @@ func Compile(sub *ir.Config, ov *overlay.Overlay, opts Options) (*Plan, error) {
 }
 
 // vpnServing 返回网段包含某个（非回环）服务器地址的分流 VPN 网卡名；没有则为空。
+// keptIPv6 返回订阅关闭 IPv6 时仍要放行的 IPv6 网段：分流 VPN 声明的、overlay 直连的，以及 TUN 自身的。
+func keptIPv6(opts Options, ov *overlay.Overlay) []string {
+	var keep []string
+	if a := opts.TUN.Address6; a.IsValid() {
+		keep = append(keep, a.Masked().String())
+	}
+	if opts.Env != nil {
+		for _, v := range opts.Env.SplitVPNs {
+			for _, pf := range v.Routes {
+				if pf.Addr().Is6() {
+					keep = append(keep, pf.String())
+				}
+			}
+		}
+	}
+	for _, c := range ov.CIDRs {
+		if pf, err := netip.ParsePrefix(c.Value); err == nil && pf.Addr().Is6() {
+			keep = append(keep, pf.Masked().String())
+		}
+	}
+	return keep
+}
+
 // overlayVPNDomains 处理提供了 DNS 却没声明任何域名的分流 VPN（如只在本机运行 DNS 代理、作用域解析器不带域名的企业 VPN）：
 // Velum 无从知道哪些域名该交给它，内网域名会被当作公网域名解析而失败。overlay 的直连域名改由这类 VPN 的 DNS 解析
 // （同系统 DNS 分流）；只改解析不改出站：解析到 VPN 网段的地址按网段规则经 VPN，公网地址照常直连

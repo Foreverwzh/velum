@@ -730,6 +730,44 @@ func TestIPv6DisabledRejectsInTUN(t *testing.T) {
 	}
 }
 
+// ipv6: false 时 TCP 在嗅探之前就拒绝（握手前回绝，应用换 IPv4 重试，而不是握手后被重置）；
+// 分流 VPN 与 overlay 声明的 IPv6 网段、TUN 自身网段放行，交给嗅探之后的规则。
+func TestIPv6DisabledRejectsTCPBeforeSniff(t *testing.T) {
+	s, err := subscription.Parse([]byte("ipv6: false\n"+sub), subscription.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	o, _ := overlay.Parse([]byte("dev_bypass:\n  cidrs:\n    - fd00:1::/48\n"))
+	p, err := compiler.Compile(s, o, compiler.Options{Mode: compiler.ModeTUN, Listen: netip.MustParseAddrPort("127.0.0.1:7899"), Platform: "darwin",
+		TUN: compiler.TUNOptions{Address: netip.MustParsePrefix("172.19.0.1/30"), Address6: netip.MustParsePrefix("fdfe:dcba:9876::1/126")},
+		Env: &compiler.Environment{SplitVPNs: []compiler.EnvVPN{{Iface: "utun6", Routes: []netip.Prefix{
+			netip.MustParsePrefix("10.0.0.0/8"), netip.MustParsePrefix("fd99::/64")}}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := p.IR.Rules[0]
+	if r.Action.Kind != ir.ActionReject || !r.Action.Immediate || r.Match.Logical != "and" || len(r.Match.Children) != 2 {
+		t.Fatalf("首条规则应是握手前拒绝 IPv6：%+v", r)
+	}
+	if c := r.Match.Children[0].Cond; c == nil || !slices.Equal(c.IPCIDR, []string{"::/0"}) || !slices.Equal(c.Network, []string{"tcp"}) {
+		t.Fatalf("应只匹配 IPv6 的 TCP：%+v", r.Match.Children[0])
+	}
+	keep := r.Match.Children[1]
+	if !keep.Invert || keep.Children[0].Cond == nil ||
+		!slices.Equal(keep.Children[0].Cond.IPCIDR, []string{"fdfe:dcba:9876::/126", "fd99::/64", "fd00:1::/48"}) {
+		t.Fatalf("应放行 TUN、VPN 与 overlay 的 IPv6 网段：%+v", keep)
+	}
+	if p.IR.Rules[1].Action.Kind != ir.ActionSniff {
+		t.Fatal("握手前拒绝应排在嗅探之前")
+	}
+	late := slices.IndexFunc(p.IR.Rules[1:], func(r ir.Rule) bool {
+		return r.Action.Kind == ir.ActionReject && !r.Action.Immediate && r.Match.Cond != nil && slices.Contains(r.Match.Cond.IPCIDR, "::/0")
+	})
+	if late < 0 {
+		t.Fatal("嗅探之后仍应拒绝其余 IPv6 连接（UDP 等）")
+	}
+}
+
 // 系统 hosts 文件默认生效（mihomo use-system-hosts 默认开启），排在 Overlay hosts 之后、其他 DNS 规则之前。
 func TestSystemHosts(t *testing.T) {
 	p := compile(t, compiler.ModeSysProxy, "darwin")

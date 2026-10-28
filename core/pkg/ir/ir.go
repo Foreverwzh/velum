@@ -125,6 +125,9 @@ type Action struct {
 	Kind            string
 	Outbound        string // Kind == route 时有效
 	OverrideAddress string // hosts 覆盖：路由时改写目标地址
+	// Immediate 用于 Kind == reject：渲染为内核的拒绝动作而不是拦截出站。排在嗅探之前时，TUN 在 TCP 握手前即回绝，
+	// 应用得到「连接被拒绝」并换下一个地址，而不是握手成功后被重置。
+	Immediate bool
 }
 
 type Rule struct {

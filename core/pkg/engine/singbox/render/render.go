@@ -370,6 +370,10 @@ func routeRule(r ir.Rule) (obj, error) {
 			o["override_address"] = a.OverrideAddress
 		}
 	case ir.ActionReject:
+		if a.Immediate {
+			o["action"] = "reject"
+			break
+		}
 		o["action"] = "route"
 		o["outbound"] = rejectTag
 	case ir.ActionDrop:

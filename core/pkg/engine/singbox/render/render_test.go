@@ -19,6 +19,7 @@ import (
 	"github.com/Foreverwzh/velum/core/pkg/subscription"
 	box "github.com/sagernet/sing-box"
 	"github.com/sagernet/sing-box/adapter"
+	C "github.com/sagernet/sing-box/constant"
 	"github.com/sagernet/sing-box/dns"
 	"github.com/sagernet/sing-box/include"
 	sblog "github.com/sagernet/sing-box/log"
@@ -404,4 +405,28 @@ func TestRenderDNSDetourToGroup(t *testing.T) {
 		t.Fatalf("detour 到策略组 %q：%v", group, err)
 	}
 	instance.Close()
+}
+
+// 握手前拒绝渲染为内核的 reject 动作（预匹配阶段生效），普通拒绝仍经拦截出站（保证可观测）。
+func TestRenderImmediateReject(t *testing.T) {
+	plan := buildPlan(t, compiler.ModeTUN)
+	plan.IR.Rules = append([]ir.Rule{
+		{Match: ir.Leaf(ir.Cond{IPCIDR: []string{"::/0"}, Network: []string{"tcp"}, NoResolve: true}), Action: ir.Action{Kind: ir.ActionReject, Immediate: true}},
+		{Match: ir.Leaf(ir.Cond{IPCIDR: []string{"192.0.2.0/24"}, NoResolve: true}), Action: ir.Action{Kind: ir.ActionReject}},
+	}, plan.IR.Rules...)
+	r, err := render.Render(plan, render.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	opts, err := sjson.UnmarshalExtendedContext[option.Options](boxContext(), r.JSON)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, second := opts.Route.Rules[0].DefaultOptions.RuleAction, opts.Route.Rules[1].DefaultOptions.RuleAction
+	if first.Action != C.RuleActionTypeReject {
+		t.Fatalf("握手前拒绝应渲染为 reject 动作：%+v", first)
+	}
+	if second.Action != C.RuleActionTypeRoute || second.RouteOptions.Outbound != ir.OutboundReject {
+		t.Fatalf("普通拒绝应经拦截出站：%+v", second)
+	}
 }
