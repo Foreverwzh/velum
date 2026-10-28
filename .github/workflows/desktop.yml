@@ -111,20 +111,22 @@ jobs:
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          # Developer ID 签名（证书为 base64 的 .p12）与公证（App Store Connect API 密钥）
-          APPLE_CERTIFICATE: ${{ runner.os == 'macOS' && secrets.APPLE_CERTIFICATE || '' }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ runner.os == 'macOS' && secrets.APPLE_CERTIFICATE_PASSWORD || '' }}
-          APPLE_SIGNING_IDENTITY: ${{ runner.os == 'macOS' && secrets.APPLE_SIGNING_IDENTITY || '' }}
-          APPLE_API_ISSUER: ${{ runner.os == 'macOS' && secrets.APPLE_API_ISSUER || '' }}
-          APPLE_API_KEY: ${{ runner.os == 'macOS' && secrets.APPLE_API_KEY || '' }}
-          APPLE_API_PRIVATE_KEY: ${{ runner.os == 'macOS' && secrets.APPLE_API_PRIVATE_KEY || '' }}
+          # Developer ID 签名（证书为 base64 的 .p12）与公证（App Store Connect API 密钥）。
+          # 先放在其他名字下：Tauri 只看 APPLE_* 是否存在，空值也会去导入证书 / 公证而失败，所以只在非空时导出
+          SIGN_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          SIGN_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          SIGN_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          NOTARY_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          NOTARY_KEY_ID: ${{ secrets.APPLE_API_KEY }}
+          NOTARY_PRIVATE_KEY: ${{ secrets.APPLE_API_PRIVATE_KEY }}
         run: |
-          if [ -n "$APPLE_SIGNING_IDENTITY" ]; then
+          if [ "$RUNNER_OS" = macOS ] && [ -n "$SIGN_CERTIFICATE" ] && [ -n "$SIGN_IDENTITY" ]; then
+            export APPLE_CERTIFICATE="$SIGN_CERTIFICATE" APPLE_CERTIFICATE_PASSWORD="$SIGN_CERTIFICATE_PASSWORD" APPLE_SIGNING_IDENTITY="$SIGN_IDENTITY"
             export VELUM_TEAM_ID=H3H5ULV8KR # 与签名证书的团队一致
-          fi
-          if [ -n "$APPLE_API_PRIVATE_KEY" ]; then
-            export APPLE_API_KEY_PATH="$RUNNER_TEMP/AuthKey_$APPLE_API_KEY.p8"
-            printf '%s' "$APPLE_API_PRIVATE_KEY" > "$APPLE_API_KEY_PATH"
+            if [ -n "$NOTARY_PRIVATE_KEY" ]; then
+              export APPLE_API_ISSUER="$NOTARY_ISSUER" APPLE_API_KEY="$NOTARY_KEY_ID" APPLE_API_KEY_PATH="$RUNNER_TEMP/AuthKey_$NOTARY_KEY_ID.p8"
+              printf '%s' "$NOTARY_PRIVATE_KEY" > "$APPLE_API_KEY_PATH"
+            fi
           fi
           if [ -n "$VELUM_VERSION" ]; then
             bun tauri build --config "{\"version\":\"$VELUM_VERSION\",\"bundle\":{\"createUpdaterArtifacts\":true}}"
