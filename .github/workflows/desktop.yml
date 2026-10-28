@@ -112,7 +112,8 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
           # Developer ID 签名（证书为 base64 的 .p12）与公证（App Store Connect API 密钥）。
-          # 先放在其他名字下：Tauri 只看 APPLE_* 是否存在，空值也会去导入证书 / 公证而失败，所以只在非空时导出
+          # 先放在其他名字下：Tauri 只看 APPLE_* 是否存在，空值也会去导入证书 / 公证而失败，所以只在非空时导出。
+          # 只在发布构建（有版本号）时签名公证：公证要排 Apple 的队列，分支构建用 ad-hoc 签名即可
           SIGN_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           SIGN_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           SIGN_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
@@ -120,7 +121,7 @@ jobs:
           NOTARY_KEY_ID: ${{ secrets.APPLE_API_KEY }}
           NOTARY_PRIVATE_KEY: ${{ secrets.APPLE_API_PRIVATE_KEY }}
         run: |
-          if [ "$RUNNER_OS" = macOS ] && [ -n "$SIGN_CERTIFICATE" ] && [ -n "$SIGN_IDENTITY" ]; then
+          if [ "$RUNNER_OS" = macOS ] && [ -n "$VELUM_VERSION" ] && [ -n "$SIGN_CERTIFICATE" ] && [ -n "$SIGN_IDENTITY" ]; then
             export APPLE_CERTIFICATE="$SIGN_CERTIFICATE" APPLE_CERTIFICATE_PASSWORD="$SIGN_CERTIFICATE_PASSWORD" APPLE_SIGNING_IDENTITY="$SIGN_IDENTITY"
             export VELUM_TEAM_ID=H3H5ULV8KR # 与签名证书的团队一致
             if [ -n "$NOTARY_PRIVATE_KEY" ]; then
