@@ -211,6 +211,8 @@ func Compile(sub *ir.Config, ov *overlay.Overlay, opts Options) (*Plan, error) {
 	// ---- NetworkSense：分流型 VPN 的网段与域名走该 VPN（优先于订阅）----
 	var envExclude []netip.Prefix
 	if opts.Env != nil {
+		env := overlayVPNDomains(*opts.Env, ov.Domains)
+		opts.Env = &env
 		ifaceOutbounds := map[string]bool{} // 已创建的绑定网卡直连出站
 		// 系统 DNS 分流的域名若由某个 VPN 网段内的服务器解析（如 VPN 客户端写入 /etc/resolver），这些域名也属于该 VPN：
 		// 否则它们会按订阅规则（常见为 DIRECT）从物理网卡直连到只能经 VPN 访问的内网地址。
@@ -414,6 +416,29 @@ func Compile(sub *ir.Config, ov *overlay.Overlay, opts Options) (*Plan, error) {
 }
 
 // vpnServing 返回网段包含某个（非回环）服务器地址的分流 VPN 网卡名；没有则为空。
+// overlayVPNDomains 处理提供了 DNS 却没声明任何域名的分流 VPN（如只在本机运行 DNS 代理、作用域解析器不带域名的企业 VPN）：
+// Velum 无从知道哪些域名该交给它，内网域名会被当作公网域名解析而失败。overlay 的直连域名改由这类 VPN 的 DNS 解析
+// （同系统 DNS 分流）；只改解析不改出站：解析到 VPN 网段的地址按网段规则经 VPN，公网地址照常直连
+// （overlay 里也常有公司的公网域名，强制经 VPN 网卡会把公网流量送进 VPN）。已由系统 DNS 分流覆盖的域名不变。返回副本，不修改 env。
+func overlayVPNDomains(env Environment, domains []overlay.Item) Environment {
+	i := slices.IndexFunc(env.SplitVPNs, func(v EnvVPN) bool { return len(v.Domains) == 0 && len(v.Nameservers) > 0 })
+	if i < 0 || len(domains) == 0 {
+		return env
+	}
+	ns := env.SplitVPNs[i].Nameservers
+	env.SystemResolvers = slices.Clone(env.SystemResolvers)
+	for _, d := range domains {
+		name, _ := overlay.ParseDomain(d.Value)
+		if name == "" || slices.ContainsFunc(env.SystemResolvers, func(r EnvResolver) bool {
+			return name == r.Domain || strings.HasSuffix(name, "."+r.Domain)
+		}) {
+			continue
+		}
+		env.SystemResolvers = append(env.SystemResolvers, EnvResolver{Domain: name, Nameservers: ns})
+	}
+	return env
+}
+
 func vpnServing(vpns []EnvVPN, nameservers []string) string {
 	for _, ns := range nameservers {
 		a, err := netip.ParseAddr(ns)

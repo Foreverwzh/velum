@@ -649,6 +649,52 @@ func TestOverlayDefersToNetworkSense(t *testing.T) {
 	}
 }
 
+// 企业 VPN 只在本机运行 DNS 代理、没有声明任何域名：overlay 的直连域名交给它的 DNS（经 lo0）解析，否则内网域名经 Velum 的上游
+// 当作公网解析而失败；出站不变（内网地址由 VPN 网段规则送进 VPN）。VPN 声明了域名时按其声明，不受 overlay 影响。
+func TestOverlayDomainsUseDomainlessVPNDNS(t *testing.T) {
+	s, _ := subscription.Parse([]byte(sub), subscription.Options{})
+	o, _ := overlay.Parse([]byte("dev_bypass:\n  domains:\n    - corp-net.example\n"))
+	mk := func(vpn compiler.EnvVPN) *compiler.Plan {
+		p, err := compiler.Compile(s, o, compiler.Options{Mode: compiler.ModeTUN, Listen: netip.MustParseAddrPort("127.0.0.1:7899"), Platform: "darwin",
+			TUN: compiler.TUNOptions{Address: netip.MustParsePrefix("172.19.0.1/30"), DNSHijack: true},
+			Env: &compiler.Environment{PhysicalDNS: []string{"192.168.3.1"}, SplitVPNs: []compiler.EnvVPN{vpn}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	first := func(p *compiler.Plan) (dns ir.DNSServer, outbound string) {
+		byTag := map[string]ir.DNSServer{}
+		for _, sv := range p.IR.DNS.Servers {
+			byTag[sv.Tag] = sv
+		}
+		for _, r := range p.IR.DNS.Rules {
+			if r.Match.Cond != nil && slices.Contains(r.Match.Cond.DomainSuffix, "corp-net.example") {
+				dns = byTag[r.Server]
+				break
+			}
+		}
+		for _, r := range p.IR.Rules {
+			if c := r.Match.Cond; c != nil && slices.Contains(c.DomainSuffix, "corp-net.example") {
+				return dns, r.Action.Outbound
+			}
+		}
+		return dns, ""
+	}
+
+	vpn := compiler.EnvVPN{Iface: "utun6", Routes: []netip.Prefix{netip.MustParsePrefix("10.0.0.0/8")}, Nameservers: []string{"127.0.0.1"}}
+	dns, ob := first(mk(vpn))
+	if dns.Address != "127.0.0.1" || dns.Detour != compiler.VPNOutbound("lo0") || ob != ir.OutboundDirect {
+		t.Fatalf("应交给 VPN 的本机 DNS 解析、出站照常直连：dns=%+v outbound=%s", dns, ob)
+	}
+
+	vpn.Domains = []string{"other.example"}
+	dns, ob = first(mk(vpn))
+	if dns.Tag != compiler.LocalDNS || ob != ir.OutboundDirect {
+		t.Fatalf("VPN 声明了域名时 overlay 照常直连：dns=%+v outbound=%s", dns, ob)
+	}
+}
+
 // 订阅显式 ipv6: false：TUN 下拒绝连向 IPv6 地址的连接（排在订阅规则之前），应用立即回落到 IPv4。
 func TestIPv6DisabledRejectsInTUN(t *testing.T) {
 	has := func(text string, mode string) (bool, bool) {
