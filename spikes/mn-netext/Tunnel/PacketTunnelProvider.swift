@@ -146,11 +146,16 @@ final class Host: NSObject, MobilebindHostProtocol {
         let routes4 = (r.routes ?? []).compactMap(cidr).filter { !$0.0.contains(":") }
         if let a = v4.first {
             let ip = NEIPv4Settings(addresses: [a.0], subnetMasks: [mask4(a.1)])
-            // 核心的全局接管是 0/1 + 128/1（不替换默认路由）；NE 下改为默认路由，隧道才成为主服务，
-            // 系统随之把物理网卡的默认路由转为作用域路由，引擎绑定物理网卡的出站才可达
-            let full4 = Set(routes4.map { "\($0.0)/\($0.1)" }).isSuperset(of: ["0.0.0.0/1", "128.0.0.0/1"])
-            ip.includedRoutes = full4 ? [NEIPv4Route.default()]
-                : routes4.map { NEIPv4Route(destinationAddress: $0.0, subnetMask: mask4($0.1)) }
+            // 核心的全局接管是 0/1 + 128/1 扣除排除网段（不替换默认路由）；NE 下改为默认路由，隧道才成为主服务，
+            // 系统随之把物理网卡的默认路由转为作用域路由，引擎绑定物理网卡的出站才可达。
+            // 排除网段不写成 excludedRoutes：它们会变成经物理网卡的同前缀路由，把其他 VPN 的同名路由（如 10/8）挤成作用域路由、
+            // 内网改走物理网卡。其他 VPN 的网段本就比默认路由具体，系统自会送进对方；没有 VPN 时由引擎按规则直连。
+            let gaps = uncovered4(routes4)
+            if covered4(gaps) <= UInt64(1) << 31 {
+                ip.includedRoutes = [NEIPv4Route.default()]
+            } else {
+                ip.includedRoutes = routes4.map { NEIPv4Route(destinationAddress: $0.0, subnetMask: mask4($0.1)) }
+            }
             s.ipv4Settings = ip
         }
         let v6 = (r.inet6 ?? []).compactMap(cidr)
@@ -218,3 +223,22 @@ func mask4(_ n: Int) -> String {
     let m = n == 0 ? UInt32(0) : ~UInt32(0) << (32 - n)
     return [24, 16, 8, 0].map { String((m >> UInt32($0)) & 0xff) }.joined(separator: ".")
 }
+
+// IPv4 网段的补集（相对 0.0.0.0/0）：没有被任何路由覆盖的网段
+func uncovered4(_ routes: [(String, Int)]) -> [(UInt32, Int)] {
+    let rs: [(UInt32, Int)] = routes.compactMap { r in
+        var a = in_addr()
+        guard inet_pton(AF_INET, r.0, &a) == 1 else { return nil }
+        return (UInt32(bigEndian: a.s_addr), r.1)
+    }
+    func mask(_ n: Int) -> UInt32 { n == 0 ? 0 : ~UInt32(0) << UInt32(32 - n) }
+    func walk(_ base: UInt32, _ len: Int) -> [(UInt32, Int)] {
+        if rs.contains(where: { $0.1 <= len && (base & mask($0.1)) == ($0.0 & mask($0.1)) }) { return [] } // 被覆盖
+        if !rs.contains(where: { $0.1 > len && ($0.0 & mask(len)) == base }) { return [(base, len)] } // 完全未覆盖
+        let half = UInt32(1) << UInt32(31 - len)
+        return walk(base, len + 1) + walk(base | half, len + 1)
+    }
+    return walk(0, 0)
+}
+
+func covered4(_ ps: [(UInt32, Int)]) -> UInt64 { ps.reduce(0) { $0 + (UInt64(1) << UInt64(32 - $1.1)) } }

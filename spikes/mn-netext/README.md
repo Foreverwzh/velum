@@ -30,6 +30,7 @@
 | 另一隧道后启动 / 重启 | ✅ Stash 关闭再打开，我们的隧道保持连接、流量不变 |
 | 全局接管（`safe-run.sh`，带看门狗） | ✅ 隧道成为主服务，物理网卡默认路由由系统转为作用域路由；系统 DNS 指向隧道内 DNS，`/etc/resolver` 等分流 DNS 保留；外网正常，常驻内存约 117MB |
 | 正常停止后的清理 | ✅ 系统撤销隧道的路由与 DNS，恢复为停止前的状态，无残留 |
+| 与企业 VPN（分流型，自管 utun + 本机 DNS 代理）同时运行 | ✅ 外网经引擎正常；内网网段比默认路由具体，仍走对方 VPN；隧道的解析器绑定 utun（`if_index`），排在对方「匹配所有域名」的解析器之前，Fake-IP 生效、AAAA 为空；内网域名待 F5（见 F8、F9） |
 | 扩展崩溃（`kill -9`）后的清理 | ✅ 约 0.3s 内系统判定 `Plugin failed`、断开隧道，路由与 DNS 全部撤销，无残留；**不会自动重连**（需 On-Demand 规则或 App 侧重启）；经隧道的已有连接随之中断 |
 
 ## 3. 发现
@@ -40,9 +41,11 @@
 - **F4 打包细节**：系统扩展包名必须等于 bundle ID；Info.plist 需要 `CFBundlePackageType = SYSX`；扩展以 root 运行，App Group 容器在 `/private/var/root/Library/Group Containers/`，与用户侧不同，配置需经启动参数或 XPC 传入。
 - **F6 全局接管必须用默认路由**：核心的全局接管是 `0/1 + 128/1`（不替换默认路由）。NE 下照搬时隧道不成为主服务，系统不会给物理网卡加作用域默认路由，引擎绑定物理网卡（`IP_BOUND_IF`）的出站一律 `network is unreachable`（即 M1.5 记录的问题）。改为 `NEIPv4Route.default()` 后由系统维护，问题消失。
 - **F7 看门狗**：`safe-run.sh` 在验证隧道断开、探测连续失败、到达时限、收到信号或 `touch /tmp/velum-ne-restore` 时停隧道并重新打开 Velum TUN；第一次（F6 未修）约 30 秒内自动恢复。崩溃测试时只靠探测失败太慢（用户先手动打开了 Velum TUN），已加上「隧道断开立即还原」。
+- **F8 不要用 excludedRoutes 排除网段**：核心扣除的网段（如 overlay 的 `10.0.0.0/8`）写成 `excludedRoutes` 后，系统会加一条经物理网卡的同前缀路由，把企业 VPN 的同名路由挤成作用域路由，内网改走物理网卡。全局接管时只声明默认路由（覆盖超过一半地址即视为全局）：对方 VPN 的网段本就更具体、自会胜出；没有 VPN 时由引擎按规则直连。
+- **F9 企业 VPN 与系统 DNS**：实测的企业 VPN 连接时把「当时的系统 DNS」钉到物理网卡（`ExcludedRoutes` 主机路由），并注册匹配所有域名的本机 DNS 代理。helper 方案下 Velum 的 TUN 内 DNS 因此不可达、DNS 接管整体失效（见 ARCHITECTURE §4.3.2 第 5 条）。NE 方案下隧道的解析器绑定隧道接口、按作用域发出查询，不受该主机路由影响，接管恢复。
 - **F5 网络快照**：`Host.network()` 读 `State:/Network/Global/IPv4`，有其他全局隧道时拿到的是对方的 utun，需改为读物理服务。
 
 ## 4. 待测
 
-- [ ] 与企业 NE VPN（分流型）同时运行：内网网段走 VPN、其余走 Velum。
+- [ ] 扩展内的 NetworkSense 识别其他 VPN（F5）：内网域名交给对方 DNS（实测内网主机名经隧道 DNS 无记录，经对方 DNS 可解析）。
 - [ ] 全局接管下换网、睡眠唤醒；长时间运行的内存。
