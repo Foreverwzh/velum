@@ -39,7 +39,7 @@ D4 选择「helper + utun」的三个理由，验证后都不再成立：
 | DNS | `NEDNSSettings`（隧道内 DNS 地址，`matchDomains = [""]`），由系统注册、绑定隧道接口；隧道停止时系统撤销。overlay 的内网域名在检测到「不声明域名的 VPN DNS」时交给对方（ARCHITECTURE §4.3.2 第 4 条，已实现） |
 | 系统代理 | 隧道网络参数里的 `NEProxySettings`（HTTP / HTTPS 代理、豁免列表），隧道停止时系统撤销，取代 `networksetup` 写入与快照还原（需验证，见 MN.5） |
 | IPv6 | 订阅支持 IPv6 时声明 `NEIPv6Settings` 与默认路由；关闭时不声明，并沿用握手前拒绝 IPv6 的规则（已实现） |
-| NetworkSense | 扩展内读取 `SCDynamicStore`：物理服务的接口、网关、DNS（不取 `State:/Network/Global/IPv4`，有其他全局隧道时那是对方的 utun，F5）；识别其他 VPN 的网段与解析器（含不声明域名的本机 DNS 代理），供编译器使用 |
+| NetworkSense | 扩展内直接用桌面端的完整快照（`netsense.DarwinSnapshot`：路由表、`scutil --dns`），沙盒内可用，已识别企业 VPN 的网段与本机 DNS 代理（F5）；DHCP DNS 取不到，由 App 报告的物理服务 DNS 补上（不取 `State:/Network/Global/IPv4`，有其他全局隧道时那是对方的 utun） |
 | 核心自身的解析 | 扩展进程里系统解析器可能不可用（F1）：拉订阅、规则集等 Go 侧请求改用物理网络 DNS，不经 `getaddrinfo` |
 | 出站绑定 | 引擎照常绑定物理网卡（`auto_detect_interface`）；隧道为主服务时系统维护作用域默认路由，绑定的出站可达 |
 | 数据目录 | 扩展以 root 运行，App Group 容器在 `/private/var/root/Library/Group Containers/`（F4）。扩展读不到用户目录（F10），配置与状态由 App 经启动参数或接口写入，首次启动从 `~/Library/Application Support/Velum` 迁移 |

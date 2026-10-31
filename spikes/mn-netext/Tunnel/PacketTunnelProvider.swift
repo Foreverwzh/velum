@@ -101,6 +101,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
             .split(separator: "\n").filter { $0.hasPrefix("nameserver") }.joined(separator: ",") ?? "读取失败"
         log.notice("诊断 resolv.conf=\(conf, privacy: .public)")
         log.notice("诊断 network=\(Host(provider: self).network(), privacy: .public)")
+        log.notice("诊断 netsense=\(MobilebindNetDiag(), privacy: .public)")
     }
 
     // 找到隧道的 utun FD：扩展进程里只有这一个 utun 控制套接字
@@ -195,15 +196,25 @@ final class Host: NSObject, MobilebindHostProtocol {
         ""
     }
 
-    // 当前物理网络：主接口、网关与其 DHCP DNS
+    // 当前物理网络：接口、网关与其 DNS。不读 State:/Network/Global/IPv4：有其他全局隧道（或我们自己全局接管）时那是隧道的 utun（F5），
+    // 改为在各网络服务中找带网关的非隧道接口，主服务优先。
     func network() -> String {
-        guard let store = SCDynamicStoreCreate(nil, "spike" as CFString, nil, nil),
-              let g = SCDynamicStoreCopyValue(store, "State:/Network/Global/IPv4" as CFString) as? [String: Any],
-              let iface = g["PrimaryInterface"] as? String else { return "" }
-        var n: [String: Any] = ["iface": iface]
-        if let gw = g["Router"] as? String { n["gateway"] = gw }
-        if let svc = g["PrimaryService"] as? String,
-           let d = SCDynamicStoreCopyValue(store, "State:/Network/Service/\(svc)/DNS" as CFString) as? [String: Any],
+        guard let store = SCDynamicStoreCreate(nil, "spike" as CFString, nil, nil) else { return "" }
+        let primary = (SCDynamicStoreCopyValue(store, "State:/Network/Global/IPv4" as CFString) as? [String: Any])?["PrimaryService"] as? String
+        let keys = (SCDynamicStoreCopyKeyList(store, "State:/Network/Service/[^/]+/IPv4" as CFString) as? [String]) ?? []
+        let tunnel = ["utun", "ppp", "ipsec", "tun", "tap", "gif", "stf", "lo"]
+        var found: (svc: String, iface: String, gw: String?)?
+        for k in keys {
+            guard let v = SCDynamicStoreCopyValue(store, k as CFString) as? [String: Any],
+                  let iface = v["InterfaceName"] as? String, v["Router"] != nil,
+                  !tunnel.contains(where: { iface.hasPrefix($0) }) else { continue }
+            let svc = k.split(separator: "/")[3]
+            if found == nil || String(svc) == primary { found = (String(svc), iface, v["Router"] as? String) }
+        }
+        guard let found else { return "" }
+        var n: [String: Any] = ["iface": found.iface]
+        if let gw = found.gw { n["gateway"] = gw }
+        if let d = SCDynamicStoreCopyValue(store, "State:/Network/Service/\(found.svc)/DNS" as CFString) as? [String: Any],
            let servers = d["ServerAddresses"] as? [String] {
             n["dns"] = servers
         }

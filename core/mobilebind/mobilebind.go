@@ -104,7 +104,7 @@ func Start(home string, host Host) error {
 	daemon.RuleSetLoader = singbox.LoadRuleSetFile
 	d := daemon.New(paths, singbox.New(singbox.Options{Log: lf}), logger)
 	d.TUNOpener = opener{host}
-	d.NetSnapshot = func() (netsense.Snapshot, error) { return snapshot(host.Network()) }
+	d.NetSnapshot = func() (netsense.Snapshot, error) { return netSnapshot(host) }
 
 	inst := &instance{d: d, done: make(chan struct{}), lf: lf}
 	errc := make(chan error, 1)
