@@ -97,6 +97,36 @@ func watch(_ m: NETunnelProviderManager, until want: NEVPNStatus) {
 
 var timers: [DispatchSourceTimer] = []
 
+func readLine(_ fd: Int32) -> String {
+    var buf = [UInt8](repeating: 0, count: 256)
+    let n = read(fd, &buf, buf.count)
+    close(fd)
+    return n > 0 ? String(decoding: buf[0..<n], as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines) : "无应答"
+}
+
+func probeUnix(_ path: String) -> String {
+    let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+    var addr = sockaddr_un()
+    addr.sun_family = sa_family_t(AF_UNIX)
+    withUnsafeMutableBytes(of: &addr.sun_path) { buf in
+        path.utf8CString.withUnsafeBytes { buf.copyMemory(from: UnsafeRawBufferPointer(rebasing: $0.prefix(buf.count - 1))) }
+    }
+    let rc = withUnsafePointer(to: &addr) { $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { connect(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) } }
+    if rc != 0 { let e = errno; close(fd); return "连接失败 \(String(cString: strerror(e)))" }
+    return readLine(fd)
+}
+
+func probeTCP(_ port: UInt16) -> String {
+    let fd = socket(AF_INET, SOCK_STREAM, 0)
+    var addr = sockaddr_in()
+    addr.sin_family = sa_family_t(AF_INET)
+    addr.sin_port = port.bigEndian
+    addr.sin_addr.s_addr = inet_addr("127.0.0.1")
+    let rc = withUnsafePointer(to: &addr) { $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { connect(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) } }
+    if rc != 0 { let e = errno; close(fd); return "连接失败 \(String(cString: strerror(e)))" }
+    return readLine(fd)
+}
+
 let args = CommandLine.arguments.dropFirst()
 let delegate = ExtDelegate()
 
@@ -127,6 +157,30 @@ case "start":
         do { try m.connection.startVPNTunnel(options: opts) } catch { fail("启动隧道：\(error)") }
         watch(m, until: .connected)
     }
+case "probe":
+    // Q2：扩展在几个位置监听，这里以当前用户身份逐个连接
+    guard let group = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: "H3H5ULV8KR.dev.velum.spike") else { fail("取不到 App Group 容器") }
+    try? FileManager.default.createDirectory(at: group, withIntermediateDirectories: true)
+    try? "written by app".write(to: group.appendingPathComponent("probe-app.txt"), atomically: true, encoding: .utf8)
+    out("用户容器 \(group.path)")
+    let opts: [String: NSObject] = ["probe": group.path as NSString, "probeUID": NSNumber(value: getuid())]
+    loadManager(create: true) { m in
+        guard let m else { return }
+        do { try m.connection.startVPNTunnel(options: opts) } catch { fail("启动隧道：\(error)") }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
+            for (name, path) in [("root-group", "/private/var/root/Library/Group Containers/H3H5ULV8KR.dev.velum.spike/probe.sock"),
+                                 ("user-group", group.appendingPathComponent("probe.sock").path),
+                                 ("var-run", "/private/var/run/velum-probe.sock"),
+                                 ("tmp", "/private/tmp/velum-probe.sock")] {
+                out("\(name)：\(probeUnix(path))")
+            }
+            out("tcp：\(probeTCP(7998))")
+            let f = group.appendingPathComponent("probe-ext.txt").path
+            out("扩展写入的文件：\((try? String(contentsOfFile: f, encoding: .utf8)) ?? "不存在")")
+            m.connection.stopVPNTunnel()
+            exit(0)
+        }
+    }
 case "stop":
     loadManager(create: false) { m in
         guard let m else { fail("没有 VPN 配置") }
@@ -148,6 +202,6 @@ case "remove":
         }
     }
 default:
-    fail("用法：activate | deactivate | start <run 目录> | stop | status | remove")
+    fail("用法：activate | deactivate | start <run 目录> | probe | stop | status | remove")
 }
 dispatchMain()

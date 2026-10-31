@@ -12,6 +12,9 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
     private var timer: DispatchSourceTimer?
 
     override func startTunnel(options: [String: NSObject]?, completionHandler: @escaping (Error?) -> Void) {
+        if let dir = options?["probe"] as? String {
+            return Probe.run(userDir: dir, uid: (options?["probeUID"] as? NSNumber)?.uint32Value ?? 0, completionHandler)
+        }
         let started = Date()
         let home: URL
         do {
