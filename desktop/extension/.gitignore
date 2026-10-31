@@ -1,0 +1,5 @@
+build/
+*.xcodeproj/
+# xcodegen 按 project.yml 生成
+*/Info.plist
+*/*.entitlements

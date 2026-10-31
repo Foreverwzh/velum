@@ -1,0 +1,16 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "bundle": {
+    "externalBin": [],
+    "macOS": {
+      "entitlements": "extension/Velum.entitlements",
+      "files": {
+        "embedded.provisionprofile": "extension/embedded.provisionprofile",
+        "Library/SystemExtensions/dev.velum.desktop.tunnel.systemextension": "extension/dev.velum.desktop.tunnel.systemextension",
+        "MacOS/velumd": "extension/bin/velumd",
+        "MacOS/velum-helper": "extension/bin/velum-helper",
+        "MacOS/vlu": "extension/bin/vlu"
+      }
+    }
+  }
+}

@@ -2,6 +2,8 @@
 
 #[cfg(target_os = "macos")]
 mod menu_tabs;
+#[cfg(target_os = "macos")]
+mod netext;
 mod system;
 mod tray;
 mod update;
@@ -137,6 +139,10 @@ pub(crate) fn show_main(app: &AppHandle) {
 }
 
 pub fn run() {
+    #[cfg(target_os = "macos")]
+    if std::env::args().any(|a| a == "--activate-extension") {
+        netext::activate_cli();
+    }
     tauri::Builder::default()
         .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![velum_call, helper_install, helper_uninstall, helper_status, cli_status, cli_install, cli_uninstall, autostart_get, autostart_set, open_release, install_update, update_progress])

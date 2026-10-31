@@ -1,0 +1,69 @@
+# 系统扩展的 Xcode 工程（xcodegen 生成）。构建与签名见 build.sh。
+name: VelumExtension
+options:
+  deploymentTarget:
+    macOS: "12.0"
+settings:
+  base:
+    DEVELOPMENT_TEAM: H3H5ULV8KR
+    CODE_SIGN_STYLE: Automatic
+    ENABLE_HARDENED_RUNTIME: YES
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: $(VELUM_VERSION)
+targets:
+  VelumHost:
+    type: application
+    platform: macOS
+    sources: [Host]
+    info:
+      path: Host/Info.plist
+      properties:
+        LSUIElement: true
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+    entitlements:
+      path: Host/Host.entitlements
+      properties:
+        com.apple.developer.system-extension.install: true
+        com.apple.developer.networking.networkextension: [packet-tunnel-provider]
+        com.apple.security.application-groups: [H3H5ULV8KR.dev.velum]
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: dev.velum.desktop
+      PRODUCT_NAME: Velum
+    dependencies:
+      - target: VelumTunnel
+        embed: true
+  VelumTunnel:
+    type: system-extension
+    platform: macOS
+    sources: [Tunnel]
+    info:
+      path: Tunnel/Info.plist
+      properties:
+        CFBundleDisplayName: Velum Tunnel
+        CFBundlePackageType: SYSX
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSSystemExtensionUsageDescription: Velum 通过网络扩展接管网络流量（TUN 模式）。
+        NetworkExtension:
+          NEMachServiceName: H3H5ULV8KR.dev.velum.tunnel
+          NEProviderClasses:
+            com.apple.networkextension.packet-tunnel: $(PRODUCT_MODULE_NAME).PacketTunnelProvider
+    entitlements:
+      path: Tunnel/Tunnel.entitlements
+      properties:
+        com.apple.security.app-sandbox: true
+        com.apple.security.network.client: true
+        com.apple.security.network.server: true
+        com.apple.developer.networking.networkextension: [packet-tunnel-provider]
+        com.apple.security.application-groups: [H3H5ULV8KR.dev.velum]
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: dev.velum.desktop.tunnel
+      # 系统扩展的包名必须与 bundle ID 相同（F4）
+      PRODUCT_NAME: dev.velum.desktop.tunnel
+      PRODUCT_MODULE_NAME: VelumTunnel
+      FRAMEWORK_SEARCH_PATHS: $(PROJECT_DIR)/build/Mobilebind.xcframework/macos-arm64_x86_64
+      OTHER_LDFLAGS: [-framework, Mobilebind, -lresolv]
+    dependencies:
+      - sdk: NetworkExtension.framework
+      - sdk: SystemConfiguration.framework
