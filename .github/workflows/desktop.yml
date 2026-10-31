@@ -31,6 +31,10 @@ on:
         required: false
       APPLE_API_PRIVATE_KEY:
         required: false
+      APPLE_PROFILE_HOST:
+        required: false
+      APPLE_PROFILE_TUNNEL:
+        required: false
   pull_request:
     paths: ["desktop/**", "core/**", "mise.toml", ".github/workflows/desktop.yml"]
 
@@ -75,6 +79,7 @@ jobs:
 
   # 打包安装包供测试机安装。只在推送到 main 或手动触发时运行，PR 不打包。
   # macOS：配置了 Developer ID 证书（APPLE_*）时签名并公证，velum-helper 只接受同一团队签名的 velumd；否则 ad-hoc 签名。
+  # 签名构建且配置了描述文件（APPLE_PROFILE_*）时内置 NetworkExtension 系统扩展（docs/MN-PLAN.md、desktop/extension/build.sh）。
   package:
     if: github.event_name != 'pull_request'
     needs: check
@@ -120,20 +125,43 @@ jobs:
           NOTARY_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
           NOTARY_KEY_ID: ${{ secrets.APPLE_API_KEY }}
           NOTARY_PRIVATE_KEY: ${{ secrets.APPLE_API_PRIVATE_KEY }}
+          PROFILE_HOST: ${{ secrets.APPLE_PROFILE_HOST }}
+          PROFILE_TUNNEL: ${{ secrets.APPLE_PROFILE_TUNNEL }}
         run: |
+          conf='{}'
           if [ "$RUNNER_OS" = macOS ] && [ -n "$VELUM_VERSION" ] && [ -n "$SIGN_CERTIFICATE" ] && [ -n "$SIGN_IDENTITY" ]; then
-            export APPLE_CERTIFICATE="$SIGN_CERTIFICATE" APPLE_CERTIFICATE_PASSWORD="$SIGN_CERTIFICATE_PASSWORD" APPLE_SIGNING_IDENTITY="$SIGN_IDENTITY"
+            export APPLE_SIGNING_IDENTITY="$SIGN_IDENTITY"
             export VELUM_TEAM_ID=H3H5ULV8KR # 与签名证书的团队一致
             if [ -n "$NOTARY_PRIVATE_KEY" ]; then
               export APPLE_API_ISSUER="$NOTARY_ISSUER" APPLE_API_KEY="$NOTARY_KEY_ID" APPLE_API_KEY_PATH="$RUNNER_TEMP/AuthKey_$NOTARY_KEY_ID.p8"
               printf '%s' "$NOTARY_PRIVATE_KEY" > "$APPLE_API_KEY_PATH"
             fi
+            if [ -n "$PROFILE_HOST" ] && [ -n "$PROFILE_TUNNEL" ]; then
+              # 扩展与 sidecar 在 Tauri 之前签名，证书要先导入（Tauri 导入的钥匙串只在它自己的构建期间存在）；Tauri 随后直接使用这个钥匙串
+              kc="$RUNNER_TEMP/velum.keychain-db"
+              security create-keychain -p "" "$kc"
+              security set-keychain-settings -lut 21600 "$kc"
+              security unlock-keychain -p "" "$kc"
+              printf '%s' "$SIGN_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+              security import "$RUNNER_TEMP/cert.p12" -k "$kc" -P "$SIGN_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+              security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "" "$kc" >/dev/null
+              security list-keychains -d user -s "$kc" $(security list-keychains -d user | tr -d '"')
+              printf '%s' "$PROFILE_HOST" | base64 --decode > "$RUNNER_TEMP/host.provisionprofile"
+              printf '%s' "$PROFILE_TUNNEL" | base64 --decode > "$RUNNER_TEMP/tunnel.provisionprofile"
+              brew install xcodegen
+              (cd ../core && v=$(go list -m -f '{{.Version}}' golang.org/x/mobile) &&
+                go install golang.org/x/mobile/cmd/gomobile@$v golang.org/x/mobile/cmd/gobind@$v)
+              VELUM_PROFILE_HOST="$RUNNER_TEMP/host.provisionprofile" VELUM_PROFILE_TUNNEL="$RUNNER_TEMP/tunnel.provisionprofile" \
+                sh extension/build.sh
+              conf="$(cat src-tauri/tauri.ne.conf.json)"
+            else
+              export APPLE_CERTIFICATE="$SIGN_CERTIFICATE" APPLE_CERTIFICATE_PASSWORD="$SIGN_CERTIFICATE_PASSWORD"
+            fi
           fi
           if [ -n "$VELUM_VERSION" ]; then
-            bun tauri build --config "{\"version\":\"$VELUM_VERSION\",\"bundle\":{\"createUpdaterArtifacts\":true}}"
-          else
-            bun tauri build
+            conf="$(printf '%s' "$conf" | jq -c --arg v "$VELUM_VERSION" '. * {version: $v, bundle: {createUpdaterArtifacts: true}}')"
           fi
+          bun tauri build --config "$conf"
       # upload-artifact 打 zip 时会丢掉可执行权限：.app 先用 ditto 打包（保留权限与签名）
       - name: collect (macOS)
         if: runner.os == 'macOS'
