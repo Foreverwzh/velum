@@ -51,7 +51,7 @@ D4 选择「helper + utun」的三个理由，验证后都不再成立：
 
 | 步骤 | 内容 | 验收 |
 | :--- | :--- | :--- |
-| MN.1 构建骨架 | `desktop/extension/`：Xcode 工程（xcodegen）构建系统扩展，链接 `gomobile bind -target macos` 产出的核心；Tauri 打包后嵌入 `Contents/Library/SystemExtensions` 并重签；CI 获取描述文件、签名、公证整个 App | CI 产出的 App 在干净机器上能激活扩展。✅ 2026-10-31：手动构建 `0.1.0-mn.1` 签名、公证通过，替换本机已装扩展并激活（无需重新批准）。实现中的两个约束：Tauri 把 entitlements 签进所有 externalBin，带受限 entitlements 的 sidecar 启动即被杀，签名构建改由 `build.sh` 预签 sidecar；扩展必须公证（sysextd `-67050`） |
+| MN.1 构建骨架 | `desktop/extension/`：Xcode 工程（xcodegen）构建系统扩展，链接 `gomobile bind -target macos` 产出的核心；Tauri 打包后嵌入 `Contents/Library/SystemExtensions` 并重签；CI 获取描述文件、签名、公证整个 App | CI 产出的 App 在干净机器上能激活扩展。✅ 2026-10-31：手动构建 `0.1.0-mn.1` 签名、公证通过，替换本机已装扩展并激活（无需重新批准）。实现中的两个约束：Tauri 把 entitlements 签进所有 externalBin，带受限 entitlements 的 sidecar 启动即被杀，签名构建改由 `build.sh` 预签 sidecar；扩展必须公证（sysextd `-67050`），且票据要装订在扩展自身：macOS 13 的 sysextd 不在线查询、也不认外层 App 的票据（2026-11-01 在一台未装过任何扩展的 Intel Mac、macOS 13.7 上验证：装订前被拒，装订后首次安装经批准激活） |
 | MN.2 核心进扩展 + IPC | 扩展内启动 daemon；接口改为回环 TCP + 令牌（Q2）；界面与 `vlu` 连上扩展内的核心；数据目录迁移 | 界面全部功能可用；`vlu status` 正常。2026-11-01 进展：本地接口为回环 TCP + 令牌（`core/pkg/ipc` 的 `tcp://` 地址，连接后先发一行令牌），地址写在 Velum 目录的 `extension.addr`（0600），`vlu` 与界面的客户端在 socket 连不上时改用它；App 经启动参数把配置与订阅缓存交给扩展，扩展只在容器里没有时写入（`reset` 时清空重来）。在隔离目录（TUN、系统代理关闭）下实测：`vlu status` / `reload` / `conns`、界面客户端的状态与连接事件流都正常，令牌错误的连接被关闭。界面接入（由 App 启停隧道代替 velumd）与 TUN 一起在 MN.3 完成 |
 | MN.3 TUN | `OpenTun` 的路由、DNS、IPv6、MTU；全局接管与分流接管；开关与状态（`NEVPNStatus`） | 与 helper 方案的 TUN 行为一致；回归 M1.5 的验收项 |
 | MN.4 NetworkSense | 扩展内的网络快照与其他 VPN 识别（F5）；Go 侧解析改用物理 DNS（F1） | 连企业 VPN 时内网域名可解析、内网与外网均正常；换网后自动重载 |

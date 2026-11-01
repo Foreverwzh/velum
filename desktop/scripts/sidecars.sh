@@ -26,7 +26,10 @@ if [ -n "$VELUM_TEAM_ID" ]; then
   [ -n "$APPLE_SIGNING_IDENTITY" ] || { echo "sidecars: 设置了 VELUM_TEAM_ID，但没有 APPLE_SIGNING_IDENTITY（velumd 不会被签名）" >&2; exit 1; }
   ldflags="$ldflags -X github.com/Foreverwzh/velum/core/pkg/helper.TeamID=$VELUM_TEAM_ID"
 fi
-(cd "$root/core" && GOOS=$goos GOARCH=$goarch go build -tags "$tags" -trimpath -ldflags "$ldflags" -o "$out/" ./cmd/...)
+# macOS 上 helper 与引擎有 cgo 代码：跨架构（Apple 芯片上构建 Intel 版）时 Go 默认关闭 cgo，需显式打开（clang 可直接编译另一架构）
+cgo=""
+[ "$goos" = darwin ] && cgo=1
+(cd "$root/core" && CGO_ENABLED=${cgo:-${CGO_ENABLED:-}} GOOS=$goos GOARCH=$goarch go build -tags "$tags" -trimpath -ldflags "$ldflags" -o "$out/" ./cmd/...)
 mkdir -p "$root/desktop/src-tauri/binaries"
 for b in $bins; do
   cp "$out/$b$ext" "$root/desktop/src-tauri/binaries/$b-$triple$ext"
