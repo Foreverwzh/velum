@@ -8,6 +8,7 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/Foreverwzh/velum/core/pkg/subscription"
@@ -201,12 +202,22 @@ func (p Paths) WithData(dir string) Paths {
 	return p
 }
 
+// ExtensionAddrFile 是 Home 下记录 macOS 系统扩展本地接口地址的文件（tcp://…?token=…，权限 0600）：
+// 核心在扩展里运行时由 App 启动隧道前写入（docs/MN-PLAN.md Q2），客户端在 Socket 连不上时改用它。
+const ExtensionAddrFile = "extension.addr"
+
 // ClientAddrs 是客户端依次尝试的本地接口地址。
 func (p Paths) ClientAddrs() []string {
+	addrs := []string{p.Socket}
 	if p.ServiceSocket != "" && p.ServiceSocket != p.Socket {
-		return []string{p.Socket, p.ServiceSocket}
+		addrs = append(addrs, p.ServiceSocket)
 	}
-	return []string{p.Socket}
+	if b, err := os.ReadFile(filepath.Join(p.Home, ExtensionAddrFile)); err == nil {
+		if a := strings.TrimSpace(string(b)); a != "" {
+			addrs = append(addrs, a)
+		}
+	}
+	return addrs
 }
 
 // ServicePipe 是 Windows 上 Velum 服务（全机一个）的 Named Pipe；以用户身份运行的 velumd 使用 UserPipe。

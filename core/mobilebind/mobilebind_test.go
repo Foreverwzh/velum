@@ -1,12 +1,14 @@
 package mobilebind
 
 import (
+	"net"
 	"net/netip"
 	"os"
 	"runtime"
 	"testing"
 
 	"github.com/Foreverwzh/velum/core/pkg/engine"
+	"github.com/Foreverwzh/velum/core/pkg/ipc"
 	"github.com/Foreverwzh/velum/core/pkg/rpc"
 )
 
@@ -50,6 +52,33 @@ func TestStartStop(t *testing.T) {
 	}
 	if _, err := rpc.NewClient(Socket(home)).Status(); err == nil {
 		t.Fatal("Stop 后本地接口仍可访问")
+	}
+}
+
+// macOS 系统扩展：本地接口为回环 TCP + 令牌，令牌错误的客户端连不上。
+func TestStartTCP(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	hp := ln.Addr().String()
+	ln.Close()
+	addr := ipc.TCPAddr(hp, "t0ken")
+	SetSocket(addr)
+	defer SetSocket("")
+	home := t.TempDir()
+	if err := Start(home, fakeHost{}); err != nil {
+		t.Fatal(err)
+	}
+	defer Stop()
+	if Socket(home) != addr {
+		t.Fatalf("Socket=%s", Socket(home))
+	}
+	if _, err := rpc.NewClient(addr).Status(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := rpc.NewClient(ipc.TCPAddr(hp, "wrong")).Status(); err == nil {
+		t.Fatal("令牌错误时不应能访问")
 	}
 }
 

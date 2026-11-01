@@ -143,6 +143,12 @@ pub fn run() {
     if std::env::args().any(|a| a == "--activate-extension") {
         netext::activate_cli();
     }
+    #[cfg(target_os = "macos")]
+    for (flag, start) in [("--start-extension", true), ("--stop-extension", false)] {
+        if std::env::args().any(|a| a == flag) {
+            netext::tunnel_cli(start);
+        }
+    }
     tauri::Builder::default()
         .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![velum_call, helper_install, helper_uninstall, helper_status, cli_status, cli_install, cli_uninstall, autostart_get, autostart_set, open_release, install_update, update_progress])

@@ -13,8 +13,8 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// Listen 在 Named Pipe 上监听。ACL：SYSTEM、Administrators、AllowSIDs（为空时为当前进程的用户）完全控制，其余拒绝。
-func Listen(addr string, opts ListenOptions) (net.Listener, error) {
+// listenLocal 在 Named Pipe 上监听。ACL：SYSTEM、Administrators、AllowSIDs（为空时为当前进程的用户）完全控制，其余拒绝。
+func listenLocal(addr string, opts ListenOptions) (net.Listener, error) {
 	sids := opts.AllowSIDs
 	if len(sids) == 0 {
 		u, err := windows.GetCurrentProcessToken().GetTokenUser()
@@ -30,8 +30,8 @@ func Listen(addr string, opts ListenOptions) (net.Listener, error) {
 	return winio.ListenPipe(addr, &winio.PipeConfig{SecurityDescriptor: sddl, InputBufferSize: 64 << 10, OutputBufferSize: 64 << 10})
 }
 
-// Dial 连接 Named Pipe，并确认服务端可信：Pipe 名字是全局的，任何进程都可以抢先创建同名 Pipe 冒充 velumd。
-func Dial(ctx context.Context, addr string) (net.Conn, error) {
+// dialLocal 连接 Named Pipe，并确认服务端可信：Pipe 名字是全局的，任何进程都可以抢先创建同名 Pipe 冒充 velumd。
+func dialLocal(ctx context.Context, addr string) (net.Conn, error) {
 	c, err := winio.DialPipeContext(ctx, addr)
 	if err != nil {
 		return nil, err

@@ -21,15 +21,73 @@ pub fn home() -> PathBuf {
     }
 }
 
+/// macOS：velumd 的 Unix socket；核心在系统扩展里运行时 socket 不存在，改用 extension.addr 记录的回环 TCP + 令牌
+/// （docs/MN-PLAN.md Q2，与 core/pkg/ipc 的 tcp:// 地址相同：连接后先发送一行令牌）。
 #[cfg(unix)]
-type Conn = std::os::unix::net::UnixStream;
+enum Conn {
+    Unix(std::os::unix::net::UnixStream),
+    Tcp(std::net::TcpStream),
+}
+
+#[cfg(unix)]
+impl Read for Conn {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        match self {
+            Conn::Unix(s) => s.read(buf),
+            Conn::Tcp(s) => s.read(buf),
+        }
+    }
+}
+
+#[cfg(unix)]
+impl Write for Conn {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        match self {
+            Conn::Unix(s) => s.write(buf),
+            Conn::Tcp(s) => s.write(buf),
+        }
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        match self {
+            Conn::Unix(s) => s.flush(),
+            Conn::Tcp(s) => s.flush(),
+        }
+    }
+}
 
 #[cfg(unix)]
 fn connect(timeout: Option<Duration>) -> Result<Conn, String> {
-    let s = Conn::connect(home().join("velumd.sock")).map_err(|e| format!("无法连接 velumd：{e}"))?;
+    let write_timeout = Some(Duration::from_secs(10));
+    let uds_err = match std::os::unix::net::UnixStream::connect(home().join("velumd.sock")) {
+        Ok(s) => {
+            s.set_read_timeout(timeout).ok();
+            s.set_write_timeout(write_timeout).ok();
+            return Ok(Conn::Unix(s));
+        }
+        Err(e) => e,
+    };
+    let Some((hostport, token)) = extension_addr() else {
+        return Err(format!("无法连接 velumd：{uds_err}"));
+    };
+    let mut s = std::net::TcpStream::connect_timeout(
+        &hostport.parse().map_err(|e| format!("extension.addr 无效：{e}"))?,
+        Duration::from_secs(3),
+    )
+    .map_err(|e| format!("无法连接 Velum 网络扩展：{e}"))?;
     s.set_read_timeout(timeout).ok();
-    s.set_write_timeout(Some(Duration::from_secs(10))).ok();
-    Ok(s)
+    s.set_write_timeout(write_timeout).ok();
+    s.write_all(format!("{token}\n").as_bytes()).map_err(|e| e.to_string())?;
+    Ok(Conn::Tcp(s))
+}
+
+/// Velum 目录下的 extension.addr（tcp://127.0.0.1:端口?token=令牌，App 启动隧道前写入）解析为 (host:port, 令牌)。
+#[cfg(unix)]
+pub fn extension_addr() -> Option<(String, String)> {
+    let s = std::fs::read_to_string(home().join("extension.addr")).ok()?;
+    let rest = s.trim().strip_prefix("tcp://")?;
+    let (hostport, query) = rest.split_once('?')?;
+    let token = query.split('&').find_map(|kv| kv.strip_prefix("token="))?;
+    (!token.is_empty()).then(|| (hostport.to_string(), token.to_string()))
 }
 
 #[cfg(windows)]
@@ -332,5 +390,24 @@ mod tests {
         let _ = std::process::Command::new("curl").args(["-s", "-m", "8", "-o", "/dev/null", "-x", &format!("http://{listen}"), "https://www.baidu.com/"]).status();
         let ev = rx.recv_timeout(Duration::from_secs(10)).expect("应收到连接事件");
         assert!(ev["chain"].is_array(), "{ev}");
+    }
+}
+
+/// 手动联调（MN.2）：核心在系统扩展里运行时，经 extension.addr 的回环 TCP + 令牌访问本地接口。
+/// VELUM_HOME=<测试目录> cargo test --lib extension_api -- --ignored
+#[cfg(all(test, unix))]
+mod extension_api {
+    #[test]
+    #[ignore]
+    fn extension_api() {
+        assert!(super::extension_addr().is_some(), "VELUM_HOME 下没有 extension.addr");
+        let st = super::call("GET", "/v1/status", None).expect("status");
+        assert!(st.get("home").and_then(|h| h.as_str()).is_some_and(|h| h.contains("Group Containers")), "{st}");
+        // 连接事件流（SSE）：经代理端口发起一个请求，应收到对应的连接事件
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || super::stream(|v| drop(tx.send(v))));
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        let _ = std::process::Command::new("curl").args(["-s", "-o", "/dev/null", "-x", "http://127.0.0.1:7999", "https://www.apple.com"]).status();
+        rx.recv_timeout(std::time::Duration::from_secs(10)).expect("连接事件");
     }
 }

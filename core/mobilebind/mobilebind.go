@@ -65,8 +65,26 @@ type Network struct {
 	DNS     []string `json:"dns,omitempty"`
 }
 
-// Socket 返回 home 下 daemon 本地接口的 socket 路径。
-func Socket(home string) string { return config.PathsFor(home).Socket }
+// Socket 返回 daemon 本地接口的地址：SetSocket 指定的地址，否则 home 下的 socket 路径。
+func Socket(home string) string {
+	mu.Lock()
+	defer mu.Unlock()
+	if socket != "" {
+		return socket
+	}
+	return config.PathsFor(home).Socket
+}
+
+// socket 是 SetSocket 指定的本地接口地址。
+var socket string
+
+// SetSocket 指定本地接口地址，在 Start 之前调用。macOS 系统扩展用回环 TCP + 令牌（tcp://127.0.0.1:端口?token=…）：
+// 扩展以 root 运行在沙盒里，用户进程连不上它能创建的 socket（docs/MN-PLAN.md Q2）。为空时使用 home 下的 socket。
+func SetSocket(addr string) {
+	mu.Lock()
+	defer mu.Unlock()
+	socket = addr
+}
 
 // Version 返回核心版本。
 func Version() string { return daemon.Version }
@@ -93,6 +111,9 @@ func Start(home string, host Host) error {
 		return nil
 	}
 	paths := config.PathsFor(home)
+	if socket != "" {
+		paths.Socket = socket
+	}
 	if err := config.Ensure(paths); err != nil {
 		return err
 	}

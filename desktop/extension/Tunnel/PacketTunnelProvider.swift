@@ -22,6 +22,8 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
             log.error("准备目录失败：\(error, privacy: .public)")
             return completionHandler(error)
         }
+        // 本地接口：App 指定的回环 TCP + 令牌（界面与 vlu 以用户身份连接，Q2）
+        MobilebindSetSocket(options?["socket"] as? String ?? "")
         log.notice("启动核心 \(MobilebindVersion(), privacy: .public)，目录 \(home.path, privacy: .public)")
         forwardCoreLog(home)
         DispatchQueue.global().async {
@@ -47,15 +49,24 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         }
     }
 
-    // 扩展以 root 运行、在沙盒里，读不到用户目录（F4、F10）：App 把配置文件内容放在启动参数里传入，写到扩展自己的 App Group 容器
+    // 扩展以 root 运行、在沙盒里，读不到用户目录（F4、F10）：App 把用户目录里的配置文件内容放在启动参数（files/<相对路径>）里传入，
+    // 只在扩展自己的 App Group 容器里还没有时写入（首次迁移）；之后以容器为准，界面经本地接口修改的设置不会被旧文件覆盖。
     private func prepareHome(_ options: [String: NSObject]) throws -> URL {
         guard let group = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroup) else {
             throw err("取不到 App Group 容器")
         }
         let home = group.appendingPathComponent("velum")
+        // reset：清空后重新迁移（用户无权访问 root 的容器，只能由扩展自己清理）
+        if options["reset"] as? String == "1" {
+            try? FileManager.default.removeItem(at: home)
+            log.notice("已清空数据目录，重新迁移")
+        }
         try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
-        for (name, value) in options {
+        for (key, value) in options where key.hasPrefix("files/") {
+            let name = String(key.dropFirst("files/".count))
+            guard !name.isEmpty, !name.split(separator: "/").contains("..") else { continue }
             let url = home.appendingPathComponent(name)
+            if FileManager.default.fileExists(atPath: url.path) { continue }
             try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
             if let s = value as? String {
                 try s.write(to: url, atomically: true, encoding: .utf8)
