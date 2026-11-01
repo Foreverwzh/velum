@@ -170,8 +170,16 @@ final class Host: NSObject, MobilebindHostProtocol {
         ret0_?.pointee = dup(fd) // 所有权交给核心：给一个副本，核心关闭时不影响系统持有的 FD
     }
 
+    // 核心关闭 TUN（FD 已由核心关闭）：隧道保持连接（Q1），清空网络参数，系统随即撤销路由与 DNS
     func closeTun() {
-        log.notice("closeTun")
+        guard let provider else { return }
+        let sem = DispatchSemaphore(value: 0)
+        provider.setTunnelNetworkSettings(nil) { e in
+            if let e { log.error("清空隧道参数失败：\(e, privacy: .public)") }
+            sem.signal()
+        }
+        sem.wait()
+        log.notice("closeTun：已清空隧道参数")
     }
 
     func findOwner(_ proto: Int32, srcAddr: String?, srcPort: Int32, dstAddr: String?, dstPort: Int32, error: NSErrorPointer) -> String {

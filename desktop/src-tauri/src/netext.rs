@@ -189,7 +189,7 @@ fn load_manager(create: bool) -> Result<Option<Retained<NETunnelProviderManager>
     });
     unsafe { m.saveToPreferencesWithCompletionHandler(Some(&block)) };
     // 首次保存会弹出「添加 VPN 配置」的系统对话框，等待用户操作
-    if let Some(e) = wait(&rx, Duration::from_secs(120)).ok_or("保存 VPN 配置超时")? {
+    if let Some(e) = wait(&rx, Duration::from_secs(600)).ok_or("保存 VPN 配置超时（未在 10 分钟内批准）")? {
         return Err(format!("保存 VPN 配置：{e}"));
     }
     // 保存后要重新读取，连接对象才可用
