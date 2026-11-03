@@ -30,7 +30,9 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         forwardCoreLog(home)
         DispatchQueue.global().async {
             var err: NSError?
-            MobilebindStart(home.path, Host(provider: self), &err)
+            let host = Host(provider: self)
+            MobilebindSetProxyHost(host)
+            MobilebindStart(home.path, host, &err)
             let ms = Int(Date().timeIntervalSince(started) * 1000)
             if let err {
                 log.error("核心启动失败（\(ms)ms）：\(err, privacy: .public)")
@@ -124,66 +126,115 @@ struct TunRequest: Decodable {
     var dns: [String]?
 }
 
-final class Host: NSObject, MobilebindHostProtocol {
+struct ProxyRequest: Decodable {
+    var host: String
+    var port: Int
+    var exceptions: [String]?
+}
+
+// 隧道参数由两部分组成：TUN（地址、路由、DNS，核心开启 TUN 时设置）与系统代理（NEProxySettings，核心接管系统代理时设置）。
+// setTunnelNetworkSettings 整体替换，任一部分变化都按当前两部分重新下发；两部分都没有时清空（隧道保持连接，Q1）。
+// 系统代理放在隧道参数里：隧道停止或扩展崩溃时系统一并撤销，不会残留指向 Velum 的系统代理（MN.5）。
+final class Host: NSObject, MobilebindHostProtocol, MobilebindProxyHostProtocol {
     weak var provider: PacketTunnelProvider?
     init(provider: PacketTunnelProvider) { self.provider = provider }
+
+    private let lock = NSLock()
+    private var tun: TunRequest?
+    private var proxy: ProxyRequest?
 
     func openTun(_ req: String?, ret0_: UnsafeMutablePointer<Int32>?) throws {
         guard let provider, let data = req?.data(using: .utf8) else { throw err("没有 provider") }
         let r = try JSONDecoder().decode(TunRequest.self, from: data)
         log.notice("openTun \(req ?? "", privacy: .public)")
-        let s = NEPacketTunnelNetworkSettings(tunnelRemoteAddress: "127.0.0.1")
-        s.mtu = NSNumber(value: r.mtu)
-        let v4 = (r.inet4 ?? []).compactMap(cidr)
-        let routes4 = (r.routes ?? []).compactMap(cidr).filter { !$0.0.contains(":") }
-        if let a = v4.first {
-            let ip = NEIPv4Settings(addresses: [a.0], subnetMasks: [mask4(a.1)])
-            // 核心的全局接管是 0/1 + 128/1 扣除排除网段；NE 下改为默认路由，隧道才成为主服务，
-            // 系统随之把物理网卡的默认路由转为作用域路由，引擎绑定物理网卡的出站才可达（F6）。
-            // 排除网段不写成 excludedRoutes：它们会变成经物理网卡的同前缀路由，把其他 VPN 的同名路由挤成作用域路由（F8）。
-            if covered4(uncovered4(routes4)) <= UInt64(1) << 31 {
-                ip.includedRoutes = [NEIPv4Route.default()]
-            } else {
-                ip.includedRoutes = routes4.map { NEIPv4Route(destinationAddress: $0.0, subnetMask: mask4($0.1)) }
-            }
-            s.ipv4Settings = ip
-        }
-        let v6 = (r.inet6 ?? []).compactMap(cidr)
-        let routes6 = (r.routes ?? []).compactMap(cidr).filter { $0.0.contains(":") }
-        if let a = v6.first {
-            let ip = NEIPv6Settings(addresses: [a.0], networkPrefixLengths: [NSNumber(value: a.1)])
-            let full6 = Set(routes6.map { "\($0.0)/\($0.1)" }).isSuperset(of: ["::/1", "8000::/1"])
-            ip.includedRoutes = full6 ? [NEIPv6Route.default()]
-                : routes6.map { NEIPv6Route(destinationAddress: $0.0, networkPrefixLength: NSNumber(value: $0.1)) }
-            s.ipv6Settings = ip
-        }
-        if let dns = r.dns, !dns.isEmpty {
-            let d = NEDNSSettings(servers: dns)
-            d.matchDomains = [""] // 接管所有域名
-            s.dnsSettings = d
-        }
         let started = Date()
-        let sem = DispatchSemaphore(value: 0)
-        var setErr: Error?
-        provider.setTunnelNetworkSettings(s) { setErr = $0; sem.signal() }
-        sem.wait()
-        if let setErr { throw setErr }
+        try update { $0.tun = r }
         guard let fd = provider.tunFD() else { throw err("找不到 utun FD") }
         let ms = Int(Date().timeIntervalSince(started) * 1000)
         log.notice("隧道参数已设置（\(ms)ms），utun FD \(fd)")
         ret0_?.pointee = dup(fd) // 所有权交给核心：给一个副本，核心关闭时不影响系统持有的 FD
     }
 
-    // 核心关闭 TUN（FD 已由核心关闭）：隧道保持连接（Q1），清空网络参数，系统随即撤销路由与 DNS
+    // 核心关闭 TUN（FD 已由核心关闭）：去掉 TUN 部分，系统随即撤销路由与 DNS；隧道正在停止时系统会撤销全部参数
     func closeTun() {
         guard let provider, !provider.stopping else { return }
-        let sem = DispatchSemaphore(value: 0)
-        provider.setTunnelNetworkSettings(nil) { e in
-            if let e { log.error("清空隧道参数失败：\(e, privacy: .public)") }
-            sem.signal()
+        do {
+            try update { $0.tun = nil }
+            log.notice("closeTun：已撤销 TUN 参数")
+        } catch {
+            log.error("撤销 TUN 参数失败：\(error, privacy: .public)")
         }
+    }
+
+    // 核心接管 / 还原系统代理：req 为空表示清除
+    func setProxy(_ req: String?) throws {
+        guard let provider, !provider.stopping else { return }
+        let p = try req.flatMap { $0.isEmpty ? nil : $0.data(using: .utf8) }.map { try JSONDecoder().decode(ProxyRequest.self, from: $0) }
+        try update { $0.proxy = p }
+        log.notice("系统代理：\(p.map { "\($0.host):\($0.port)，\($0.exceptions?.count ?? 0) 条豁免" } ?? "已清除", privacy: .public)")
+    }
+
+    private func update(_ change: (Host) -> Void) throws {
+        guard let provider else { throw err("没有 provider") }
+        lock.lock()
+        defer { lock.unlock() }
+        change(self)
+        let s = settings()
+        let sem = DispatchSemaphore(value: 0)
+        var setErr: Error?
+        provider.setTunnelNetworkSettings(s) { setErr = $0; sem.signal() }
         sem.wait()
-        log.notice("closeTun：已清空隧道参数")
+        if let setErr { throw setErr }
+    }
+
+    private func settings() -> NEPacketTunnelNetworkSettings? {
+        if tun == nil && proxy == nil { return nil }
+        let s = NEPacketTunnelNetworkSettings(tunnelRemoteAddress: "127.0.0.1")
+        if let r = tun {
+            s.mtu = NSNumber(value: r.mtu)
+            let v4 = (r.inet4 ?? []).compactMap(cidr)
+            let routes4 = (r.routes ?? []).compactMap(cidr).filter { !$0.0.contains(":") }
+            if let a = v4.first {
+                let ip = NEIPv4Settings(addresses: [a.0], subnetMasks: [mask4(a.1)])
+                // 核心的全局接管是 0/1 + 128/1 扣除排除网段；NE 下改为默认路由，隧道才成为主服务，
+                // 系统随之把物理网卡的默认路由转为作用域路由，引擎绑定物理网卡的出站才可达（F6）。
+                // 排除网段不写成 excludedRoutes：它们会变成经物理网卡的同前缀路由，把其他 VPN 的同名路由挤成作用域路由（F8）。
+                if covered4(uncovered4(routes4)) <= UInt64(1) << 31 {
+                    ip.includedRoutes = [NEIPv4Route.default()]
+                } else {
+                    ip.includedRoutes = routes4.map { NEIPv4Route(destinationAddress: $0.0, subnetMask: mask4($0.1)) }
+                }
+                s.ipv4Settings = ip
+            }
+            let v6 = (r.inet6 ?? []).compactMap(cidr)
+            let routes6 = (r.routes ?? []).compactMap(cidr).filter { $0.0.contains(":") }
+            if let a = v6.first {
+                let ip = NEIPv6Settings(addresses: [a.0], networkPrefixLengths: [NSNumber(value: a.1)])
+                let full6 = Set(routes6.map { "\($0.0)/\($0.1)" }).isSuperset(of: ["::/1", "8000::/1"])
+                ip.includedRoutes = full6 ? [NEIPv6Route.default()]
+                    : routes6.map { NEIPv6Route(destinationAddress: $0.0, networkPrefixLength: NSNumber(value: $0.1)) }
+                s.ipv6Settings = ip
+            }
+            if let dns = r.dns, !dns.isEmpty {
+                let d = NEDNSSettings(servers: dns)
+                d.matchDomains = [""] // 接管所有域名
+                s.dnsSettings = d
+            }
+        }
+        if let p = proxy {
+            let ps = NEProxySettings()
+            ps.httpEnabled = true
+            ps.httpServer = NEProxyServer(address: p.host, port: p.port)
+            ps.httpsEnabled = true
+            ps.httpsServer = NEProxyServer(address: p.host, port: p.port)
+            ps.exceptionList = p.exceptions
+            ps.excludeSimpleHostnames = true
+            // 匹配所有域名的补充代理：不要求隧道是主服务。否则只有 TUN 开着（隧道为主服务）时系统才采用这里的代理，
+            // 只开系统代理时不生效（测试机 macOS 13 实测；与 DNS 的 matchDomains 同理）
+            ps.matchDomains = [""]
+            s.proxySettings = ps
+        }
+        return s
     }
 
     func findOwner(_ proto: Int32, srcAddr: String?, srcPort: Int32, dstAddr: String?, dstPort: Int32, error: NSErrorPointer) -> String {

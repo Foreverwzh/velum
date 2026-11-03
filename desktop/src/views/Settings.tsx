@@ -232,7 +232,7 @@ function Components({ status: s, refresh }: { status: Status; refresh: Refresh }
             label={<span className="flex items-center gap-2">网络扩展 <Tag tone="warn">实验</Tag>{ne.enabled && <Tag tone="accent">使用中</Tag>}</span>}
             hint={busy === "ne" && !ne.enabled
               ? "如果系统提示，请在「系统设置 → 隐私与安全性」或「通用 → 登录项与扩展」中允许 Velum 的网络扩展，并允许添加 VPN 配置"
-              : "核心与 TUN 改由系统网络扩展运行，不需要 TUN 组件；Velum 退出或崩溃时系统自动撤销路由与 DNS。开启时会以当前配置重新迁移，关闭后扩展里改过的设置不会带回；系统代理暂不可用"}
+              : "核心、TUN 与系统代理改由系统网络扩展运行，不需要 TUN 组件；Velum 退出或崩溃时系统自动撤销路由、DNS 与系统代理。开启时会以当前配置重新迁移，关闭后扩展里改过的设置不会带回"}
           >
             <Switch label="网络扩展" checked={ne.enabled} disabled={!!busy && busy !== "ne"} pending={busy === "ne"} busy={!!busy}
               onChange={(v) => run("ne", () => native.netextSet(v))} />
