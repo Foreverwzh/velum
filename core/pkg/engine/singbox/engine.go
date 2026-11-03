@@ -53,6 +53,9 @@ type Engine struct {
 
 	lmu      sync.Mutex // 生命周期（instance）；Start 期间内核会回调日志，不能与 mu 合用
 	instance *box.Box
+	// stopped：Stop 之后不再启动。daemon 退出时后台可能仍有进行中的重新加载（如拉取 providers 后重启引擎）；
+	// velumd 随即退出无妨，但 macOS 系统扩展的进程在隧道停止后继续存在，复活的内核会一直占着端口。
+	stopped bool
 	bctx     context.Context // 内核的 context（含 DNS 路由器等服务）
 	plat     *platform       // 平台接口：TUN 模式下持有 helper 会话；macOS 上另负责连接归属查询
 	ownTUN   string          // 内核自建 TUN（Windows）的网卡名
@@ -119,6 +122,9 @@ func (e *Engine) Start(ctx context.Context, cfg engine.Config) error {
 	defer e.lmu.Unlock()
 	if e.instance != nil {
 		return errors.New("engine already running")
+	}
+	if e.stopped {
+		return errEngineStopped
 	}
 	return e.startLocked(cfg)
 }
@@ -233,12 +239,19 @@ func (e *Engine) Restart(ctx context.Context, cfg engine.Config) error {
 	e.lmu.Lock()
 	defer e.lmu.Unlock()
 	_ = e.closeLocked()
+	if e.stopped {
+		return errEngineStopped
+	}
 	return e.startLocked(cfg)
 }
 
+var errEngineStopped = errors.New("engine stopped")
+
+// Stop 关闭内核；之后 Start / Restart 都返回错误（引擎随 daemon 退出，不再使用）。
 func (e *Engine) Stop() error {
 	e.lmu.Lock()
 	defer e.lmu.Unlock()
+	e.stopped = true
 	return e.closeLocked()
 }
 

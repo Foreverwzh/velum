@@ -176,3 +176,33 @@ func TestFetchViaVelum(t *testing.T) {
 		t.Fatalf("Velum 端口不通时应直连：%s %v", b, err)
 	}
 }
+
+// 经 Velum 拉取后不留空闲连接：连到 Velum 自身代理端口的 keep-alive 连接会在引擎退出后继续占着该端口
+// （macOS 系统扩展的进程会继续存在，之后在该端口重新监听失败：address already in use）。
+func TestFetchViaVelumLeavesNoIdleConn(t *testing.T) {
+	var open atomic.Int32
+	via := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("ok")) }))
+	via.Config.ConnState = func(_ net.Conn, s http.ConnState) {
+		switch s {
+		case http.StateNew:
+			open.Add(1)
+		case http.StateClosed, http.StateHijacked:
+			open.Add(-1)
+		}
+	}
+	via.Start()
+	defer via.Close()
+	viaURL, _ := url.Parse(via.URL)
+	f := source.New(t.TempDir(), "test")
+	f.Via = viaURL
+	if _, _, err := f.Get("providers", "http://rules.example/a.list", 0); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for open.Load() != 0 && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if n := open.Load(); n != 0 {
+		t.Fatalf("拉取后仍有 %d 条连到 Velum 的连接", n)
+	}
+}

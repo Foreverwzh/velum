@@ -370,3 +370,20 @@ func TestEngineLiveTraffic(t *testing.T) {
 	}
 	t.Fatalf("进行中的连接没有实时字节数：%+v", eng.Connections(10))
 }
+
+// Stop 之后不再启动：daemon 退出时后台进行中的重新加载可能随后调用 Restart（macOS 系统扩展的进程会继续存在，复活的内核会一直占着端口）。
+func TestNoRestartAfterStop(t *testing.T) {
+	e := singbox.New(singbox.Options{})
+	if err := e.Stop(); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.Restart(context.Background(), engine.Config{}); err == nil {
+		t.Fatal("Stop 之后 Restart 应返回错误")
+	}
+	if err := e.Start(context.Background(), engine.Config{}); err == nil {
+		t.Fatal("Stop 之后 Start 应返回错误")
+	}
+	if e.Running() {
+		t.Fatal("不应在运行")
+	}
+}

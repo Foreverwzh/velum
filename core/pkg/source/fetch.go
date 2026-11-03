@@ -76,6 +76,7 @@ func NewClient(proxy func(*http.Request) (*url.URL, error)) *http.Client {
 		DialContext:           (&net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
 		TLSHandshakeTimeout:   10 * time.Second,
 		ResponseHeaderTimeout: 15 * time.Second,
+		IdleConnTimeout:       90 * time.Second, // 空闲连接不无限保留
 		ForceAttemptHTTP2:     true,
 	}}
 }
@@ -105,7 +106,11 @@ func (f *Fetcher) Get(kind, rawURL string, ttl time.Duration) ([]byte, Result, e
 	var hdr http.Header
 	var err error
 	if f.Via != nil && !localURL(rawURL) {
-		data, hdr, err = f.fetch(NewClient(http.ProxyURL(f.Via)), rawURL)
+		// 每次新建的客户端用完即关闭空闲连接：否则连到 Velum 自身代理端口的 keep-alive 连接一直留着，
+		// 引擎重启或退出后仍占着该端口（macOS 系统扩展的进程会继续存在，velumd 重新监听时 address already in use）
+		via := NewClient(http.ProxyURL(f.Via))
+		data, hdr, err = f.fetch(via, rawURL)
+		via.CloseIdleConnections()
 		if err != nil && !errors.As(err, new(statusError)) {
 			if data, hdr, err = f.fetch(f.Client, rawURL); err == nil && f.Log != nil {
 				f.Log("经 Velum 拉取 %s 失败，已直连拉取", kind)
