@@ -303,6 +303,12 @@ pub fn start_tunnel(reset: bool) -> Result<(), String> {
     wait_status(&m, NEVPNStatus::Connected, Duration::from_secs(30))
 }
 
+/// 退出 App：停止隧道，之后不再自动重连。
+pub fn stop_for_quit() -> Result<(), String> {
+    BUSY.store(true, std::sync::atomic::Ordering::SeqCst);
+    stop_tunnel()
+}
+
 /// 停止隧道（核心随之停止）。
 pub fn stop_tunnel() -> Result<(), String> {
     let Some(m) = load_manager(false)? else { return Ok(()) };
@@ -343,12 +349,17 @@ pub fn bundled() -> bool {
         .is_some_and(|p| p.exists())
 }
 
+fn tunnel_status() -> Option<NEVPNStatus> {
+    load_manager(false).ok().flatten().map(|m| unsafe { m.connection().status() })
+}
+
 fn tunnel_connected() -> bool {
-    load_manager(false).ok().flatten().is_some_and(|m| unsafe { m.connection().status() } == NEVPNStatus::Connected)
+    tunnel_status() == Some(NEVPNStatus::Connected)
 }
 
 /// NE 模式下的「确保核心在运行」：隧道已连接且本地接口可用时不动，否则启动隧道（Q1：隧道常驻，核心在扩展里）。
 pub fn ensure_running() -> Result<(), String> {
+    let _busy = Busy::hold();
     if tunnel_connected() {
         if crate::velum::extension_addr().is_some() && crate::velum::alive() {
             return Ok(());
@@ -359,9 +370,38 @@ pub fn ensure_running() -> Result<(), String> {
     start_tunnel(false)
 }
 
+/// 用户主动启停或切换模式期间为 true：自动重连（recover）不介入，避免把刚停掉的隧道又拉起来。
+static BUSY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+struct Busy;
+
+impl Busy {
+    fn hold() -> Self {
+        BUSY.store(true, std::sync::atomic::Ordering::SeqCst);
+        Busy
+    }
+}
+
+impl Drop for Busy {
+    fn drop(&mut self) {
+        BUSY.store(false, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+/// 意外断开后的重连：系统不会自动重连隧道（扩展崩溃、被系统停止），由 App 重启。调用方在核心持续不响应时调用；
+/// 只在使用网络扩展且没有进行中的启停时介入，返回是否做了处理。不以连接状态判断：刚读取的 VPN 配置，
+/// 其连接状态由系统异步更新，可能还不是「已断开」（测试机上因此一再跳过，等到退避拉长才重连）。
+pub fn recover() -> Result<bool, String> {
+    if BUSY.load(std::sync::atomic::Ordering::SeqCst) || !enabled() {
+        return Ok(false);
+    }
+    ensure_running().map(|()| true)
+}
+
 /// 切换到网络扩展：激活扩展（首次需要在系统设置中批准）→ 停止 velumd（它会还原 helper 的 TUN 与系统代理）→
 /// 以用户目录的配置重新迁移并启动隧道。之后的设置保存在扩展的容器里。
 pub fn enable() -> Result<(), String> {
+    let _busy = Busy::hold();
     let a = activate();
     let deadline = Instant::now() + Duration::from_secs(600);
     loop {
@@ -391,6 +431,7 @@ pub fn enable() -> Result<(), String> {
 
 /// 切回 helper：停止隧道（系统撤销其路由与 DNS），去掉标记，启动 velumd。扩展容器里的设置不会带回用户目录。
 pub fn disable() -> Result<(), String> {
+    let _busy = Busy::hold();
     stop_tunnel()?;
     let home = crate::velum::home();
     let _ = std::fs::remove_file(home.join("extension.enabled"));

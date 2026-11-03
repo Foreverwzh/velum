@@ -163,7 +163,7 @@ pub(crate) fn stop_velum() {
         // 使用网络扩展时停止隧道：核心随之停止，系统撤销隧道的路由与 DNS（只停核心会留下没有核心的隧道）
         #[cfg(target_os = "macos")]
         if netext::enabled() {
-            let _ = netext::stop_tunnel();
+            let _ = netext::stop_for_quit();
             return;
         }
         let _ = velum::call("POST", "/v1/stop", None);
@@ -231,21 +231,50 @@ pub fn run() {
                     }
                     let opened = std::time::Instant::now();
                     let mut connected = false;
+                    let mut ever_connected = false;
+                    // 网络扩展意外断开后的重连：核心连续 3 秒不响应后尝试，失败按 5s → 60s 退避
+                    #[cfg(target_os = "macos")]
+                    let (mut down_since, mut next_try, mut backoff) = (None::<std::time::Instant>, std::time::Instant::now(), Duration::from_secs(5));
                     // 每秒更新实时流量，每 3 秒更新完整状态
                     let mut tick = 0u64;
                     loop {
                         tick += 1;
-                        if tick % 3 == 1 {
+                        // 连不上时每秒重试，尽快发现恢复（网络扩展意外断开后的重连也依赖它）
+                        if tick % 3 == 1 || !connected {
                             match velum::call("GET", "/v1/status", None) {
                                 Ok(s) => {
                                     connected = true;
+                                    ever_connected = true;
+                                    #[cfg(target_os = "macos")]
+                                    {
+                                        down_since = None;
+                                        backoff = Duration::from_secs(5);
+                                        next_try = std::time::Instant::now();
+                                    }
                                     tray::refresh(&app, Some(&s), &summary(&s));
                                 }
-                                // 刚打开时 velumd 还在启动，先不报未运行
-                                Err(_) if !connected && opened.elapsed() < Duration::from_secs(20) => {}
+                                // 刚打开时 velumd 还在启动，先不报未运行（只在还没连上过时：连上后再断开要立即处理，网络扩展的重连依赖它）
+                                Err(_) if !ever_connected && opened.elapsed() < Duration::from_secs(20) => {}
                                 Err(_) => {
                                     connected = false;
                                     tray::refresh(&app, None, "未运行");
+                                    #[cfg(target_os = "macos")]
+                                    {
+                                        let now = std::time::Instant::now();
+                                        let since = *down_since.get_or_insert(now);
+                                        if now.duration_since(since) >= Duration::from_secs(3) && now >= next_try {
+                                            next_try = now + backoff;
+                                            backoff = (backoff * 2).min(Duration::from_secs(60));
+                                            match netext::recover() {
+                                                Ok(true) => eprintln!("[netext] 已重连隧道"),
+                                                Ok(false) => {}
+                                                Err(e) => {
+                                                    eprintln!("[netext] 重连失败（{}s 后重试）：{e}", backoff.as_secs() / 2);
+                                                    tray::refresh(&app, None, &format!("网络扩展重连失败：{e}"));
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
