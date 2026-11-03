@@ -172,6 +172,8 @@ async function nativeCall<T>(cmd: string, args?: Record<string, unknown>): Promi
 }
 
 export interface CliStatus { installed: boolean; path?: string; conflict?: string }
+/** macOS 网络扩展（实验）：bundled 为 App 是否内置扩展（签名构建才有），enabled 为是否正在使用。 */
+export interface NetextStatus { bundled: boolean; enabled: boolean }
 
 /** 只在 App 中可用的系统操作（由 Rust 壳实现）。 */
 export const native = {
@@ -185,6 +187,9 @@ export const native = {
   cliStatus: () => nativeCall<CliStatus>("cli_status"),
   cliInstall: () => nativeCall<void>("cli_install"),
   cliUninstall: () => nativeCall<void>("cli_uninstall"),
+  /** 网络扩展（实验）：开启时激活扩展（首次需在系统设置中批准）、停止 velumd，核心改在扩展里运行；关闭时切回 velumd。 */
+  netextStatus: () => nativeCall<NetextStatus>("netext_status"),
+  netextSet: (on: boolean) => nativeCall<void>("netext_set", { on }),
   autostartGet: () => nativeCall<boolean>("autostart_get"),
   autostartSet: (on: boolean) => nativeCall<void>("autostart_set", { on }),
   /** 用默认浏览器打开发布页或安装包。 */

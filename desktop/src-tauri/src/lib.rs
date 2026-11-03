@@ -39,9 +39,43 @@ async fn helper_uninstall() -> Result<(), String> {
 }
 
 /// 平台自行判断的 TUN 组件状态（Windows：Velum 服务）；None 表示由界面直接查询 velumd 的 /v1/helper（macOS）。
+/// macOS 使用网络扩展时 TUN 由扩展提供，不需要 velum-helper，视为就绪。
 #[tauri::command]
 async fn helper_status() -> Result<Option<serde_json::Value>, String> {
+    #[cfg(target_os = "macos")]
+    if blocking(netext::enabled).await? {
+        return Ok(Some(serde_json::json!({ "socket": "", "reachable": true, "version": "NE" })));
+    }
     blocking(system::helper_status).await
+}
+
+/// 网络扩展（实验）：bundled 为本 App 是否内置扩展，enabled 为是否正在使用。
+#[tauri::command]
+async fn netext_status() -> serde_json::Value {
+    #[cfg(target_os = "macos")]
+    return serde_json::json!({ "bundled": netext::bundled(), "enabled": netext::enabled() });
+    #[cfg(not(target_os = "macos"))]
+    serde_json::json!({ "bundled": false, "enabled": false })
+}
+
+#[tauri::command]
+async fn netext_set(on: bool) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    return blocking(move || if on { netext::enable() } else { netext::disable() }).await?;
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = on;
+        Err("只有 macOS 支持网络扩展".into())
+    }
+}
+
+/// 确保核心在运行：使用网络扩展时启动隧道（核心在扩展里），否则启动 velumd。
+fn ensure_core() -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    if netext::enabled() {
+        return netext::ensure_running();
+    }
+    velum::ensure_running()
 }
 
 #[tauri::command]
@@ -126,6 +160,12 @@ pub(crate) fn summary(s: &serde_json::Value) -> String {
 pub(crate) fn stop_velum() {
     static STOPPED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
     if !STOPPED.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        // 使用网络扩展时停止隧道：核心随之停止，系统撤销隧道的路由与 DNS（只停核心会留下没有核心的隧道）
+        #[cfg(target_os = "macos")]
+        if netext::enabled() {
+            let _ = netext::stop_tunnel();
+            return;
+        }
         let _ = velum::call("POST", "/v1/stop", None);
     }
 }
@@ -151,7 +191,7 @@ pub fn run() {
     }
     tauri::Builder::default()
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .invoke_handler(tauri::generate_handler![velum_call, helper_install, helper_uninstall, helper_status, cli_status, cli_install, cli_uninstall, autostart_get, autostart_set, open_release, install_update, update_progress])
+        .invoke_handler(tauri::generate_handler![velum_call, helper_install, helper_uninstall, helper_status, cli_status, cli_install, cli_uninstall, netext_status, netext_set, autostart_get, autostart_set, open_release, install_update, update_progress])
         .setup(|app| {
             let handle = app.handle().clone();
             // 开机启动（--hidden）时只在托盘运行，不弹出窗口
@@ -186,7 +226,7 @@ pub fn run() {
             {
                 let app = handle.clone();
                 std::thread::spawn(move || {
-                    if let Err(e) = velum::ensure_running() {
+                    if let Err(e) = ensure_core() {
                         tray::refresh(&app, None, &e);
                     }
                     let opened = std::time::Instant::now();

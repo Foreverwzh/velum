@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Download, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
-import { api, componentStatus, componentText, isWindows, native, onUpdateProgress, type CliStatus, type HelperStatus, type Profile, type Status, type UpdateProgress } from "../api";
+import { api, componentStatus, componentText, isWindows, native, onUpdateProgress, type CliStatus, type HelperStatus, type NetextStatus, type Profile, type Status, type UpdateProgress } from "../api";
 import { useAction } from "../hooks";
 import type { Refresh } from "../App";
 import { Button, cx, IconButton, KV, Notice, PageHeader, Panel, Row, Section, Switch, Tag, TextInput } from "../components/ui";
@@ -202,9 +202,11 @@ function Components({ status: s, refresh }: { status: Status; refresh: Refresh }
   const [helper, setHelper] = useState<HelperStatus>();
   const [auto, setAuto] = useState<boolean>();
   const [cli, setCli] = useState<CliStatus>();
+  const [ne, setNe] = useState<NetextStatus>();
   const load = useCallback(async () => {
     setHelper(await componentStatus().catch(() => undefined));
     if (native.available) {
+      setNe(await native.netextStatus().catch(() => undefined));
       setAuto(await native.autostartGet().catch(() => undefined));
       setCli(await native.cliStatus().catch(() => undefined));
     }
@@ -225,12 +227,25 @@ function Components({ status: s, refresh }: { status: Status; refresh: Refresh }
   return (
     <Section title="系统组件">
       <Panel>
+        {ne?.bundled && (
+          <Row
+            label={<span className="flex items-center gap-2">网络扩展 <Tag tone="warn">实验</Tag>{ne.enabled && <Tag tone="accent">使用中</Tag>}</span>}
+            hint={busy === "ne" && !ne.enabled
+              ? "如果系统提示，请在「系统设置 → 隐私与安全性」或「通用 → 登录项与扩展」中允许 Velum 的网络扩展，并允许添加 VPN 配置"
+              : "核心与 TUN 改由系统网络扩展运行，不需要 TUN 组件；Velum 退出或崩溃时系统自动撤销路由与 DNS。开启时会以当前配置重新迁移，关闭后扩展里改过的设置不会带回；系统代理暂不可用"}
+          >
+            <Switch label="网络扩展" checked={ne.enabled} disabled={!!busy && busy !== "ne"} pending={busy === "ne"} busy={!!busy}
+              onChange={(v) => run("ne", () => native.netextSet(v))} />
+          </Row>
+        )}
+        {!ne?.enabled && (
         <Row label={<span className="flex items-center gap-2">TUN 组件 {state}</span>} hint={componentText.brief}>
           {(helper?.reachable || helper?.outdated) && <Button variant="danger" disabled={!!busy} loading={busy === "uninstall"} onClick={() => run("uninstall", uninstall)}>卸载</Button>}
           <Button variant={helper?.outdated ? "primary" : "secondary"} loading={busy === "install"} disabled={!!busy} onClick={() => run("install", installHelper)}>
             {helper?.reachable ? "重新安装" : helper?.outdated ? "更新" : "安装"}
           </Button>
         </Row>
+        )}
         {cli && (
           <Row
             label={<span className="flex items-center gap-2">命令行工具 vlu {cli.installed ? <Tag tone="accent">已安装</Tag> : <Tag>未安装</Tag>}</span>}

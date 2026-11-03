@@ -12,6 +12,8 @@ let appGroup = "H3H5ULV8KR.dev.velum"
 
 class PacketTunnelProvider: NEPacketTunnelProvider {
     private var logTimer: DispatchSourceTimer?
+    /// 隧道正在停止：系统会撤销全部隧道参数，核心关闭 TUN 时不必（也无法）再清空
+    var stopping = false
 
     override func startTunnel(options: [String: NSObject]?, completionHandler: @escaping (Error?) -> Void) {
         let started = Date()
@@ -41,6 +43,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
 
     override func stopTunnel(with reason: NEProviderStopReason, completionHandler: @escaping () -> Void) {
         log.notice("停止隧道，原因 \(reason.rawValue)")
+        stopping = true
         logTimer?.cancel()
         DispatchQueue.global().async {
             MobilebindStop()
@@ -82,7 +85,8 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         let t = DispatchSource.makeTimerSource(queue: .global())
         t.schedule(deadline: .now() + 1, repeating: 2)
         let logPath = MobilebindLogPath(home.path)
-        var offset: UInt64 = 0
+        // 从文件末尾开始：日志文件跨次保留，从头读会把历史日志重新转发一遍
+        var offset: UInt64 = (try? FileManager.default.attributesOfItem(atPath: logPath)[.size] as? UInt64) ?? 0
         t.setEventHandler {
             guard let f = FileHandle(forReadingAtPath: logPath) else { return }
             defer { try? f.close() }
@@ -172,7 +176,7 @@ final class Host: NSObject, MobilebindHostProtocol {
 
     // 核心关闭 TUN（FD 已由核心关闭）：隧道保持连接（Q1），清空网络参数，系统随即撤销路由与 DNS
     func closeTun() {
-        guard let provider else { return }
+        guard let provider, !provider.stopping else { return }
         let sem = DispatchSemaphore(value: 0)
         provider.setTunnelNetworkSettings(nil) { e in
             if let e { log.error("清空隧道参数失败：\(e, privacy: .public)") }

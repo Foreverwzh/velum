@@ -327,3 +327,87 @@ pub fn tunnel_cli(start: bool) -> ! {
         }
     }
 }
+
+// ---- 模式切换（实验开关，MN.7 前默认仍为 helper）----
+
+/// 是否使用网络扩展：Velum 目录下有 extension.enabled 标记，且本 App 内置了扩展。
+pub fn enabled() -> bool {
+    bundled() && crate::velum::home().join("extension.enabled").exists()
+}
+
+/// 本 App 是否内置了扩展（只有 Developer ID 签名、带描述文件的构建才有）。
+pub fn bundled() -> bool {
+    std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent()?.parent().map(|c| c.join(format!("Library/SystemExtensions/{EXTENSION_ID}.systemextension"))))
+        .is_some_and(|p| p.exists())
+}
+
+fn tunnel_connected() -> bool {
+    load_manager(false).ok().flatten().is_some_and(|m| unsafe { m.connection().status() } == NEVPNStatus::Connected)
+}
+
+/// NE 模式下的「确保核心在运行」：隧道已连接且本地接口可用时不动，否则启动隧道（Q1：隧道常驻，核心在扩展里）。
+pub fn ensure_running() -> Result<(), String> {
+    if tunnel_connected() {
+        if crate::velum::extension_addr().is_some() && crate::velum::alive() {
+            return Ok(());
+        }
+        // 隧道还在但核心不响应（或地址文件丢失）：重启隧道
+        stop_tunnel()?;
+    }
+    start_tunnel(false)
+}
+
+/// 切换到网络扩展：激活扩展（首次需要在系统设置中批准）→ 停止 velumd（它会还原 helper 的 TUN 与系统代理）→
+/// 以用户目录的配置重新迁移并启动隧道。之后的设置保存在扩展的容器里。
+pub fn enable() -> Result<(), String> {
+    let a = activate();
+    let deadline = Instant::now() + Duration::from_secs(600);
+    loop {
+        match a.events.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
+            Ok(Event::Failed(e)) => return Err(format!("激活网络扩展失败：{e}")),
+            Ok(Event::NeedsReboot) => return Err("网络扩展将在重启后生效".into()),
+            Ok(Event::Activated) => break,
+            Ok(_) => {}
+            Err(_) => return Err("激活网络扩展超时（未在 10 分钟内批准）".into()),
+        }
+    }
+    let home = crate::velum::home();
+    let _ = std::fs::remove_file(home.join("extension.addr"));
+    if crate::velum::alive() {
+        crate::velum::call("POST", "/v1/stop", None)?;
+        let deadline = Instant::now() + Duration::from_secs(15);
+        while crate::velum::alive() {
+            if Instant::now() > deadline {
+                return Err("velumd 未按时停止".into());
+            }
+            std::thread::sleep(Duration::from_millis(200));
+        }
+    }
+    start_tunnel(true)?;
+    std::fs::write(home.join("extension.enabled"), b"").map_err(|e| e.to_string())
+}
+
+/// 切回 helper：停止隧道（系统撤销其路由与 DNS），去掉标记，启动 velumd。扩展容器里的设置不会带回用户目录。
+pub fn disable() -> Result<(), String> {
+    stop_tunnel()?;
+    let home = crate::velum::home();
+    let _ = std::fs::remove_file(home.join("extension.enabled"));
+    wait_listen_port(&home);
+    crate::velum::ensure_running()
+}
+
+/// 等入口端口可以绑定。扩展里的核心（root）停止后，其入口端口上的 TIME_WAIT 连接（核心经自身端口拉取规则集等）
+/// 约 30 秒内仍归 root 所有；macOS 不允许普通用户绑定其他用户的套接字占着的端口（SO_REUSEADDR 也不行），
+/// 此时启动的 velumd 会 address already in use，引擎起不来。
+fn wait_listen_port(home: &Path) {
+    let listen = std::fs::read_to_string(home.join("config.yaml"))
+        .ok()
+        .and_then(|c| c.lines().find_map(|l| l.strip_prefix("listen:").map(|v| v.trim().trim_matches('"').to_string())));
+    let Some(addr) = listen else { return };
+    let deadline = Instant::now() + Duration::from_secs(60);
+    while std::net::TcpListener::bind(&addr).is_err() && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(500));
+    }
+}
