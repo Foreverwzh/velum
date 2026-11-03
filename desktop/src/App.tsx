@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowLeftRight, CircleGauge, FileCode2, Search, Settings as SettingsIcon, TriangleAlert, Waypoints, ScanSearch, type LucideIcon } from "lucide-react";
-import { api, type Status } from "./api";
+import { ArrowLeftRight, CircleGauge, FileCode2, Search, Settings as SettingsIcon, TriangleAlert, Waypoints, ScanSearch, X, type LucideIcon } from "lucide-react";
+import { api, native, type Status } from "./api";
 import { health } from "./health";
-import { Kbd, StatusMark, cx, isMac, modKey, titlebarOverlay } from "./components/ui";
+import { IconButton, Kbd, Notice, StatusMark, cx, isMac, modKey, titlebarOverlay } from "./components/ui";
 import { CommandPalette } from "./components/CommandPalette";
 import Overview from "./views/Overview";
 import Groups from "./views/Groups";
@@ -39,6 +39,15 @@ export default function App() {
   const [page, setPage] = useState<Page>(() => (params.get("page") as Page) ?? "overview");
   const [arg, setArg] = useState<string | undefined>(() => params.get("arg") ?? undefined);
   const [palette, setPalette] = useState(() => params.has("palette"));
+  // App 壳的一次性提示（如网络扩展起不来、已退回 TUN 组件）：启动时可能早于窗口出现，定期取一次
+  const [notice, setNotice] = useState<string>();
+  useEffect(() => {
+    if (!native.available) return;
+    const take = () => native.noticeTake().then((n) => n && setNotice(n)).catch(() => undefined);
+    void take();
+    const t = setInterval(take, 3000);
+    return () => clearInterval(t);
+  }, []);
 
   const connected = useRef(false);
   const refresh = useCallback(async () => {
@@ -142,6 +151,11 @@ export default function App() {
       </aside>
 
       <main className={cx("flex min-w-0 flex-1 flex-col", titlebarOverlay ? "pt-7" : "pt-3")}>
+        {notice && (
+          <div className="px-6 pb-2">
+            <Notice tone="warn" icon={TriangleAlert} action={<IconButton icon={X} label="关闭" onClick={() => setNotice(undefined)} />}>{notice}</Notice>
+          </div>
+        )}
         {!ready ? (
           <Boot title={h.title} detail={h.detail} tone={h.tone} />
         ) : (

@@ -58,6 +58,15 @@ async fn netext_status() -> serde_json::Value {
     serde_json::json!({ "bundled": false, "enabled": false })
 }
 
+/// 一次性提示（网络扩展起不来、已退回 velumd 的原因）；取走后清空。
+#[tauri::command]
+fn notice_take() -> Option<String> {
+    #[cfg(target_os = "macos")]
+    return netext::take_notice();
+    #[cfg(not(target_os = "macos"))]
+    None
+}
+
 #[tauri::command]
 async fn netext_set(on: bool) -> Result<(), String> {
     #[cfg(target_os = "macos")]
@@ -70,10 +79,11 @@ async fn netext_set(on: bool) -> Result<(), String> {
 }
 
 /// 确保核心在运行：使用网络扩展时启动隧道（核心在扩展里），否则启动 velumd。
+/// 使用网络扩展但隧道起不来时退回 velumd（MN.7），返回的错误说明退回的原因。
 fn ensure_core() -> Result<(), String> {
     #[cfg(target_os = "macos")]
     if netext::enabled() {
-        return netext::ensure_running();
+        return netext::ensure_running().map_err(|e| netext::fall_back(&e));
     }
     velum::ensure_running()
 }
@@ -191,7 +201,7 @@ pub fn run() {
     }
     tauri::Builder::default()
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .invoke_handler(tauri::generate_handler![velum_call, helper_install, helper_uninstall, helper_status, cli_status, cli_install, cli_uninstall, netext_status, netext_set, autostart_get, autostart_set, open_release, install_update, update_progress])
+        .invoke_handler(tauri::generate_handler![velum_call, helper_install, helper_uninstall, helper_status, cli_status, cli_install, cli_uninstall, netext_status, netext_set, notice_take, autostart_get, autostart_set, open_release, install_update, update_progress])
         .setup(|app| {
             let handle = app.handle().clone();
             // 开机启动（--hidden）时只在托盘运行，不弹出窗口
@@ -228,6 +238,12 @@ pub fn run() {
                 std::thread::spawn(move || {
                     if let Err(e) = ensure_core() {
                         tray::refresh(&app, None, &e);
+                    }
+                    // 网络扩展起不来、已退回 velumd：打开窗口，界面显示原因（开机启动时窗口默认不显示）
+                    #[cfg(target_os = "macos")]
+                    if netext::has_notice() {
+                        let a = app.clone();
+                        let _ = app.run_on_main_thread(move || show_main(&a));
                     }
                     let opened = std::time::Instant::now();
                     let mut connected = false;

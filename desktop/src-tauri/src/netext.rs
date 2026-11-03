@@ -425,8 +425,45 @@ pub fn enable() -> Result<(), String> {
             std::thread::sleep(Duration::from_millis(200));
         }
     }
-    start_tunnel(true)?;
+    // 隧道起不来（拒绝添加 VPN 配置、扩展被禁用等）：velumd 已停，退回 velumd，不留下什么都没在运行的状态
+    if let Err(e) = start_tunnel(true) {
+        let _ = stop_tunnel();
+        let back = crate::velum::ensure_running().err().map(|b| format!("；启动 velumd 也失败：{b}")).unwrap_or_default();
+        return Err(format!("网络扩展未能启动，已退回 TUN 组件（{e}）{back}"));
+    }
     std::fs::write(home.join("extension.enabled"), b"").map_err(|e| e.to_string())
+}
+
+/// App 启动时使用网络扩展、但隧道起不来（扩展被用户在系统设置中移除或禁用、MDM 禁止、VPN 配置被删除且未获批准）：
+/// 退回 velumd 并去掉标记，返回给用户看的说明；用户可在设置中重新开启。
+pub fn fall_back(reason: &str) -> String {
+    let msg = fall_back_inner(reason);
+    if let Ok(mut n) = NOTICE.lock() {
+        *n = Some(msg.clone());
+    }
+    msg
+}
+
+/// 退回 velumd 的说明，界面取走后显示一次（App 启动时可能还没有窗口）。
+static NOTICE: Mutex<Option<String>> = Mutex::new(None);
+
+pub fn take_notice() -> Option<String> {
+    NOTICE.lock().ok()?.take()
+}
+
+pub fn has_notice() -> bool {
+    NOTICE.lock().is_ok_and(|n| n.is_some())
+}
+
+fn fall_back_inner(reason: &str) -> String {
+    let home = crate::velum::home();
+    let _ = std::fs::remove_file(home.join("extension.enabled"));
+    let _ = std::fs::remove_file(home.join("extension.addr"));
+    wait_listen_port(&home);
+    match crate::velum::ensure_running() {
+        Ok(()) => format!("网络扩展未能启动，已退回 TUN 组件：{reason}"),
+        Err(e) => format!("网络扩展未能启动（{reason}），启动 velumd 也失败：{e}"),
+    }
 }
 
 /// 切回 helper：停止隧道（系统撤销其路由与 DNS），去掉标记，启动 velumd。扩展容器里的设置不会带回用户目录。
