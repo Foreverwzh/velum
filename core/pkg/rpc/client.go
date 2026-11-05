@@ -20,6 +20,9 @@ import (
 	"github.com/Foreverwzh/velum/core/pkg/ipc"
 )
 
+// slowTimeout 是拉取订阅类请求的超时。
+const slowTimeout = 5 * time.Minute
+
 type Client struct {
 	http *http.Client
 }
@@ -44,13 +47,25 @@ func NewClient(addrs ...string) *Client {
 }
 
 func (c *Client) do(method, path string, body, out any) error {
+	return c.doWith(c.http, method, path, body, out)
+}
+
+// doSlow 用于要拉取订阅和规则集的请求：首次加载时拉取 providers、规则集可能超过普通请求的 30 秒，
+// 此时 velumd 其实在正常进行，把它报成失败会误导用户。
+func (c *Client) doSlow(method, path string, body, out any) error {
+	hc := *c.http
+	hc.Timeout = slowTimeout
+	return c.doWith(&hc, method, path, body, out)
+}
+
+func (c *Client) doWith(hc *http.Client, method, path string, body, out any) error {
 	var rd io.Reader
 	if body != nil {
 		b, _ := json.Marshal(body)
 		rd = bytes.NewReader(b)
 	}
 	req, _ := http.NewRequest(method, "http://velumd"+path, rd)
-	resp, err := c.http.Do(req)
+	resp, err := hc.Do(req)
 	if err != nil {
 		return err
 	}
@@ -76,12 +91,12 @@ func (c *Client) Status() (*Status, error) {
 
 func (c *Client) Reload() (*Status, error) {
 	var s Status
-	return &s, c.do(http.MethodPost, "/v1/reload", nil, &s)
+	return &s, c.doSlow(http.MethodPost, "/v1/reload", nil, &s)
 }
 
 func (c *Client) Update() (*Status, error) {
 	var s Status
-	return &s, c.do(http.MethodPost, "/v1/update", nil, &s)
+	return &s, c.doSlow(http.MethodPost, "/v1/update", nil, &s)
 }
 
 func (c *Client) Stop() error { return c.do(http.MethodPost, "/v1/stop", nil, nil) }
@@ -138,7 +153,7 @@ func (c *Client) SaveOverlay(content string) (*Status, error) {
 
 func (c *Client) Repair() (*RepairResponse, error) {
 	var r RepairResponse
-	return &r, c.do(http.MethodPost, "/v1/repair", nil, &r)
+	return &r, c.doSlow(http.MethodPost, "/v1/repair", nil, &r)
 }
 
 func (c *Client) Warnings() (*WarningsResponse, error) {
@@ -188,7 +203,7 @@ func (c *Client) SetTUNApps(req TUNApps) (*Status, error) {
 
 func (c *Client) SetSubscription(req SetSubscriptionRequest) (*Status, error) {
 	var s Status
-	return &s, c.do(http.MethodPut, "/v1/subscription", req, &s)
+	return &s, c.doSlow(http.MethodPut, "/v1/subscription", req, &s)
 }
 
 func (c *Client) Profiles() ([]ProfileStatus, error) {
@@ -198,7 +213,7 @@ func (c *Client) Profiles() ([]ProfileStatus, error) {
 
 func (c *Client) AddProfile(req AddProfileRequest) (*Status, error) {
 	var s Status
-	return &s, c.do(http.MethodPost, "/v1/profiles", req, &s)
+	return &s, c.doSlow(http.MethodPost, "/v1/profiles", req, &s)
 }
 
 func (c *Client) EditProfile(id string, req EditProfileRequest) (*Status, error) {
@@ -214,13 +229,13 @@ func (c *Client) DeleteProfile(id string) (*Status, error) {
 // ActivateProfile 切换到订阅 id（重新加载，失败时保持原订阅）。
 func (c *Client) ActivateProfile(id string) (*Status, error) {
 	var s Status
-	return &s, c.do(http.MethodPost, "/v1/profiles/"+url.PathEscape(id)+"/activate", nil, &s)
+	return &s, c.doSlow(http.MethodPost, "/v1/profiles/"+url.PathEscape(id)+"/activate", nil, &s)
 }
 
 // UpdateProfile 重新拉取订阅 id（同时更新流量额度）。
 func (c *Client) UpdateProfile(id string) (*Status, error) {
 	var s Status
-	return &s, c.do(http.MethodPost, "/v1/profiles/"+url.PathEscape(id)+"/update", nil, &s)
+	return &s, c.doSlow(http.MethodPost, "/v1/profiles/"+url.PathEscape(id)+"/update", nil, &s)
 }
 
 func (c *Client) Helper() (*HelperStatus, error) {
