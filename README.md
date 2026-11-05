@@ -24,7 +24,7 @@
 | Windows（x64） | 预发布，待真机验收 | 核心以 Windows 服务运行，使用 wintun |
 | Android 10+ | 预发布，模拟器验证通过 | VpnService，支持按应用分流 |
 | iOS | 计划中 | — |
-| Linux | 仅命令行（系统代理 / 本地端口），桌面端计划中 | — |
+| Linux | 需自行编译，仅本地端口；服务器版开发中，桌面端计划中 | 规划中 |
 
 ## 安装
 
@@ -66,7 +66,7 @@ cd mobile && sh scripts/core.sh && flutter build apk --release --split-per-abi
 ## 文档
 
 - [架构设计](docs/ARCHITECTURE.md)：决策记录、进程模型、各平台 TUN 方案、订阅转换、路线图
-- 各阶段实施记录：[M1](docs/M1-PLAN.md)（核心与 CLI）、[M1.5](docs/M15-PLAN.md)（macOS TUN 与网络感知）、[M2](docs/M2-PLAN.md)（桌面端与 Windows）、[M3](docs/M3-PLAN.md)（Android）
+- 各阶段实施记录：[M1](docs/M1-PLAN.md)（核心与 CLI）、[M1.5](docs/M15-PLAN.md)（macOS TUN 与网络感知）、[M2](docs/M2-PLAN.md)（桌面端与 Windows）、[M3](docs/M3-PLAN.md)（Android）、[ML](docs/ML-PLAN.md)（Linux）
 
 ## 许可证
 

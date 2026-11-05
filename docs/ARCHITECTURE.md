@@ -16,7 +16,7 @@
 | D4 | macOS TUN 方案 | **SMAppService 特权 helper 创建 utun + 配路由，`SCM_RIGHTS` 传 FD 给用户态 `velumd`**；不用 SystemExtension | ✅ 已定（理由见 §3.2） |
 | D5 | Windows TUN 方案 | `velumd` 以 Windows Service 运行，sing-box 原生 wintun + auto_route | ✅ 已定 |
 | D6 | 移动端分发（Ad Hoc / TestFlight / 其他） | 待定，M3 开始前决定。**前提：需要付费 Apple 开发者计划**（免费账号不能使用 Network Extension / App Groups，M0 的 iOS 两项也因此阻塞） | ⏳ 待定 |
-| D7 | Linux 支持方案 | 低优先级，未排期。倾向：`velumd` 以 systemd 系统服务运行，`User=` 为安装用户，通过 `AmbientCapabilities` 获得网络权限（不以 root 运行）；见 §3.7 | ⏳ 待定 |
+| D7 | Linux 支持方案 | **先做服务器**：`velumd` 以 systemd 系统服务运行，专用用户 `velum`，通过 `AmbientCapabilities` 获得网络权限（不以 root 运行）；桌面端排在之后，服务以安装用户运行。见 §3.7、[ML-PLAN](ML-PLAN.md) | ✅ 已定（2026-11-05） |
 | D8 | 开源许可证 | **GPL-3.0-or-later**。velumd、Android 核心静态链接 sing-box（GPL-3.0-or-later），发布产物整体须以 GPLv3 提供源码；sing-box 许可证另有条款：衍生作品未经许可不得使用其名称或暗示关联（Velum 只做事实性说明）。**影响 D6**：GPLv3 与 App Store 条款存在冲突（附加使用限制），iOS 上架前需评估（可能只能走 TestFlight 以外的分发方式，或取得 sing-box 作者授权） | ✅ 已定（2026-10-20） |
 
 ---
@@ -176,8 +176,9 @@ type PlatformHooks interface {
 | macOS | `velum-helper` | root（SMAppService LaunchDaemon） | utun、路由表、`SCPreferences` 系统代理、崩溃兜底 |
 | Windows | Tauri App | 用户 | UI、托盘、安装服务（UAC） |
 | Windows | `velumd` | SYSTEM（Windows Service） | Go 核心 + sing-box，wintun + 路由 |
-| Linux（规划，§3.7） | Tauri App | 用户 | UI、托盘、安装服务（pkexec） |
-| Linux（规划，§3.7） | `velumd` | 安装用户 + `CAP_NET_ADMIN` 等（systemd 系统服务） | Go 核心 + sing-box，原生 tun + auto_route |
+| Linux 服务器（规划，§3.7） | `velumd` | 专用用户 `velum` + `CAP_NET_ADMIN` 等（systemd 系统服务） | Go 核心 + sing-box，本地端口；TUN 需明确开启（原生 tun + auto_route） |
+| Linux 桌面（规划，§3.7） | Tauri App | 用户 | UI、托盘、安装服务（pkexec） |
+| Linux 桌面（规划，§3.7） | `velumd` | 安装用户 + `CAP_NET_ADMIN` 等（systemd 系统服务） | 同服务器 |
 | iOS | Flutter App | 沙盒 | UI、配置编辑、订阅更新与转换（编译产物写入 App Group） |
 | iOS | PacketTunnel 扩展 | NE 沙盒，≤50MB | **仅运行 engine + 最小 RPC**，加载预编译好的 JSON |
 | Android | Flutter App + VpnService | 同进程 | 核心（完整 daemon）在 App 进程内运行；界面经 HTTP over UDS 访问，VpnService 经 gomobile 接口为核心建立 VPN（见 `docs/M3-PLAN.md`） |
@@ -249,27 +250,25 @@ type PlatformHooks interface {
 - 鉴权：macOS socket 文件位于用户目录、权限 `0600`；Windows 使用 Pipe ACL，客户端校验 Pipe 所有者。
 - sing-box 自带的 `clash_api` **默认关闭**。连接数据通过 `Router.AppendTracker` 在进程内获取（M0 已验证，见 §4.4），统计由 tracker 自行累计。
 
-### 3.7 Linux（低优先级，规划中）
+### 3.7 Linux（规划中，先做服务器）
 
-**现状**（M2.4 之后）：`velumd` / `vlu` 可以在 Linux 上编译运行，订阅、分流、策略组、`vlu why` 和本地混合端口都可用；但不接管系统代理，TUN 明确标为不可用，没有 NetworkSense，没有桌面端安装包，CI 也不跑 Linux。目前只能手动编译，作为本地代理使用。
+完整方案与步骤见 [ML-PLAN](ML-PLAN.md)。
 
-**目标范围**：先支持 Ubuntu 22.04+ / Debian 12（x86_64、arm64），桌面环境以 GNOME 为主，KDE 次之；其他发行版和桌面环境「能跑但不保证」。
+**现状**：`velumd` / `vlu` 可以编译到 Linux，但测试和实际运行都未验证；不接管系统代理，TUN 明确标为不可用，没有 NetworkSense，没有安装包，CI 也不跑 Linux。
 
-**方案要点**（D7 待定，以下为倾向）：
+**阶段一：服务器（Ubuntu 22.04+ / Debian 12，x86_64、arm64）**
 
-- **进程与权限**：`velumd` 作为 systemd **系统**服务运行，`User=` 设为安装用户，`AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW CAP_NET_BIND_SERVICE`。
-  - 进程以用户身份运行，配置、数据、socket 都留在用户目录，不需要 Windows 那样的 ProgramData 分离和用户模拟；
-  - 不需要 macOS 那样的 root helper：sing-box 原生 tun + `auto_route`（必要时 `auto_redirect`）在具备 `CAP_NET_ADMIN` 时即可工作；
-  - systemd 用户服务（`systemctl --user`）拿不到 ambient capabilities，因此只适合仅代理模式，可作为不装服务时的退路（与 Windows 的「用户模式」对应）。
-- **系统代理**：按桌面环境选择后端，放在 `pkg/sysproxy`，沿用同一套快照 / 还原 / 启动自愈流程。
-  - GNOME 系：`gsettings` 的 `org.gnome.system.proxy`（mode、http / https / socks、ignore-hosts）；
-  - KDE：`kwriteconfig5/6` 写 `kioslaverc`，并发 D-Bus 通知刷新；
-  - 其他环境：报告「不支持自动设置」，界面给出手动设置与 `http_proxy` 环境变量的说明；
-  - 服务进程需带上用户会话的 `DBUS_SESSION_BUS_ADDRESS`（`/run/user/<uid>/bus`）才能写 gsettings。
-- **DNS**：多数发行版使用 systemd-resolved。TUN 模式下由 sing-box 劫持 DNS；分流型 VPN 的域名通过 resolved 的按链路域（per-link domains）识别，对应 Windows 的 NRPT。
-- **NetworkSense**：用 netlink（rtnetlink）订阅路由与网卡变化；VPN 判定依据网卡类型（tun / wireguard / ppp）和 resolved 的链路域；Captive 探测用 `SO_BINDTODEVICE` 绑定物理网卡（需 `CAP_NET_RAW`）。
-- **本地 RPC**：与 macOS 相同，HTTP over UDS，socket 位于用户目录，权限 `0600`。
-- **桌面端**：Tauri 在 Linux 依赖 webkit2gtk-4.1，托盘依赖 libayatana-appindicator（GNOME 需要 AppIndicator 扩展）；打包为 .deb 和 AppImage；开机启动用 `~/.config/autostart/*.desktop`；安装服务通过 `pkexec velumd service install`。
+- **进程与权限**：systemd 系统服务，专用用户 `velum`，`AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW CAP_NET_BIND_SERVICE`。配置在 `/etc/velum`，数据在 `/var/lib/velum`，本地接口在 `/run/velum/velumd.sock`（`velum` 组可访问）。
+- **默认只开本地端口**：以服务运行时拒绝无认证的对外监听。
+- **TUN 需明确开启，并经试运行确认**：sing-box 原生 tun + `auto_route`；回退定时器独立于 velumd，确认前不写入配置，防止把用户锁在服务器外。入站回包、Docker、防火墙共存等问题先在虚拟机中验证。
+- **DNS**：同时支持 systemd-resolved 和纯 `/etc/resolv.conf`，优先在路由层劫持。
+- **NetworkSense**：netlink 取路由与网卡，resolved 取按链路域；服务模式不做 Captive 探测。
+
+**阶段二：桌面（不排期）**
+
+- **进程与权限**：系统服务以安装用户运行（`User=`），配置留在用户目录；systemd 用户服务拿不到 ambient capabilities，只适合不开 TUN 的情况。
+- **系统代理**：GNOME 用 `gsettings`，KDE 用 `kwriteconfig5/6` 并发 D-Bus 通知，沿用快照 / 还原 / 启动自愈；其他环境给出手动设置说明。服务进程需等用户会话的 `/run/user/<uid>/bus` 出现。
+- **桌面端**：Tauri 依赖 webkit2gtk-4.1，托盘依赖 libayatana-appindicator（GNOME 需要 AppIndicator 扩展）；先出 .deb，后出 AppImage；开机启动用 `~/.config/autostart/*.desktop`；安装服务通过 `pkexec`。
 
 ---
 
@@ -595,19 +594,13 @@ iOS（⛔ 阻塞：需要付费 Apple 开发者账号）：
 - [ ] 单连接握手耗时诊断（需评估对 sing-box 的侵入程度）。
 - [ ] 若出现明确需求，再评估实现第二个 Engine。
 
-### 🧊 ML：Linux 桌面（低优先级，未排期）
+### 🧊 ML：Linux（先做服务器）
 
-排在 M3 之后，或有明确需求时再启动。设计见 §3.7，开工前先确定 D7。
+方案与验收见 [ML-PLAN](ML-PLAN.md)。
 
-- [ ] 决定 D7（Linux 进程与权限模型）。
-- [ ] CI 加入 ubuntu（core 测试；desktop 编译打包）。
-- [ ] 系统代理：GNOME（gsettings）与 KDE 后端，接入快照 / 还原 / 自愈；其他环境给出手动设置说明。
-- [ ] `velumd service install|uninstall|start|stop|status`（systemd 系统服务，`User=` + ambient capabilities）。
-- [ ] TUN：sing-box 原生 tun + `auto_route`，补 render 与编译器的 Linux 分支；验证与 systemd-resolved 的 DNS 配合。
-- [ ] NetworkSense：netlink 路由 / 网卡、resolved 链路域、Captive 绑定物理网卡。
-- [ ] 桌面端：托盘、pkexec 安装服务、autostart、.deb / AppImage 打包。
-- **验收**：Ubuntu 24.04 GNOME 上安装 .deb 后，系统代理与 TUN 均可开关；`kill -9 velumd` 后系统代理被还原、网络恢复；连接 / 断开 WireGuard 或 OpenVPN 时内网可用。
-
+- [x] 决定 D7（Linux 进程与权限模型）。
+- [ ] 阶段一（服务器）：L1 构建与发布 → L2 系统服务 → L3 TUN 验证 → L4 TUN 实现 → L5 共存与感知 → L6 发布。
+- [ ] 阶段二（桌面，不排期）：系统代理、托盘、pkexec、.deb / AppImage。
 
 ### 🎯 MN：macOS TUN 改用 NetworkExtension（已验证，实施计划见 `docs/MN-PLAN.md`）
 
