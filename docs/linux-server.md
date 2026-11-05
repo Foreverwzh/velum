@@ -1,6 +1,6 @@
 # 在 Linux 服务器上部署 Velum
 
-支持 Ubuntu 22.04 / 24.04、Debian 12（x86_64、arm64），需要 systemd。其他 systemd 发行版能跑但不保证。
+需要 systemd。实际验证过 Ubuntu 24.04 和 Debian 13（x86_64）；arm64 只跑过自动化测试；Ubuntu 22.04、Debian 12 在支持范围内，但还没有实测。其他 systemd 发行版能跑但不保证。
 
 Velum 以专用用户 `velum` 运行，不需要 root。配置在 `/etc/velum`，数据在 `/var/lib/velum`，日志用 `journalctl -u velum` 查看。
 

@@ -49,6 +49,7 @@
 | 无 TUN 时如何使用 | 新增 `vlu env`，输出 `export http_proxy=…`；文档给出 apt、Docker daemon、systemd 服务的代理设置方法。**不实现桌面代理后端**，服务器上 `system_proxy` 显示为不适用 |
 | TUN | `render.go` 的 Linux 分支：sing-box 原生 tun + **`auto_route` + `auto_redirect`**（只用 `auto_route` 时，绑定通配地址的 UDP 服务回包会进隧道，见 `spikes/ml-linux/README.md` F1）。默认排除 RFC1918、`169.254.0.0/16`、`fc00::/7`、`fe80::/10`（否则云元数据和同 VPC 其他子网会进隧道，F7）。只在服务模式下提供：崩溃清理和回退都依赖 systemd |
 | 崩溃清理 | `auto_redirect` 崩溃后留下 `inet sing-box` 表和 `ip rule`，容器出站不通，规则还会累积（F3）。`velumd service cleanup-net` 负责清理，由 `ExecStartPre` 和 `ExecStopPost` 调用。用 netlink 实现，不依赖 `nft` 命令；优先级 1 和 32768 上的规则要同时符合 sing-tun 的特征才删除，其他程序的规则不动。表名是 sing-box 写死的，**同机另跑 sing-box 的 `auto_redirect` 时会互相影响** |
+| 接管时的已有连接 | `auto_redirect` 的 output 链是 nat 类型。没有防火墙的机器上连接跟踪平时不工作，接管那一刻才开始，此时本机先发包的已建立连接（如正在输出的 SSH）会被当成新连接重定向给 sing-box，收到 RST。内核打开 TUN 前先加 `inet velum-guard` 表，把「新连接但不是 SYN」的出站 TCP 标记为 sing-box 自己的流量，它的链就会放行；退出接管后移除，崩溃后由 `cleanup-net` 清除。代价：接管前已建立的出站连接继续直连 |
 | TUN 试运行 | 见下节 |
 | DNS | 由路由层劫持 53 端口，不改系统文件，`tun.dns_hijack` 在 Linux 上不生效。内核直接问系统的上游 DNS（`/run/systemd/resolve/resolv.conf`，否则 `/etc/resolv.conf`），避免查询绕回自己。**上游 DNS 落在默认排除网段时单独加回隧道**，否则 systemd-resolved 的查询绕过劫持；这个地址上的其他连接走直连。限制：只有本机解析器（dnsmasq 等）时拿不到上游，会给出告警；云厂商内网域名可能解析不了（按设计推断，没有在云主机上测），见 L5 |
 | 网络感知 | `netsense.LinuxSnapshot`：netlink 取网卡和路由（隧道网卡按类型识别，含它们自己的路由表），`resolvectl` 取按链路的域名，WireGuard 对端地址绕过隧道。覆盖网络的 CGNAT 路由合并成整段，对端上下线不会触发重新加载。服务模式下不做 Captive 探测，也不因其他全局 VPN 暂停接管（`captive_portal`、`yield_to_full_vpn` 不生效）：Velum 优先于全局型 VPN |
@@ -121,7 +122,13 @@ L2 完成后可以发布「端口模式」版本，不必等 TUN。
   - TUN 开启时从 0.5.0 升到 0.6.0：配置不变，仍以 `velum` 用户运行，TUN 恢复，外网正常，`ip rule` 不变，SSH 长连接没断。
   - 新版本实际版本不符时恢复旧版本，TUN 和外网恢复；`--version` 可以降级，版本不存在时报错。
   - 真实私钥和程序内置公钥已确认匹配（用 `tauri signer` 签一段临时文本后校验）。
-- **L6 尚未验证**：`release.yml` 的 Linux 产物和签名步骤、从 GitHub 下载的 `install.sh` 与 `vlu upgrade`，要等第一次打标签；`vlu status` 的新版本提示（这次验收的时间短于首次检查的等待时间）；云主机上的真实公网入站和云厂商内网域名。
+- **rc.15 真实发布（2026-11-05）**：`release.yml` 全部成功，Linux 压缩包、`SHA256SUMS` 与签名都已发布。
+- **公网验证（Debian 13 x86_64 云主机，本地订阅，全部直连；公网客户端是不经代理的另一台机器）**：
+  - 从 GitHub 下载 `install.sh` 安装成功（首次遇到 GitHub 504，已给下载加重试）；`vlu upgrade --version` 用真实发布验签通过；改动过的 `SHA256SUMS` 被真实公钥拒绝。
+  - 接管前后：公网 IPv4、IPv6 的 SSH 和通配地址 UDP 都正常，回包来源正确；本机 IPv4、IPv6 出站和解析正常。
+  - 回退与确认：超时自动回退、新 SSH 连接确认、`kill -9` 后恢复都正常，独立看门狗没有触发。
+  - **发现并修复：rc.15 在没有防火墙的服务器上，接管时会断开正在输出的 SSH**（15 轮全断，修复后 15 轮全通，长连接不断）。虚拟机开着 Docker，连接跟踪早已工作，所以之前没有测出来。修复不在 rc.15 里。
+- **L6 尚未验证**：`vlu status` 的新版本提示；云厂商元数据和内网域名（这台云主机没有这些服务）；云主机上的真实节点（只在虚拟机上验证过）；Docker 配合公网。
 - **测试注意**：以 root 在 netns 里运行 velumd 时，sing-tun 调用的 `resolvectl` 会按 netns 内的网卡序号改动主机的 systemd-resolved，所以 `netns-tun.sh` 用不含 `resolvectl` 的 PATH 运行。服务以 `velum` 用户运行时，虚拟机上 `velum0` 没有被设置 DNS，查询由 53 端口劫持处理。
 - **L2 尚未验证**：Ubuntu 22.04、Debian 12 和 arm64 上的完整安装（arm64 只有 CI 覆盖）；`install.sh` 从 GitHub 下载的路径要等发布后才能测。
 

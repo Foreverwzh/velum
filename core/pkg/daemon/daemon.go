@@ -82,6 +82,8 @@ type Daemon struct {
 	TUNRevertMarker string
 	// ServerMode（Linux 服务）：不做 Captive 探测，也不因其他全局 VPN 暂停接管：服务器上没有人去完成网页认证，暂停只会让流量绕过 Velum。
 	ServerMode bool
+	// TUNGuard 在内核打开 TUN 之前（true）、关闭 TUN 之后（false）调用（Linux：防止接管时断开已建立的连接）。失败不影响接管。
+	TUNGuard func(on bool) error
 	// TUNAdvisories 在 TUN 开启时返回需要用户处理的环境问题（如防火墙挡住容器流量）。
 	TUNAdvisories func() []ir.Warning
 	// SystemDNS 返回系统实际使用的上游 DNS（Linux）：路由层接管 DNS 时，内核不能再问系统解析器，否则查询会绕回来。
@@ -489,6 +491,7 @@ func (d *Daemon) reload(ctx context.Context) error {
 		d.retryMissing(st)
 		return nil
 	}
+	d.guardTUN(st, true)
 	if err := d.Engine.Restart(ctx, d.engineConfig(st)); err != nil {
 		d.setErr(err)
 		// 新配置无法启动：尝试恢复旧配置
@@ -499,6 +502,7 @@ func (d *Daemon) reload(ctx context.Context) error {
 		}
 		return err
 	}
+	d.guardTUN(st, false)
 	d.mu.Lock()
 	d.st, d.lastErr = st, ""
 	d.mu.Unlock()
@@ -567,16 +571,19 @@ func (d *Daemon) Run(ctx context.Context) error {
 	st, err := d.build(fetchCached)
 	if err != nil {
 		d.setErr(err) // 配置有误时仍启动 RPC，便于 vlu status 查看原因；修正后 vlu reload
-	} else if err := d.Engine.Start(ctx, d.engineConfig(st)); err != nil {
-		d.setErr(err)
 	} else {
-		d.mu.Lock()
-		d.st = st
-		d.mu.Unlock()
-		d.syncSysProxy(st)
-		d.Logger.Printf("velumd %s 已启动：listen=%s 系统代理=%v TUN=%v，%d 节点 / %d 规则", Version, st.cfg.Listen, st.sysOn, st.tunOn, st.sub.Nodes, st.sub.Rules)
-		if st.stale || st.retryViaProxy {
-			d.refreshLater(ctx, fetchExpired) // 过期的订阅 / provider / 规则集在后台更新；内容未变化时不重启引擎
+		d.guardTUN(st, true)
+		if err := d.Engine.Start(ctx, d.engineConfig(st)); err != nil {
+			d.setErr(err)
+		} else {
+			d.mu.Lock()
+			d.st = st
+			d.mu.Unlock()
+			d.syncSysProxy(st)
+			d.Logger.Printf("velumd %s 已启动：listen=%s 系统代理=%v TUN=%v，%d 节点 / %d 规则", Version, st.cfg.Listen, st.sysOn, st.tunOn, st.sub.Nodes, st.sub.Rules)
+			if st.stale || st.retryViaProxy {
+				d.refreshLater(ctx, fetchExpired) // 过期的订阅 / provider / 规则集在后台更新；内容未变化时不重启引擎
+			}
 		}
 	}
 	d.mu.Lock()
@@ -612,6 +619,16 @@ func (d *Daemon) Run(ctx context.Context) error {
 }
 
 func (d *Daemon) Shutdown() { d.stopOnce.Do(func() { close(d.stop) }) }
+
+// guardTUN 按 st 调整连接保护：before 为 true 时只在需要接管时加上（内核启动前），为 false 时只在不接管时移除（内核关闭 TUN 后）。
+func (d *Daemon) guardTUN(st *state, before bool) {
+	if d.TUNGuard == nil || st.tunOn != before {
+		return
+	}
+	if err := d.TUNGuard(before); err != nil {
+		d.Logger.Printf("连接保护：%v", err)
+	}
+}
 
 // sense 返回实际生效的网络感知设置。
 func (d *Daemon) sense(ns config.NetworkSense) config.NetworkSense {

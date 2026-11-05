@@ -24,6 +24,7 @@ func setupPlatform(d *daemon.Daemon, _ config.Paths) {
 	d.SocketMode, d.LoopbackListenOnly = 0o660, true
 	d.TUNTrials, d.TUNRevertMarker = true, revertMarker
 	d.ServerMode = true
+	d.TUNGuard = setConnGuard
 	d.SystemDNS = netsense.SystemUpstreamDNS
 	d.NetSnapshot = netsense.LinuxSnapshot(render.LinuxTUNName)
 	d.TUNAdvisories = firewallAdvisories

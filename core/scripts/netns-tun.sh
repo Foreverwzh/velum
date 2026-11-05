@@ -82,6 +82,28 @@ while True:
     d,a=s.recvfrom(100); s.sendto(d,a)
 PY
 $S python3 "$work/udp.py" & pids+=($!)
+# 服务端先发包的连接（相当于正在输出的 SSH）：接管后第一个包由本机发出。
+# 间隔不能短：客户端的延迟 ACK 约 40 毫秒后回来，发得太频繁时接管后的第一个包多半是这个 ACK，就测不出问题
+cat >"$work/push.py" <<'PY'
+import socket,time
+s=socket.socket(); s.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1); s.bind(("0.0.0.0",2224)); s.listen(4)
+c,_=s.accept()
+while True:
+    c.sendall(b"p"); time.sleep(1)
+PY
+$S python3 "$work/push.py" & pids+=($!)
+cat >"$work/pushc.py" <<'PY'
+import socket,sys
+c=socket.create_connection(("203.0.113.10",2224),timeout=5); c.settimeout(5)
+f=open(sys.argv[1],"w",buffering=1)
+while True:
+    try:
+        if not c.recv(100):
+            f.write("closed\n"); sys.exit(1)
+        f.write("ok\n")
+    except Exception as e:
+        f.write("broken %r\n"%(e,)); sys.exit(1)
+PY
 cat >"$work/echo6.py" <<'PY'
 import socket,threading
 s=socket.socket(socket.AF_INET6); s.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1); s.setsockopt(socket.IPPROTO_IPV6,socket.IPV6_V6ONLY,1); s.bind(("::",2222)); s.listen(16)
@@ -188,6 +210,7 @@ $S ip rule add priority 32764 not fwmark 0xca6c lookup 51820
 base="$(rules)"
 
 $C python3 "$work/long.py" "$work/long.log" & pids+=($!)
+$C python3 "$work/pushc.py" "$work/push.log" & pids+=($!)
 sleep 1.5
 
 echo "=== 接管"
@@ -197,6 +220,8 @@ wait_tun; check "nft 表已建立" "$(nft_tables)" 1
 check "TUN 网卡" "$($S ip -br link show velum0 2>/dev/null | wc -l | tr -d ' ')" 1
 sleep 1
 check "已有连接未断" "$(tail -1 "$work/long.log")" ok
+sleep 2
+check "服务端先发包的已有连接未断" "$(tail -1 "$work/push.log" | cut -c1-40)" ok
 check "新连接" "$(newconn)" 通
 check "通配地址的 UDP" "$(udp)" 通
 check "出站" "$(out_http 192.0.2.1)" 通
@@ -219,6 +244,7 @@ for i in 1 2 3; do
   [ "$i" != 1 ] || check "崩溃后有残留（否则这个测试什么也没验证）" "$(nft_tables)" 1
   $S "$bin/velumd" service cleanup-net || { echo "  ✗ cleanup-net 失败"; failed=1; }
   check "第 $i 次：nft 表已清除" "$(nft_tables)" 0
+  check "第 $i 次：连接保护表已清除" "$($S nft list tables 2>/dev/null | grep -c velum-guard)" 0
   check "第 $i 次：ip rule 恢复原样，别人的规则还在" "$(rules)" "$base"
   check "第 $i 次：出站" "$(out_http 192.0.2.1)" 通
   check "第 $i 次：UDP" "$(udp)" 通
@@ -234,6 +260,8 @@ echo "=== 正常关闭"
 "$vlu" tun off >/dev/null 2>&1
 for _ in $(seq 1 50); do [ "$(nft_tables)" = 0 ] && break; sleep 0.1; done
 check "关闭后没有 nft 表" "$(nft_tables)" 0
+check "关闭后没有连接保护表" "$($S nft list tables 2>/dev/null | grep -c velum-guard)" 0
+check "全程服务端先发包的连接未断" "$(tail -1 "$work/push.log" | cut -c1-40)" ok
 check "关闭后 ip rule 恢复原样" "$(rules)" "$base"
 check "关闭后出站" "$(out_http 192.0.2.1)" 通
 

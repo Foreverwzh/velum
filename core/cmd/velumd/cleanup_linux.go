@@ -48,10 +48,10 @@ func cleanupNet() error {
 		errs = append(errs, fmt.Errorf("列出 nftables 表：%w", err))
 	} else {
 		for _, t := range tables {
-			if t.Name == nftTable {
+			if t.Name == nftTable || t.Name == guardTable {
 				nft.DelTable(t)
 				if err := nft.Flush(); err != nil {
-					errs = append(errs, fmt.Errorf("删除 nftables 表 %s：%w", nftTable, err))
+					errs = append(errs, fmt.Errorf("删除 nftables 表 %s：%w", t.Name, err))
 				}
 			}
 		}

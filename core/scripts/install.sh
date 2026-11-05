@@ -56,8 +56,8 @@ else
   name="Velum-$version-linux-$arch.tar.gz"
   base="https://github.com/$repo/releases/download/v$version"
   echo "下载 $name"
-  curl -fsSL "$base/$name" -o "$tmp/$name" || die "下载失败；可以下载压缩包后本地安装"
-  curl -fsSL "$base/SHA256SUMS" -o "$tmp/SHA256SUMS" || die "下载校验和失败"
+  curl -fsSL --retry 3 --retry-delay 3 "$base/$name" -o "$tmp/$name" || die "下载失败；可以下载压缩包后本地安装"
+  curl -fsSL --retry 3 --retry-delay 3 "$base/SHA256SUMS" -o "$tmp/SHA256SUMS" || die "下载校验和失败"
   verify "$tmp/$name" "$tmp/SHA256SUMS"
   unpack "$tmp/$name"
 fi
