@@ -56,9 +56,9 @@ type Engine struct {
 	// stopped：Stop 之后不再启动。daemon 退出时后台可能仍有进行中的重新加载（如拉取 providers 后重启引擎）；
 	// velumd 随即退出无妨，但 macOS 系统扩展的进程在隧道停止后继续存在，复活的内核会一直占着端口。
 	stopped bool
-	bctx     context.Context // 内核的 context（含 DNS 路由器等服务）
-	plat     *platform       // 平台接口：TUN 模式下持有 helper 会话；macOS 上另负责连接归属查询
-	ownTUN   string          // 内核自建 TUN（Windows）的网卡名
+	bctx    context.Context // 内核的 context（含 DNS 路由器等服务）
+	plat    *platform       // 平台接口：TUN 模式下持有 helper 会话；macOS 上另负责连接归属查询
+	ownTUN  string          // 内核自建 TUN（Windows）的网卡名
 
 	mu       sync.Mutex // 连接数据与运行时引用
 	router   adapter.Router
