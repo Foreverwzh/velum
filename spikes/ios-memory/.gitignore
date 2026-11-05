@@ -1,0 +1,8 @@
+build/
+*.xcodeproj/
+App/Info.plist
+App/*.entitlements
+Tunnel/Info.plist
+Tunnel/*.entitlements
+# 含节点信息，绝不能提交
+cfg*.json

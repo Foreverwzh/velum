@@ -1,0 +1,67 @@
+name: VelumIOSSpike
+options:
+  bundleIdPrefix: dev.velum.spike
+  deploymentTarget:
+    iOS: "16.0"
+settings:
+  base:
+    DEVELOPMENT_TEAM: H3H5ULV8KR
+    CODE_SIGN_STYLE: Automatic
+    SWIFT_VERSION: "5.0"
+    ARCHS: arm64
+    SDKROOT: iphoneos
+    CURRENT_PROJECT_VERSION: 1
+    MARKETING_VERSION: "0.1"
+    ENABLE_BITCODE: NO
+targets:
+  VelumIOSSpike:
+    type: application
+    platform: iOS
+    sources: [App]
+    info:
+      path: App/Info.plist
+      properties:
+        CFBundleDisplayName: Velum 内存
+        UILaunchScreen: {}
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
+    entitlements:
+      path: App/App.entitlements
+      properties:
+        com.apple.developer.networking.networkextension: [packet-tunnel-provider]
+        com.apple.security.application-groups: [group.dev.velum.spike.ios]
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: dev.velum.spike.ios
+    dependencies:
+      - target: VelumIOSSpikeTunnel
+        embed: true
+      - sdk: NetworkExtension.framework
+  VelumIOSSpikeTunnel:
+    type: app-extension
+    platform: iOS
+    sources: [Tunnel]
+    info:
+      path: Tunnel/Info.plist
+      properties:
+        CFBundleDisplayName: Velum 内存隧道
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.networkextension.packet-tunnel
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).PacketTunnelProvider
+    entitlements:
+      path: Tunnel/Tunnel.entitlements
+      properties:
+        com.apple.developer.networking.networkextension: [packet-tunnel-provider]
+        com.apple.security.application-groups: [group.dev.velum.spike.ios]
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: dev.velum.spike.ios.tunnel
+      FRAMEWORK_SEARCH_PATHS: $(PROJECT_DIR)/build
+    dependencies:
+      - framework: build/Iosprobe.xcframework
+        embed: false
+      - sdk: NetworkExtension.framework
+      - sdk: SystemConfiguration.framework
+      - sdk: Security.framework
+      - sdk: UIKit.framework
+      - sdk: libresolv.tbd

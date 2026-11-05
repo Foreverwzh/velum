@@ -43,7 +43,7 @@
 
 | 评估维度 | sing-box | mihomo (Clash.Meta) |
 | :--- | :--- | :--- |
-| iOS NetworkExtension 内存（上限约 50MB） | 官方 iOS 客户端（SFI）即基于它，`libbox` 提供 `SetMemoryLimit` | 规则/Geo 库较大时社区反馈易触发 jetsam（**未实测**） |
+| iOS NetworkExtension 内存（上限约 50MB） | 官方 iOS 客户端（SFI）即基于它，`libbox` 提供 `SetMemoryLimit` | 规则/Geo 库较大时社区反馈易触发 jetsam。**真机实测（iOS 27，只跑内核）**：上限 50MB，真实订阅高速下载峰值 30MB，调参后 25MB，见 `spikes/ios-memory/README.md` |
 | 平台集成 | `libbox` 是官方为 SFI/SFA/SFM 维护的门面层：`PlatformInterface`（OpenTun / 网卡监听 / 连接归属查询）+ CommandServer（统计 / 连接 / 日志） | 无同等稳定的嵌入门面 |
 | Clash YAML 订阅兼容 | **不支持**，需要自行转换（见 §4.1） | 原生支持 |
 | 内部 Go API 稳定性 | 大版本间变化频繁（`option.*`、`adapter`、context 注册） | 全局状态较多，嵌入耦合重 |
@@ -533,7 +533,7 @@ velum/
 ### 🔬 M0：技术验证（1～2 周，产出验证报告 + ADR 更新）
 
 - [x] **订阅转换损耗**：Clash → sing-box，统计支持 / 降级 / 不支持的比例。✅ 2026-10-16：真实样本（本机订阅）加覆盖型合成样本，规则语义 0 差异，报告见 `spikes/m0-subconv/`。拿到更多真实机场订阅后可直接复跑。
-- [ ] **iOS 扩展内存**：最小 NEPacketTunnel + libbox + 真实规则集（含 GeoSite-CN），在真机上测稳态与峰值内存。⛔ 阻塞：需要付费开发者账号（与 D6 一起决定）
+- [x] **iOS 扩展内存**：最小 NEPacketTunnel + 内核 + 真实订阅，真机稳态与峰值见 `spikes/ios-memory/README.md`（2026-11-05）。长时间运行和完整产品的占用还没测
 - [x] **macOS utun 传 FD**：最小 helper 创建 utun → `SCM_RIGHTS` → `velumd` 接管流量，验证路由与进程归属查询。✅ 2026-10-16，报告见 `spikes/m0-utun/README.md`
 - [x] **动态实录**：拿到「实际命中规则 + 出站链」。✅ 2026-10-16，用 `Router.AppendTracker`，不依赖 libbox / clash_api，报告见 `spikes/m0-live/README.md`
 - [ ] **Go 动态 framework**：验证 App 与扩展共享同一份打包产物。⛔ 阻塞：同上
