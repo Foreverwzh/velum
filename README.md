@@ -24,7 +24,7 @@
 | Windows（x64） | 预发布，待真机验收 | 核心以 Windows 服务运行，使用 wintun |
 | Android 10+ | 预发布，模拟器验证通过 | VpnService，支持按应用分流 |
 | iOS | 计划中 | — |
-| Linux | 需自行编译，仅本地端口；服务器版开发中，桌面端计划中 | 规划中 |
+| Linux（x64、arm64） | 命令行压缩包，仅本地端口；服务器版开发中，桌面端计划中 | 规划中 |
 
 ## 安装
 
@@ -61,7 +61,7 @@ cd desktop && mise install && bun install && bun tauri build
 cd mobile && sh scripts/core.sh && flutter build apk --release --split-per-abi
 ```
 
-推送 `v*` 标签时，CI 会构建 macOS、Windows、Android 的安装包并创建 Release（见 `.github/workflows/release.yml`）。
+推送 `v*` 标签时，CI 会构建 macOS、Windows、Android 的安装包和 Linux 的命令行压缩包并创建 Release（见 `.github/workflows/release.yml`）。
 
 ## 文档
 

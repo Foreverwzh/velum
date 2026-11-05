@@ -14,10 +14,13 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"net"
+	"net/netip"
 	"os"
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -127,6 +130,11 @@ func main() {
 				}
 			}
 		}
+	case "env":
+		var s *rpc.Status
+		if s, err = c.Status(); err == nil {
+			fmt.Print(proxyEnv(s.Listen, runtime.GOOS))
+		}
 	case "repair":
 		var r *rpc.RepairResponse
 		if r, err = c.Repair(); err == nil {
@@ -156,9 +164,34 @@ func main() {
 	}
 }
 
+// proxyEnv 生成让命令行程序经本地端口上网的环境变量设置（Windows 为 PowerShell 语法）。
+// 不同程序读取的变量大小写不一，两种都设置；监听全部地址时经回环地址连接。
+func proxyEnv(listen, goos string) string {
+	if a, err := netip.ParseAddrPort(listen); err == nil && a.Addr().IsUnspecified() {
+		lo := "127.0.0.1"
+		if a.Addr().Is6() {
+			lo = "::1"
+		}
+		listen = net.JoinHostPort(lo, strconv.Itoa(int(a.Port())))
+	}
+	vars := [][2]string{{"http_proxy", "http://" + listen}, {"https_proxy", "http://" + listen}, {"all_proxy", "socks5://" + listen}, {"no_proxy", "localhost,127.0.0.1,::1"}}
+	var b strings.Builder
+	for _, v := range vars {
+		for _, name := range []string{v[0], strings.ToUpper(v[0])} {
+			if goos == "windows" {
+				fmt.Fprintf(&b, "$env:%s=\"%s\"\n", name, v[1])
+			} else {
+				fmt.Fprintf(&b, "export %s=%s\n", name, v[1])
+			}
+		}
+	}
+	return b.String()
+}
+
 func usage() {
 	fmt.Fprint(os.Stderr, `用法：vlu <命令>
   up                启动 velumd（后台）
+  env               输出经 Velum 上网的代理环境变量，如 eval "$(vlu env)"
   down              停止 velumd
   status            查看状态
   sysproxy on|off|config  系统代理开关（重启后保持，不改 config.yaml；config = 回到 config.yaml 的设置）

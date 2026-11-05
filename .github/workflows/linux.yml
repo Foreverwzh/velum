@@ -1,0 +1,62 @@
+name: linux
+
+# 打包 Linux 命令行压缩包（velumd、vlu）并实际跑一遍冒烟测试；release.yml 调用时产物随 Release 发布。
+on:
+  push:
+    branches: ["**"] # 只按分支触发；推送版本标签由 release.yml 调用
+    paths: ["core/**", ".github/workflows/linux.yml"]
+  workflow_dispatch:
+    inputs:
+      version:
+        type: string
+        required: false
+  workflow_call:
+    inputs:
+      version:
+        type: string
+        required: true
+
+concurrency:
+  group: linux-${{ github.ref }}
+  cancel-in-progress: ${{ startsWith(github.ref, 'refs/heads/') }}
+
+jobs:
+  package:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {os: ubuntu-latest, arch: x64}
+          - {os: ubuntu-24.04-arm, arch: arm64}
+    runs-on: ${{ matrix.os }}
+    env:
+      GOPROXY: https://proxy.golang.org,direct
+      VELUM_VERSION: ${{ inputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: core/go.mod
+          cache-dependency-path: core/go.sum
+      - name: build
+        run: |
+          v="${VELUM_VERSION:-dev}"
+          name="Velum-$v-linux-${{ matrix.arch }}"
+          tags="$(sed -n 's/^TAGS ?= //p' core/Makefile)"
+          ldflags="-s -w"
+          [ -z "$VELUM_VERSION" ] || ldflags="$ldflags -X github.com/Foreverwzh/velum/core/pkg/daemon.Version=$VELUM_VERSION"
+          mkdir -p "dist-pkg/$name"
+          # 静态链接：不依赖目标系统的 glibc 版本
+          (cd core && CGO_ENABLED=0 go build -tags "$tags" -trimpath -ldflags "$ldflags" -o "../dist-pkg/$name/" ./cmd/velumd ./cmd/vlu)
+          cp LICENSE NOTICE.md "dist-pkg/$name/"
+          file "dist-pkg/$name/velumd" | grep -q "statically linked" || { file "dist-pkg/$name/velumd"; exit 1; }
+          echo "PKG_NAME=$name" >> "$GITHUB_ENV"
+      - name: smoke
+        run: sh core/scripts/smoke.sh "dist-pkg/$PKG_NAME"
+      - name: archive
+        run: tar -C dist-pkg -czf "dist-pkg/$PKG_NAME.tar.gz" "$PKG_NAME"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: linux-${{ matrix.arch }}
+          path: dist-pkg/${{ env.PKG_NAME }}.tar.gz
+          if-no-files-found: error

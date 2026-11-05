@@ -40,13 +40,17 @@ type Release struct {
 	Published time.Time // 发布时间
 }
 
-// AssetSuffix 是某个平台安装包文件名的结尾（与 .github/workflows/desktop.yml 的命名一致）；不支持的平台返回空。
+// AssetSuffix 是某个平台安装包文件名的结尾（与 .github/workflows/desktop.yml、linux.yml 的命名一致）；不支持的平台返回空。
 func AssetSuffix(goos, goarch string) string {
 	switch goos + "/" + goarch {
 	case "darwin/arm64":
 		return "-macos-arm64.zip"
 	case "windows/amd64":
 		return "-windows-x64-setup.exe"
+	case "linux/amd64":
+		return "-linux-x64.tar.gz"
+	case "linux/arm64":
+		return "-linux-arm64.tar.gz"
 	}
 	return ""
 }

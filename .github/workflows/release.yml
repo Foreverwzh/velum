@@ -30,8 +30,14 @@ jobs:
     with:
       version: ${{ needs.version.outputs.version }}
 
+  linux:
+    needs: version
+    uses: ./.github/workflows/linux.yml
+    with:
+      version: ${{ needs.version.outputs.version }}
+
   publish:
-    needs: [desktop, mobile]
+    needs: [desktop, mobile, linux]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -54,6 +60,8 @@ jobs:
               "windows-x86_64": {signature: $winsig, url: $winurl}}}' > dist/latest.json
           rm dist/*.sig
           cat dist/latest.json
+      - name: linux checksums
+        run: cd dist && sha256sum Velum-*-linux-*.tar.gz > SHA256SUMS && cat SHA256SUMS
       - name: create release
         env:
           GH_TOKEN: ${{ github.token }}
