@@ -38,6 +38,9 @@ type Release struct {
 	Download  string    // 当前平台的安装包；没有时为空
 	Manifest  string    // 自动更新清单；没有时为空（不能自动更新）
 	Published time.Time // 发布时间
+	// Prerelease 是否预发布版本；Sums、Sig 是校验和文件与它的签名（Linux 的 vlu upgrade 使用），旧版本没有时为空。
+	Prerelease bool
+	Sums, Sig  string
 }
 
 // AssetSuffix 是某个平台安装包文件名的结尾（与 .github/workflows/desktop.yml、linux.yml 的命名一致）；不支持的平台返回空。
@@ -58,6 +61,36 @@ func AssetSuffix(goos, goarch string) string {
 // Latest 返回版本号最高的发布；prerelease 为 false 时不考虑预发布版本。asset 是安装包文件名结尾（见 AssetSuffix）。
 // 没有符合条件的发布（如还没有正式版本）时返回 nil。
 func Latest(ctx context.Context, client *http.Client, api, ua string, prerelease bool, asset string) (*Release, error) {
+	list, err := fetchReleases(ctx, client, api, ua, asset)
+	if err != nil {
+		return nil, err
+	}
+	var best *Release
+	for i := range list {
+		r := &list[i]
+		if (r.Prerelease && !prerelease) || (best != nil && !Newer(r.Version, best.Version)) {
+			continue
+		}
+		best = r
+	}
+	return best, nil
+}
+
+// Find 返回指定版本的发布；不存在时返回 nil。
+func Find(ctx context.Context, client *http.Client, api, ua, version, asset string) (*Release, error) {
+	list, err := fetchReleases(ctx, client, api, ua, asset)
+	if err != nil {
+		return nil, err
+	}
+	for i := range list {
+		if list[i].Version == strings.TrimPrefix(version, "v") {
+			return &list[i], nil
+		}
+	}
+	return nil, nil
+}
+
+func fetchReleases(ctx context.Context, client *http.Client, api, ua, asset string) ([]Release, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, api, nil)
 	if err != nil {
 		return nil, err
@@ -86,26 +119,28 @@ func Latest(ctx context.Context, client *http.Client, api, ua string, prerelease
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 8<<20)).Decode(&list); err != nil {
 		return nil, fmt.Errorf("解析发布列表：%w", err)
 	}
-	var best *Release
+	var out []Release
 	for _, r := range list {
 		v := strings.TrimPrefix(r.Tag, "v")
-		if r.Draft || (r.Prerelease && !prerelease) || parse(v) == nil {
+		if r.Draft || parse(v) == nil {
 			continue
 		}
-		if best != nil && !Newer(v, best.Version) {
-			continue
-		}
-		best = &Release{Version: v, URL: r.URL, Published: r.Published}
+		rel := Release{Version: v, URL: r.URL, Published: r.Published, Prerelease: r.Prerelease}
 		for _, a := range r.Assets {
 			switch {
 			case asset != "" && strings.HasSuffix(a.Name, asset):
-				best.Download = a.URL
+				rel.Download = a.URL
 			case a.Name == Manifest:
-				best.Manifest = a.URL
+				rel.Manifest = a.URL
+			case a.Name == SumsName:
+				rel.Sums = a.URL
+			case a.Name == SigName:
+				rel.Sig = a.URL
 			}
 		}
+		out = append(out, rel)
 	}
-	return best, nil
+	return out, nil
 }
 
 // Newer 报告版本 a 是否比 b 新（语义化版本：预发布版本低于对应的正式版本，预发布标识中的数字按数值比较）。

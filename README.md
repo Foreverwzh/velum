@@ -44,7 +44,7 @@ vlu conns                      # 最近的连接
 vlu reload / vlu update        # 重新加载 / 强制更新订阅
 ```
 
-Linux 服务器：解压 Release 里的压缩包，运行 `sudo sh install.sh` 安装为系统服务，然后 `vlu sub <订阅地址>`，再用 `eval "$(vlu env)"` 让命令行程序走 Velum。配置在 `/etc/velum`，日志用 `journalctl -u velum` 查看。默认只监听回环地址；要提供给其他机器，在 `config.yaml` 里配置带用户名和密码的 `listen_public`。要全局接管，运行 `sudo vlu tun on --try`，再新开一个 SSH 连接执行 `sudo vlu tun confirm`；超时未确认会自动回退。
+Linux 服务器：解压 Release 里的压缩包，运行 `sudo sh install.sh` 安装为系统服务，然后 `vlu sub <订阅地址>`，再用 `eval "$(vlu env)"` 让命令行程序走 Velum。配置在 `/etc/velum`，日志用 `journalctl -u velum` 查看，升级用 `sudo vlu upgrade`。完整步骤见[服务器部署](docs/linux-server.md)。默认只监听回环地址；要提供给其他机器，在 `config.yaml` 里配置带用户名和密码的 `listen_public`。要全局接管，运行 `sudo vlu tun on --try`，再新开一个 SSH 连接执行 `sudo vlu tun confirm`；超时未确认会自动回退。
 
 配置文件位于 macOS 的 `~/Library/Application Support/Velum/`、Windows 的 `%AppData%\Velum\`：`config.yaml` 是主配置，`overlay.yaml` 是本地覆盖层，两者都可以直接编辑。Windows 服务模式的日志与缓存在 `%ProgramData%\Velum\`。
 

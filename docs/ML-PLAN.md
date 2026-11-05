@@ -54,7 +54,7 @@
 | 网络感知 | `netsense.LinuxSnapshot`：netlink 取网卡和路由（隧道网卡按类型识别，含它们自己的路由表），`resolvectl` 取按链路的域名，WireGuard 对端地址绕过隧道。覆盖网络的 CGNAT 路由合并成整段，对端上下线不会触发重新加载。服务模式下不做 Captive 探测，也不因其他全局 VPN 暂停接管（`captive_portal`、`yield_to_full_vpn` 不生效）：Velum 优先于全局型 VPN |
 | 防火墙 | 不修改防火墙。ufw 默认拒绝入站，而 `auto_redirect` 把容器连接重定向到本机随机高位端口，会被 INPUT 链挡住（F6）。检测到 ufw 和容器网桥时，在试运行输出和 `vlu warnings` 里给出放行命令：`sudo ufw allow from 172.16.0.0/12 proto tcp to any port 32768:60999`。检测不到规则是否已放行（规则文件只有 root 可读），所以放行后提示仍在。自定义到其他网段的 Docker 网络要相应调整 |
 | 分发 | `Velum-<版本>-linux-{x64,arm64}.tar.gz`（静态链接的 `velumd`、`vlu`、`install.sh`）+ `SHA256SUMS`。`install.sh` 校验后调用 `velumd service install`，也能离线安装本地压缩包（部分服务器访问 GitHub 不稳定） |
-| 更新 | `AssetSuffix` 增加 Linux 条目，`vlu status` 提示新版本。升级命令 `vlu upgrade` 校验并替换程序后重启服务；不做后台自动更新：服务器不应自行改变运行中的程序 |
+| 更新 | `vlu status` 提示新版本。`sudo vlu upgrade` 先校验 `SHA256SUMS` 的签名（与桌面端 updater 同一把密钥，签名里绑定版本号，旧版本的签名不能冒充新版本），再校验压缩包的校验和，通过后才解压。新版本没有正常运行（版本不符、内核或 TUN 没有恢复）时自动装回旧版本。不做后台自动更新：服务器不应自行改变运行中的程序。**首次安装不验签**：`install.sh` 只校验 `SHA256SUMS`，因为验签程序本身就在压缩包里 |
 
 ### TUN 试运行：防止锁在外面
 
@@ -115,6 +115,13 @@ L2 完成后可以发布「端口模式」版本，不必等 TUN。
   - 按链路的域名：`vlu why` 显示交给该链路的 DNS（路由器对测试域名返回 NXDOMAIN，**没有用真实的内网域名和云主机验证**）。
   - 安全：`auto_redirect` 的重定向端口监听所有地址，netns 模拟的外部连接被拒绝，已进回归。
 - **L5 已知限制**：全局型 WireGuard（`wg-quick` 的 `0.0.0.0/0`）与 TUN 同开时 Velum 优先，且只模拟过路由，没有经真实出口验证；同机另跑 sing-box 的 `auto_redirect` 会互相影响；真实 Tailscale、OpenVPN 没测。
+- **L6 代码已完成（2026-11-05，Ubuntu 24.04 x86_64 虚拟机，测试密钥加本地发布源）**：
+  - 按文档用压缩包离线安装成功，`vlu env` 可用。
+  - 拒绝且不改动程序：普通用户、试运行中、`SHA256SUMS` 被改、压缩包被改、用了其他版本的签名、没有签名文件。
+  - TUN 开启时从 0.5.0 升到 0.6.0：配置不变，仍以 `velum` 用户运行，TUN 恢复，外网正常，`ip rule` 不变，SSH 长连接没断。
+  - 新版本实际版本不符时恢复旧版本，TUN 和外网恢复；`--version` 可以降级，版本不存在时报错。
+  - 真实私钥和程序内置公钥已确认匹配（用 `tauri signer` 签一段临时文本后校验）。
+- **L6 尚未验证**：`release.yml` 的 Linux 产物和签名步骤、从 GitHub 下载的 `install.sh` 与 `vlu upgrade`，要等第一次打标签；`vlu status` 的新版本提示（这次验收的时间短于首次检查的等待时间）；云主机上的真实公网入站和云厂商内网域名。
 - **测试注意**：以 root 在 netns 里运行 velumd 时，sing-tun 调用的 `resolvectl` 会按 netns 内的网卡序号改动主机的 systemd-resolved，所以 `netns-tun.sh` 用不含 `resolvectl` 的 PATH 运行。服务以 `velum` 用户运行时，虚拟机上 `velum0` 没有被设置 DNS，查询由 53 端口劫持处理。
 - **L2 尚未验证**：Ubuntu 22.04、Debian 12 和 arm64 上的完整安装（arm64 只有 CI 覆盖）；`install.sh` 从 GitHub 下载的路径要等发布后才能测。
 
@@ -140,7 +147,6 @@ L2 完成后可以发布「端口模式」版本，不必等 TUN。
 | # | 问题 | 倾向 |
 | :--- | :--- | :--- |
 | Q1 | 是否提供 `.deb` 给服务器用户 | 暂不提供；压缩包加脚本已够用，留到阶段二一起做 |
-| Q2 | `vlu upgrade` 的校验是否只靠 `SHA256SUMS` | 校验和与压缩包都来自 GitHub，防不住发布被篡改；L6 前决定是否复用现有 updater 签名密钥签名 |
 | Q3 | 是否提供 Docker 镜像 | 暂不提供；TUN 在容器里需要额外权限，等有需求再做 |
 
 ## 风险

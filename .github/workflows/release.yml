@@ -41,6 +41,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: core/go.mod
+          cache-dependency-path: core/go.sum
       - uses: actions/download-artifact@v8
         with:
           path: dist
@@ -64,6 +68,15 @@ jobs:
         run: |
           cp core/scripts/install.sh dist/velum-install.sh
           cd dist && sha256sum Velum-*-linux-*.tar.gz velum-install.sh > SHA256SUMS && cat SHA256SUMS
+      # vlu upgrade 据此确认压缩包来自 Velum。签名绑定版本号；发布前校验一次，私钥和程序内置的公钥不匹配时发布失败
+      - name: sign checksums
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          npx --yes @tauri-apps/cli@2 signer sign --app-version "$v" dist/SHA256SUMS
+          (cd core && go run ./internal/verifyrelease ../dist/SHA256SUMS ../dist/SHA256SUMS.sig "$v")
       - name: create release
         env:
           GH_TOKEN: ${{ github.token }}

@@ -92,6 +92,8 @@ func main() {
 				fmt.Printf("⚠ 远程拉取失败，正在使用缓存：%s\n", s.Subscription.FetchErr)
 			}
 		}
+	case "upgrade":
+		err = upgrade(c, args)
 	case "why":
 		err = why(c, args)
 	case "conns", "connections":
@@ -198,6 +200,7 @@ func usage() {
   tun on|off|config       TUN 开关（需先 sudo velum-helper）；可与系统代理同时开启
                           Linux：sudo vlu tun on --try 试运行，新开 SSH 连接用 sudo vlu tun confirm 确认
   reload            重新加载配置（config.yaml / overlay.yaml；订阅与规则集按更新间隔使用缓存）
+  upgrade           升级 Velum 本身（Linux 服务器；校验签名，失败时恢复旧版本）
   update            重新拉取订阅并加载；provider 与规则集随后在后台全部重新拉取
   why <目标>        推演请求会怎么走。目标可以是 URL、host:port、域名或 IP
       --live            对照最近的实际连接
@@ -399,6 +402,9 @@ func printStatus(s *rpc.Status) error {
 		if n.Paused != "" {
 			fmt.Printf("⏸ 已暂停  %s\n", n.Paused)
 		}
+	}
+	if u := s.Update; u != nil && u.Available {
+		fmt.Printf("⬆ 新版本 %s（当前 %s）：%s\n", u.Latest, u.Current, upgradeHint)
 	}
 	if t := s.TUNTrial; t != nil {
 		fmt.Printf("⏳ TUN 试运行，%s 后回退；新开 SSH 连接执行 sudo vlu tun confirm 确认\n", time.Until(t.Deadline).Round(time.Second))
