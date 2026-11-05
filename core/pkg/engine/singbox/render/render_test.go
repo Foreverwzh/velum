@@ -459,3 +459,23 @@ func TestRenderLinuxTUN(t *testing.T) {
 		t.Fatalf("route_address=%v，RoutePlan=%v", tun.RouteAddress, plan.Route.Routes)
 	}
 }
+
+func TestRenderWarnsOversizedWireGuardMTU(t *testing.T) {
+	plan := buildPlan(t, compiler.ModeProxy)
+	plan.IR.Nodes = append(plan.IR.Nodes,
+		ir.Node{Tag: "wg-ok", Protocol: "wireguard", Server: "192.0.2.1", Port: 51820, Options: map[string]any{"mtu": 1408}},
+		ir.Node{Tag: "wg-big", Protocol: "wireguard", Server: "192.0.2.2", Port: 51820, Options: map[string]any{"mtu": 9000}})
+	r, err := render.Render(plan, render.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, w := range r.Warnings {
+		if w.Kind == "wireguard_mtu" {
+			got = append(got, w.Subject)
+		}
+	}
+	if len(got) != 1 || got[0] != "wg-big" {
+		t.Fatalf("应只对 wg-big 告警：%v", got)
+	}
+}

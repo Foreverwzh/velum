@@ -8,8 +8,8 @@ import (
 	"context"
 	"encoding/json"
 	"flag"
-	"io"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"os/exec"
@@ -68,6 +68,7 @@ func main() {
 	cfgPath := flag.String("cfg", "", "配置文件")
 	settle := flag.Duration("settle", 30*time.Second, "运行多久")
 	heap := flag.String("heap", "", "堆分析输出")
+	fullDaemon := flag.Bool("full", false, "运行完整的 daemon 和内核（配合 -home）")
 	flag.Parse()
 	daemon.RuleSetLoader = singbox.LoadRuleSetFile
 	if *dump != "" {
@@ -91,6 +92,30 @@ func main() {
 		case <-time.After(3 * time.Minute):
 			log.Fatal("超时")
 		}
+		return
+	}
+	if *fullDaemon {
+		paths := config.PathsFor(*home)
+		paths.Socket = fmt.Sprintf("/tmp/vmp-%d.sock", os.Getpid())
+		defer os.Remove(paths.Socket)
+		d := daemon.New(paths, singbox.New(singbox.Options{}), log.New(io.Discard, "", 0))
+		d.TUNOpener = dummyOpener{}
+		go func() {
+			if err := d.Run(context.Background()); err != nil {
+				log.Fatal(err)
+			}
+		}()
+		for i := 0; i < 8; i++ {
+			time.Sleep(*settle / 8)
+			report(fmt.Sprintf("%ds", int((*settle).Seconds())*(i+1)/8))
+		}
+		if *heap != "" {
+			runtime.GC()
+			f, _ := os.Create(*heap)
+			_ = pprof.WriteHeapProfile(f)
+			f.Close()
+		}
+		report("结束")
 		return
 	}
 	b, err := os.ReadFile(*cfgPath)

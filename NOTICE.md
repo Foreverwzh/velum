@@ -6,7 +6,7 @@ Velum 的发布产物（velumd、vlu、velum-helper、桌面 App、Android App�
 | :--- | :--- | :--- |
 | [sing-box](https://github.com/SagerNet/sing-box) 及 sing、sing-tun、sing-quic 等 SagerNet 库 | 数据面内核 | GPL-3.0-or-later |
 | gVisor（SagerNet 分支） | 用户态网络栈 | Apache-2.0 |
-| wireguard-go（SagerNet 分支） | WireGuard | MIT |
+| wireguard-go（SagerNet 分支，改小了缓冲，见 `core/third_party/wireguard-go/VELUM.md`） | WireGuard | MIT |
 | golang.org/x/mobile | Android 绑定 | BSD-3-Clause |
 | Tauri | 桌面壳 | MIT / Apache-2.0 |
 | React | 桌面界面 | MIT |

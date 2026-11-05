@@ -26,7 +26,7 @@ func TestKernelImportBoundary(t *testing.T) {
 			return err
 		}
 		if d.IsDir() {
-			if name := d.Name(); name == "testdata" || strings.HasPrefix(name, ".") || name == "bin" {
+			if name := d.Name(); name == "testdata" || name == "third_party" || strings.HasPrefix(name, ".") || name == "bin" {
 				return filepath.SkipDir
 			}
 			return nil

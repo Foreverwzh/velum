@@ -59,6 +59,9 @@ func Render(p *compiler.Plan, opts Options) (*Rendered, error) {
 			o["domain_resolver"] = nodeResolver
 		}
 		if isEndpoint {
+			if mtu := wireguardMTU(n); mtu > wireguardMaxMTU {
+				warn("wireguard_mtu", fmt.Sprintf("MTU %d 超过上限 %d，会被自动调低；对端发来更大的包时会被丢弃", mtu, wireguardMaxMTU), n.Tag, n.Source)
+			}
 			endpoints = append(endpoints, o)
 		} else {
 			outbounds = append(outbounds, o)
@@ -208,6 +211,23 @@ func Render(p *compiler.Plan, opts Options) (*Rendered, error) {
 	}
 	out.JSON, err = json.MarshalIndent(cfg, "", "  ")
 	return out, err
+}
+
+// wireguardMaxMTU 是 wireguard-go 能处理的最大 MTU（core/third_party/wireguard-go/VELUM.md；iOS 更小）。
+const wireguardMaxMTU = 1984
+
+func wireguardMTU(n ir.Node) int {
+	switch v := n.Options["mtu"].(type) {
+	case int:
+		return v
+	case int64:
+		return int(v)
+	case uint32:
+		return int(v)
+	case float64:
+		return int(v)
+	}
+	return 0
 }
 
 // WindowsTUNName 是 Windows 上 wintun 网卡的名称。
