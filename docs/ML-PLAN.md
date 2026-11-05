@@ -44,8 +44,8 @@
 | 服务加固 | `NoNewPrivileges`、`ProtectSystem=strict`、`ProtectHome`、`PrivateTmp`、`ReadWritePaths=/etc/velum /var/lib/velum`、`DeviceAllow=/dev/net/tun`、`RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK`；`Restart=on-failure` |
 | 目录 | `/etc/velum`：`config.yaml`、`overlay.yaml`、`profiles.yaml`（含订阅地址，属主 `velum`，`0700`）；`/var/lib/velum`：日志、缓存、状态（`Paths.WithData`）；`/run/velum/velumd.sock`：本地接口（`RuntimeDirectory=velum`） |
 | 本地接口权限 | socket 改为 `0660`、组 `velum`（给 `ipc.ListenOptions` 增加权限项，其他场景仍是 `0600`）。Linux 的 `socketPaths` 返回 `ServiceSocket=/run/velum/velumd.sock`，普通用户的 `vlu` 先试自己目录的 socket，再回落到服务；加入 `velum` 组才能操作 |
-| 服务管理 | `velumd service install [--add-user <用户>] \| uninstall [--purge] \| start \| stop \| status`，后三者是 `systemctl` 的薄封装；install 需要 root，创建用户、目录、复制程序到 `/usr/local/bin`、写 unit。`vlu up` / `vlu down` 在服务已安装时走 systemd（`startService` 已有此扩展点） |
-| 本地端口的安全 | **以服务运行时拒绝无认证的非回环 `listen`**，启动报错并说明。给 mixed 入站增加可选的 `listen_auth`（用户名、密码，映射 sing-box `users`），配置后才允许对外监听。桌面平台的行为不变 |
+| 服务管理 | `velumd service install [--add-user <用户>] \| uninstall [--purge] \| start \| stop \| status`，后三者是 `systemctl` 的薄封装；install 需要 root，创建用户、目录、复制程序到 `/usr/local/bin`、写 unit。已有同名用户但不是 Velum 创建的（主目录不是 `/var/lib/velum`）时拒绝安装，`--purge` 也不删除它。`StartLimitIntervalSec=0`：崩溃后一直重试。`vlu up` / `vlu down` 在服务已安装时走 systemd（`startService` 已有此扩展点） |
+| 本地端口的安全 | **以服务运行时拒绝非回环的 `listen`**，并说明原因。对外提供代理用单独的入口 `listen_public`（地址、用户名、密码，映射 sing-box `users`，缺一项就拒绝）；`listen` 保持无认证的回环入口，核心自身经它拉取订阅的逻辑不用改。桌面平台的 `listen` 行为不变 |
 | 无 TUN 时如何使用 | 新增 `vlu env`，输出 `export http_proxy=…`；文档给出 apt、Docker daemon、systemd 服务的代理设置方法。**不实现桌面代理后端**，服务器上 `system_proxy` 显示为不适用 |
 | TUN | `render.go` 增加 Linux 分支：sing-box 原生 tun + `auto_route`，`route_address` 取 `RoutePlan`（扣除排除网段后的结果），与 Windows 思路一致；`auto_redirect`、`strict_route`、入站回包处理由 S1～S6 决定。`daemon.go` 的 opener 只在 darwin 使用 helper，Linux 不需要改 |
 | TUN 试运行 | 见下节 |
@@ -94,7 +94,9 @@ L2 完成后可以发布「端口模式」版本，不必等 TUN。
 ### 进度
 
 - **L1 代码已完成，2026-11-05 CI 通过**：全量测试在 ubuntu x64、arm64 上首次运行即全部通过，没有需要修的 Linux 失败。两个架构的静态压缩包都跑通了 `core/scripts/smoke.sh`（启动、加载本地订阅、HTTP 与 SOCKS5 入口、`vlu env`、停止）。
-- **L1 尚未验证**：`release.yml` 的 Linux 产物与 `SHA256SUMS` 要等下一次打标签；CI 环境不是全新系统；smoke 用的是本地订阅和直连规则，**没有测过真实订阅和真实节点**。
+- **L1 尚未验证**：`release.yml` 的 Linux 产物与 `SHA256SUMS` 要等下一次打标签；smoke 用的是本地订阅和直连规则，**没有测过真实订阅和真实节点**。全新 Ubuntu 24.04 虚拟机上的 smoke 已通过（2026-11-05）。
+- **L2 代码已完成，2026-11-05 在全新 Ubuntu 24.04 x86_64 虚拟机上验证**：`core/scripts/service-smoke.sh` 覆盖安装、目录与 socket 权限、capabilities、访问控制、对外监听、`kill -9` 拉起、`vlu up/down`、升级保留配置、卸载与 `--purge`、同名账号保护；另手动验证了 VM 重启后自动运行、压缩包安装与校验失败。CI 也运行这个脚本。
+- **L2 尚未验证**：Ubuntu 22.04、Debian 12 和 arm64 上的完整安装（arm64 只有 CI 覆盖）；`install.sh` 从 GitHub 下载的路径要等发布后才能测。
 
 ## 阶段二：Linux 桌面（不排期）
 

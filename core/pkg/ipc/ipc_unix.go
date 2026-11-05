@@ -8,14 +8,18 @@ import (
 	"os"
 )
 
-// listenLocal 在 Unix socket 上监听：删除残留文件，权限设为 0600（只有本用户可访问）。关闭监听时删除文件。
-func listenLocal(addr string, _ ListenOptions) (net.Listener, error) {
+// listenLocal 在 Unix socket 上监听：删除残留文件，权限默认 0600（只有本用户可访问）。关闭监听时删除文件。
+func listenLocal(addr string, opts ListenOptions) (net.Listener, error) {
 	_ = os.Remove(addr)
 	ln, err := net.Listen("unix", addr)
 	if err != nil {
 		return nil, err
 	}
-	if err := os.Chmod(addr, 0o600); err != nil {
+	mode := opts.SocketMode
+	if mode == 0 {
+		mode = 0o600
+	}
+	if err := os.Chmod(addr, mode); err != nil {
 		ln.Close()
 		return nil, err
 	}

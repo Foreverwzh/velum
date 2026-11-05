@@ -53,8 +53,16 @@ type NetworkSense struct {
 	CaptiveProbes  []string      `yaml:"captive_probes"`
 }
 
+// ListenPublic 是对外提供的代理入口（可选）：必须设置用户名和密码。
+type ListenPublic struct {
+	Address  string `yaml:"address"`
+	Username string `yaml:"username"`
+	Password string `yaml:"password"`
+}
+
 type Config struct {
 	Listen       string       `yaml:"listen"`
+	ListenPublic ListenPublic `yaml:"listen_public"`
 	SystemProxy  bool         `yaml:"system_proxy"`
 	NetworkSense NetworkSense `yaml:"network_sense"`
 	TUN          TUN          `yaml:"tun"`
@@ -69,6 +77,12 @@ var Template = `# Velum 配置。首次运行时生成，可随时编辑；修�
 
 # 本地代理入口（HTTP + SOCKS5 mixed）
 listen: 127.0.0.1:7899
+
+# 对外提供的代理入口（可选，默认关闭）：供其他机器使用，必须设置用户名和密码
+# listen_public:
+#   address: 0.0.0.0:7900
+#   username: ""
+#   password: ""
 
 # 系统代理：遵守系统代理设置的应用（浏览器等）经 Velum；退出时还原
 system_proxy: false
@@ -261,6 +275,18 @@ func Load(p Paths) (*Config, error) {
 	if _, err := netip.ParseAddrPort(c.Listen); err != nil {
 		return nil, fmt.Errorf("listen 无效：%q", c.Listen)
 	}
+	if pub := c.ListenPublic; pub.Address != "" {
+		a, err := netip.ParseAddrPort(pub.Address)
+		if err != nil {
+			return nil, fmt.Errorf("listen_public.address 无效：%q", pub.Address)
+		}
+		if pub.Username == "" || pub.Password == "" {
+			return nil, fmt.Errorf("listen_public 必须设置 username 和 password")
+		}
+		if a.Port() == c.ListenAddr().Port() {
+			return nil, fmt.Errorf("listen_public 不能与 listen 使用同一端口（%d）", a.Port())
+		}
+	}
 	switch c.Mode { // 旧写法 mode: 仍然兼容
 	case "", "proxy", "sysproxy", "tun":
 	default:
@@ -276,6 +302,14 @@ func Load(p Paths) (*Config, error) {
 }
 
 func (c *Config) ListenAddr() netip.AddrPort { return netip.MustParseAddrPort(c.Listen) }
+
+// PublicListenAddr 返回对外入口的地址；未配置时 ok 为 false。Load 已校验过。
+func (c *Config) PublicListenAddr() (a netip.AddrPort, ok bool) {
+	if c.ListenPublic.Address == "" {
+		return a, false
+	}
+	return netip.MustParseAddrPort(c.ListenPublic.Address), true
+}
 
 // TUNOptions 解析 tun: 配置段。
 func (c *Config) TUNOptions() (addr, addr6 netip.Prefix, mtu uint32, include, exclude []netip.Prefix, err error) {

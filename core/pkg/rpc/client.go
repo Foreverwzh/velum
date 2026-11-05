@@ -5,8 +5,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net"
 	"net/http"
 	"net/url"
@@ -31,7 +33,8 @@ func NewClient(addrs ...string) *Client {
 			if err == nil {
 				return c, nil
 			}
-			if first == nil {
+			// 优先报告权限错误：回落到服务的 socket 时，它比「本用户的 socket 不存在」更说明问题
+			if first == nil || errors.Is(err, fs.ErrPermission) {
 				first = err
 			}
 		}

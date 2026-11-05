@@ -7,7 +7,7 @@
 | macOS（Apple 芯片） | `Velum-*-macos-arm64.zip` | 解压后把 Velum.app 拖进「应用程序」 |
 | Windows（x64） | `Velum-*-windows-x64-setup.exe` | SmartScreen 提示时点「更多信息 → 仍要运行」。开启 TUN 需要在应用内安装 Velum 服务（会请求管理员权限） |
 | Android 10+ | `Velum-*-android-arm64-v8a.apk` | 绝大多数手机选这个；老旧 32 位设备用 `armeabi-v7a`，模拟器用 `x86_64`。需允许「安装未知应用」 |
-| Linux（x64、arm64） | `Velum-*-linux-{x64,arm64}.tar.gz` | 命令行版：解压后运行 `./vlu up`，只提供本地端口（`vlu env` 输出代理环境变量），暂不支持 TUN 和系统服务。校验和见 `SHA256SUMS` |
+| Linux（x64、arm64） | `Velum-*-linux-{x64,arm64}.tar.gz` | 命令行版：解压后运行 `sudo sh install.sh` 安装为系统服务（开机自动运行），然后 `vlu sub <订阅地址>`。只提供本地端口（`vlu env` 输出代理环境变量），暂不支持 TUN。校验和见 `SHA256SUMS` |
 
 macOS 首次开启 TUN 时会安装 TUN 组件（需要管理员密码）；从旧版本升级后，应用会提示更新该组件。
 

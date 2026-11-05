@@ -113,3 +113,27 @@ func TestSetLists(t *testing.T) {
 		t.Fatal("嵌套结构应报错")
 	}
 }
+
+func TestListenPublicValidation(t *testing.T) {
+	for _, c := range []struct {
+		name, yaml string
+		ok         bool
+	}{
+		{"未配置", "", true},
+		{"完整", "listen_public: {address: 0.0.0.0:7900, username: a, password: b}\n", true},
+		{"缺密码", "listen_public: {address: 0.0.0.0:7900, username: a}\n", false},
+		{"地址无效", "listen_public: {address: nope, username: a, password: b}\n", false},
+		{"端口相同", "listen_public: {address: 0.0.0.0:7899, username: a, password: b}\n", false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			p := config.PathsFor(t.TempDir())
+			if err := os.WriteFile(p.Config, []byte(c.yaml), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			_, err := config.Load(p)
+			if (err == nil) != c.ok {
+				t.Errorf("err = %v，期望通过 = %v", err, c.ok)
+			}
+		})
+	}
+}

@@ -33,12 +33,19 @@ type Options struct {
 	Mode        string
 	SystemProxy bool           // 接管系统代理（可与 TUN 同时开启）
 	Listen      netip.AddrPort // 本地 mixed 入站
+	Public      *PublicInbound // 对外的 mixed 入站（带认证）；为 nil 表示不开
 	Platform    string         // darwin / windows / ios / android
 	TUN         TUNOptions     // Mode == tun 时有效
 	// Env 是 NetworkSense 感知到的环境（分流型 VPN 等）；为 nil 表示不考虑。
 	Env *Environment
 	// Selections 是用户为 select 组选择的成员（组 → 成员），引擎重启后保持。
 	Selections map[string]string
+}
+
+// PublicInbound 是对外提供的代理入口，必须带用户名和密码。
+type PublicInbound struct {
+	Listen             netip.AddrPort
+	Username, Password string
 }
 
 // Environment 是编译器需要的环境输入（由 daemon 从 netsense 结果转换），保持编译器为纯函数。

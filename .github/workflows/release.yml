@@ -61,7 +61,9 @@ jobs:
           rm dist/*.sig
           cat dist/latest.json
       - name: linux checksums
-        run: cd dist && sha256sum Velum-*-linux-*.tar.gz > SHA256SUMS && cat SHA256SUMS
+        run: |
+          cp core/scripts/install.sh dist/velum-install.sh
+          cd dist && sha256sum Velum-*-linux-*.tar.gz velum-install.sh > SHA256SUMS && cat SHA256SUMS
       - name: create release
         env:
           GH_TOKEN: ${{ github.token }}

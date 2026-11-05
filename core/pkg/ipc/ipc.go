@@ -7,6 +7,7 @@ package ipc
 
 import (
 	"context"
+	"io/fs"
 	"net"
 	"time"
 )
@@ -16,6 +17,8 @@ type ListenOptions struct {
 	// AllowSIDs 是 Windows 上额外允许访问的用户 SID；为空时允许当前进程的用户。
 	// 以服务（SYSTEM）运行时由安装参数传入安装用户的 SID。Unix 上忽略（靠文件权限）。
 	AllowSIDs []string
+	// SocketMode 是 Unix socket 的权限；为 0 时是 0600（只有本用户可访问）。Windows 上忽略。
+	SocketMode fs.FileMode
 }
 
 // Listen 在 addr 上监听本地接口。

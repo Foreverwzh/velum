@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"log"
 	"net"
 	"net/http"
@@ -78,6 +79,10 @@ type Daemon struct {
 	TUNUnavailable string
 	// AllowSIDs 是 Windows 上允许访问本地接口的用户（以服务运行时为安装用户）；为空表示当前用户。
 	AllowSIDs []string
+	// SocketMode 是本地接口 socket 的权限（Linux 服务允许 velum 组访问）；为 0 时只有本用户可访问。
+	SocketMode fs.FileMode
+	// LoopbackListenOnly 为 true 时拒绝非回环的 listen（Linux 服务：listen 没有认证，对外就是开放代理）。
+	LoopbackListenOnly bool
 	// TUNOpener 覆盖默认的 HelperOpener（测试用）。
 	TUNOpener engine.TUNOpener
 	// EffectiveProxy 读取系统实际生效的代理，用于发现「写入了但被其他 VPN 覆盖」；为 nil 时不检查。
@@ -224,7 +229,13 @@ func (d *Daemon) build(mode fetchMode) (*state, error) {
 	if err != nil {
 		return nil, err
 	}
+	if d.LoopbackListenOnly && !cfg.ListenAddr().Addr().IsLoopback() {
+		return nil, fmt.Errorf("拒绝 listen %s：该入口没有认证，对外监听就是开放代理；改回 127.0.0.1，对外提供请用带用户名和密码的 listen_public", cfg.Listen)
+	}
 	opts := compiler.Options{Mode: compiler.ModeProxy, Listen: cfg.ListenAddr(), Platform: runtime.GOOS}
+	if a, ok := cfg.PublicListenAddr(); ok {
+		opts.Public = &compiler.PublicInbound{Listen: a, Username: cfg.ListenPublic.Username, Password: cfg.ListenPublic.Password}
+	}
 	d.mu.RLock()
 	st.wantSys, st.wantTUN = cfg.WantSystemProxy(), cfg.WantTUN()
 	if d.sysOverride != nil {
@@ -505,7 +516,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 	if ipc.Alive(d.Paths.Socket) {
 		return fmt.Errorf("velumd 已在运行（%s）", d.Paths.Socket)
 	}
-	ln, err := ipc.Listen(d.Paths.Socket, ipc.ListenOptions{AllowSIDs: d.AllowSIDs})
+	ln, err := ipc.Listen(d.Paths.Socket, ipc.ListenOptions{AllowSIDs: d.AllowSIDs, SocketMode: d.SocketMode})
 	if err != nil {
 		return err
 	}
@@ -1120,7 +1131,8 @@ func (d *Daemon) status() rpc.Status {
 	}
 	if st := d.st; st != nil {
 		s.Listen, s.LoadedAt, s.Subscription, s.Profiles = st.cfg.Listen, st.loadedAt, st.sub, st.profiles
-		s.SystemProxyOn, s.TUNOn, s.WantSystemProxy, s.WantTUN = st.sysOn, st.tunOn, st.wantSys, st.wantTUN
+		// 平台没有系统代理后端（如 Linux）时，要求开启也不会生效
+		s.SystemProxyOn, s.TUNOn, s.WantSystemProxy, s.WantTUN = st.sysOn && d.SysProxy != nil, st.tunOn, st.wantSys, st.wantTUN
 		s.Mode = modeName(st.sysOn, st.tunOn)
 		if s.Network == nil && st.paused != "" { // 未启用 NetworkSense 时也要显示暂停原因（如 TUN 不可用）
 			s.Network = &rpc.NetworkStatus{}

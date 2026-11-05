@@ -168,6 +168,10 @@ func Render(p *compiler.Plan, opts Options) (*Rendered, error) {
 	}
 
 	inbounds := []any{obj{"type": "mixed", "tag": "mixed-in", "listen": p.Options.Listen.Addr().String(), "listen_port": p.Options.Listen.Port()}}
+	if pub := p.Options.Public; pub != nil {
+		inbounds = append(inbounds, obj{"type": "mixed", "tag": "mixed-public", "listen": pub.Listen.Addr().String(), "listen_port": pub.Listen.Port(),
+			"users": []obj{{"username": pub.Username, "password": pub.Password}}})
+	}
 	if p.Route.Enabled {
 		addrs := []string{p.Route.Address}
 		if p.Route.Address6 != "" {

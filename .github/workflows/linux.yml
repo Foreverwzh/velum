@@ -48,11 +48,13 @@ jobs:
           mkdir -p "dist-pkg/$name"
           # 静态链接：不依赖目标系统的 glibc 版本
           (cd core && CGO_ENABLED=0 go build -tags "$tags" -trimpath -ldflags "$ldflags" -o "../dist-pkg/$name/" ./cmd/velumd ./cmd/vlu)
-          cp LICENSE NOTICE.md "dist-pkg/$name/"
+          cp LICENSE NOTICE.md core/scripts/install.sh "dist-pkg/$name/"
           file "dist-pkg/$name/velumd" | grep -q "statically linked" || { file "dist-pkg/$name/velumd"; exit 1; }
           echo "PKG_NAME=$name" >> "$GITHUB_ENV"
       - name: smoke
         run: sh core/scripts/smoke.sh "dist-pkg/$PKG_NAME"
+      - name: service smoke
+        run: sudo sh core/scripts/service-smoke.sh "dist-pkg/$PKG_NAME"
       - name: archive
         run: tar -C dist-pkg -czf "dist-pkg/$PKG_NAME.tar.gz" "$PKG_NAME"
       - uses: actions/upload-artifact@v7

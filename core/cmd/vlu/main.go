@@ -222,6 +222,9 @@ func usage() {
 
 func fatal(err error) {
 	msg := err.Error()
+	if strings.Contains(msg, "permission denied") && strings.Contains(msg, "velumd.sock") {
+		msg = "没有权限访问 velumd：把当前用户加入 velum 组（sudo usermod -aG velum $USER）后重新登录"
+	}
 	if strings.Contains(msg, "connect: no such file") || strings.Contains(msg, "connection refused") ||
 		strings.Contains(msg, "cannot find the file") { // Windows：Named Pipe 不存在
 		msg = "velumd 未运行（先执行 vlu up）"

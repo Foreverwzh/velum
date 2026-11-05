@@ -1,5 +1,5 @@
 // velumd：Velum 守护进程。通常由 vlu up / 桌面 App 启动；--foreground 便于调试。
-// Windows 上还可作为服务运行（velumd service install，见 service_windows.go）。
+// Windows、Linux 上还可作为服务运行（velumd service install，见 service_windows.go、service_linux.go）。
 package main
 
 import (
