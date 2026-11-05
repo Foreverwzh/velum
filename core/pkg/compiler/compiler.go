@@ -57,6 +57,8 @@ type Environment struct {
 	SystemResolvers  []EnvResolver
 	// PhysicalDNS 是物理网络（DHCP）的 DNS；接管系统 DNS 后，原本用「系统 DNS」的地方改用它，避免绕回 Velum。
 	PhysicalDNS []string
+	// Bypass 是不能进隧道的地址（如 WireGuard 对端）。
+	Bypass []netip.Prefix
 }
 
 // SystemResolverDNS 是交给系统解析器（mDNSResponder）的 DNS 服务器标签，只用于系统 DNS 分流的域名。
@@ -229,6 +231,7 @@ func Compile(sub *ir.Config, ov *overlay.Overlay, opts Options) (*Plan, error) {
 	if opts.Env != nil {
 		env := overlayVPNDomains(*opts.Env, ov.Domains)
 		opts.Env = &env
+		envExclude = append(envExclude, env.Bypass...)
 		ifaceOutbounds := map[string]bool{} // 已创建的绑定网卡直连出站
 		// 系统 DNS 分流的域名若由某个 VPN 网段内的服务器解析（如 VPN 客户端写入 /etc/resolver），这些域名也属于该 VPN：
 		// 否则它们会按订阅规则（常见为 DIRECT）从物理网卡直连到只能经 VPN 访问的内网地址。

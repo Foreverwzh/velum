@@ -7,6 +7,8 @@ import (
 
 	"github.com/Foreverwzh/velum/core/pkg/config"
 	"github.com/Foreverwzh/velum/core/pkg/daemon"
+	"github.com/Foreverwzh/velum/core/pkg/engine/singbox/render"
+	"github.com/Foreverwzh/velum/core/pkg/netsense"
 )
 
 // asService：systemd 单元（见 service_linux.go）设置了 VELUM_SERVICE=1。
@@ -21,7 +23,10 @@ func setupPlatform(d *daemon.Daemon, _ config.Paths) {
 	}
 	d.SocketMode, d.LoopbackListenOnly = 0o660, true
 	d.TUNTrials, d.TUNRevertMarker = true, revertMarker
-	d.SystemDNS = systemUpstreamDNS
+	d.ServerMode = true
+	d.SystemDNS = netsense.SystemUpstreamDNS
+	d.NetSnapshot = netsense.LinuxSnapshot(render.LinuxTUNName)
+	d.TUNAdvisories = firewallAdvisories
 }
 
 // preparePaths：以服务运行时，数据放到 /var/lib/velum，本地接口放到 /run/velum。

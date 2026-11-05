@@ -80,6 +80,10 @@ type Daemon struct {
 	// TUNTrials 允许试运行 TUN（Linux 服务）；TUNRevertMarker 是回退定时器留下的记录，用于在状态里说明原因。
 	TUNTrials       bool
 	TUNRevertMarker string
+	// ServerMode（Linux 服务）：不做 Captive 探测，也不因其他全局 VPN 暂停接管：服务器上没有人去完成网页认证，暂停只会让流量绕过 Velum。
+	ServerMode bool
+	// TUNAdvisories 在 TUN 开启时返回需要用户处理的环境问题（如防火墙挡住容器流量）。
+	TUNAdvisories func() []ir.Warning
 	// SystemDNS 返回系统实际使用的上游 DNS（Linux）：路由层接管 DNS 时，内核不能再问系统解析器，否则查询会绕回来。
 	SystemDNS func() []string
 	// AllowSIDs 是 Windows 上允许访问本地接口的用户（以服务运行时为安装用户）；为空表示当前用户。
@@ -257,7 +261,7 @@ func (d *Daemon) build(mode fetchMode) (*state, error) {
 	d.mu.RUnlock()
 	// NetworkSense：按环境决定实际生效的开关，并提供分流型 VPN 信息
 	st.sysOn, st.tunOn = st.wantSys, st.wantTUN
-	ns := cfg.NetworkSense
+	ns := d.sense(cfg.NetworkSense)
 	var helperProblem string
 	if st.tunOn && d.TUNOpener == nil && runtime.GOOS == "darwin" {
 		helperProblem = checkHelper(cfg.TUN.HelperSocket)
@@ -283,6 +287,7 @@ func (d *Daemon) build(mode fetchMode) (*state, error) {
 			for _, v := range env.Split() {
 				e.SplitVPNs = append(e.SplitVPNs, compiler.EnvVPN{Iface: v.Iface, Routes: v.Routes, Domains: v.Domains, Nameservers: v.Nameservers})
 			}
+			e.Bypass = env.Bypass
 		}
 		if ns.SystemSplitDNS {
 			e.SystemDNSDomains = env.SplitDNSDomains
@@ -323,6 +328,9 @@ func (d *Daemon) build(mode fetchMode) (*state, error) {
 		return nil, err
 	}
 	st.plan.Warnings = append(st.plan.Warnings, rsWarnings...)
+	if st.tunOn && d.TUNAdvisories != nil {
+		st.plan.Warnings = append(st.plan.Warnings, d.TUNAdvisories()...)
+	}
 	d.applyRespectRules(st)
 	st.rendered, err = render.Render(st.plan, render.Options{LogLevel: cfg.LogLevel})
 	if err != nil {
@@ -605,6 +613,14 @@ func (d *Daemon) Run(ctx context.Context) error {
 
 func (d *Daemon) Shutdown() { d.stopOnce.Do(func() { close(d.stop) }) }
 
+// sense 返回实际生效的网络感知设置。
+func (d *Daemon) sense(ns config.NetworkSense) config.NetworkSense {
+	if d.ServerMode {
+		ns.CaptivePortal, ns.YieldToFullVPN = false, false
+	}
+	return ns
+}
+
 // netMonitor 定期采集网络状态；环境（外部 VPN / Captive）变化时重新编译。
 func (d *Daemon) netMonitor(ctx context.Context) {
 	if d.NetSnapshot == nil {
@@ -618,7 +634,7 @@ func (d *Daemon) netMonitor(ctx context.Context) {
 		interval := 5 * time.Second
 		var ns config.NetworkSense
 		if st != nil {
-			ns = st.cfg.NetworkSense
+			ns = d.sense(st.cfg.NetworkSense)
 			if ns.Interval > 0 {
 				interval = ns.Interval
 			}

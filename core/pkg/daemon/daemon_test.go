@@ -114,6 +114,17 @@ func setupEngine(t *testing.T, eng *fakeEngine) (config.Paths, *fakeEngine, *rpc
 	}
 }
 
+func writeAtomic(t *testing.T, path string, data []byte) {
+	t.Helper()
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestDaemonLifecycle(t *testing.T) {
 	paths, eng, c, cleanup := setup(t)
 	defer cleanup()
@@ -139,7 +150,8 @@ func TestDaemonLifecycle(t *testing.T) {
 
 	// 写坏 overlay：reload 失败，旧配置继续生效，错误可见
 	good, _ := os.ReadFile(paths.Overlay)
-	_ = os.WriteFile(paths.Overlay, []byte("dev_bypass:\n  cidrs: [bad]\n"), 0o600)
+	// 原子写入：后台刷新随时可能重新加载，读到写了一半（被清空）的文件会让配置变化、引擎重启
+	writeAtomic(t, paths.Overlay, []byte("dev_bypass:\n  cidrs: [bad]\n"))
 	if _, err := c.Reload(); err == nil || !strings.Contains(err.Error(), "invalid cidr") {
 		t.Fatalf("reload 应失败：%v", err)
 	}
@@ -155,7 +167,7 @@ func TestDaemonLifecycle(t *testing.T) {
 	}
 
 	// 修复后 reload 成功、错误清除；内核配置与运行中的一致，不应重启引擎
-	_ = os.WriteFile(paths.Overlay, good, 0o600)
+	writeAtomic(t, paths.Overlay, good)
 	if _, err := c.Reload(); err != nil {
 		t.Fatal(err)
 	}
@@ -163,7 +175,7 @@ func TestDaemonLifecycle(t *testing.T) {
 		t.Fatalf("配置未变化时不应重启引擎：%+v restarts=%d", st, eng.restarts)
 	}
 	// 配置有变化：重启引擎
-	_ = os.WriteFile(paths.Overlay, []byte(strings.Replace(string(good), "192.0.2.7", "192.0.2.8", 1)), 0o600)
+	writeAtomic(t, paths.Overlay, []byte(strings.Replace(string(good), "192.0.2.7", "192.0.2.8", 1)))
 	if _, err := c.Reload(); err != nil || eng.restarts != 1 {
 		t.Fatalf("配置变化应重启引擎：%v restarts=%d", err, eng.restarts)
 	}

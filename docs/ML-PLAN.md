@@ -51,7 +51,8 @@
 | 崩溃清理 | `auto_redirect` 崩溃后留下 `inet sing-box` 表和 `ip rule`，容器出站不通，规则还会累积（F3）。`velumd service cleanup-net` 负责清理，由 `ExecStartPre` 和 `ExecStopPost` 调用。用 netlink 实现，不依赖 `nft` 命令；优先级 1 和 32768 上的规则要同时符合 sing-tun 的特征才删除，其他程序的规则不动。表名是 sing-box 写死的，**同机另跑 sing-box 的 `auto_redirect` 时会互相影响** |
 | TUN 试运行 | 见下节 |
 | DNS | 由路由层劫持 53 端口，不改系统文件，`tun.dns_hijack` 在 Linux 上不生效。内核直接问系统的上游 DNS（`/run/systemd/resolve/resolv.conf`，否则 `/etc/resolv.conf`），避免查询绕回自己。**上游 DNS 落在默认排除网段时单独加回隧道**，否则 systemd-resolved 的查询绕过劫持；这个地址上的其他连接走直连。限制：只有本机解析器（dnsmasq 等）时拿不到上游，会给出告警；云厂商内网域名可能解析不了（按设计推断，没有在云主机上测），见 L5 |
-| 网络感知 | 新增 `netsense.LinuxSnapshot`：netlink 取网卡、路由，resolved 取按链路域，识别 WireGuard、Tailscale、OpenVPN。Captive 探测在服务模式下关闭。服务模式下默认不因其他全局 VPN 让出接管（`yield_to_full_vpn` 默认关闭，可手动开启） |
+| 网络感知 | `netsense.LinuxSnapshot`：netlink 取网卡和路由（隧道网卡按类型识别，含它们自己的路由表），`resolvectl` 取按链路的域名，WireGuard 对端地址绕过隧道。覆盖网络的 CGNAT 路由合并成整段，对端上下线不会触发重新加载。服务模式下不做 Captive 探测，也不因其他全局 VPN 暂停接管（`captive_portal`、`yield_to_full_vpn` 不生效）：Velum 优先于全局型 VPN |
+| 防火墙 | 不修改防火墙。ufw 默认拒绝入站，而 `auto_redirect` 把容器连接重定向到本机随机高位端口，会被 INPUT 链挡住（F6）。检测到 ufw 和容器网桥时，在试运行输出和 `vlu warnings` 里给出放行命令：`sudo ufw allow from 172.16.0.0/12 proto tcp to any port 32768:60999`。检测不到规则是否已放行（规则文件只有 root 可读），所以放行后提示仍在。自定义到其他网段的 Docker 网络要相应调整 |
 | 分发 | `Velum-<版本>-linux-{x64,arm64}.tar.gz`（静态链接的 `velumd`、`vlu`、`install.sh`）+ `SHA256SUMS`。`install.sh` 校验后调用 `velumd service install`，也能离线安装本地压缩包（部分服务器访问 GitHub 不稳定） |
 | 更新 | `AssetSuffix` 增加 Linux 条目，`vlu status` 提示新版本。升级命令 `vlu upgrade` 校验并替换程序后重启服务；不做后台自动更新：服务器不应自行改变运行中的程序 |
 
@@ -76,7 +77,7 @@
 | S3 | `kill -9` 后残留 | `auto_redirect` 留下 nft 表和 `ip rule`，容器出站不通、规则累积，需要清理。本机出站在虚拟机和 netns 上结果不同，原因未查明 |
 | S4 | DNS | systemd-resolved 下正常，直接问外部 DNS 也被劫持。纯 `/etc/resolv.conf` 在 L4 经 Velum 验证通过 |
 | S5 | Docker | 容器出站进隧道，端口映射与网桥访问正常 |
-| S6 | 防火墙与其他 VPN | **ufw 开启时接管会让容器出站不通，未解决，原因未查明**；本机与 SSH 不受影响。firewalld、WireGuard、Tailscale 没测（L5） |
+| S6 | 防火墙与其他 VPN | ufw 的原因和处理见上节「防火墙」，firewalld 默认配置下容器出站正常；WireGuard 分流由 `LinuxSnapshot` 处理（L5） |
 | S7 | 云元数据与内网 | 需要默认排除 `169.254.0.0/16` 与 RFC1918 |
 
 ## 分步（阶段一）
@@ -105,7 +106,16 @@ L2 完成后可以发布「端口模式」版本，不必等 TUN。
   - 真实节点（19 节点订阅）：本机和容器经 TUN 出口都是 HK，`vlu why` 命中同一条规则和策略组；云元数据和内网地址没有进隧道；路由器管理页可访问。
   - DNS：systemd-resolved（上游是路由器）和纯 `/etc/resolv.conf` 下都返回 fake-ip，直接问外部 DNS 也被劫持。
   - 验证发现并修复的问题：清理漏掉 32768 规则（netlink 解析时不设 `MarkSet`）；velumd 卡死时回退多等 30 秒；内网上游 DNS 绕过劫持。
-- **L4 尚未验证**：真实公网客户端（入站只有 netns 模拟）；IPv6（默认配置会开启 IPv6 路由，虚拟机有公网 IPv6 地址，但没有测 IPv6 入站和出站）；Ubuntu 22.04、Debian 12；arm64 只有 CI 的 netns 回归。
+- **L4 尚未验证**：真实公网客户端（入站只有 netns 模拟）；Ubuntu 22.04、Debian 12；arm64 只有 CI 的 netns 回归。
+- **L5 已完成（2026-11-05，Ubuntu 24.04 x86_64 虚拟机）**：
+  - ufw：查明原因；按提示放行后容器出站恢复，SSH 不受影响。firewalld：默认配置下容器出站正常。
+  - IPv6：虚拟机经真实 IPv6 出站正常并经过 Velum；netns 模拟的公网客户端 IPv6 TCP、通配地址 UDP 正常。
+  - WireGuard（真实握手，对端在 netns）：发往 `wg0` 网段的流量走隧道，对端地址和隧道网段的连接不再经过 Velum，普通外网仍经 Velum；删除后自动恢复。
+  - 覆盖网络（**用 tun 网卡和独立路由表模拟，没有装真实的 Tailscale**）：不进隧道，新增对端不触发重新加载。
+  - 按链路的域名：`vlu why` 显示交给该链路的 DNS（路由器对测试域名返回 NXDOMAIN，**没有用真实的内网域名和云主机验证**）。
+  - 安全：`auto_redirect` 的重定向端口监听所有地址，netns 模拟的外部连接被拒绝，已进回归。
+- **L5 已知限制**：全局型 WireGuard（`wg-quick` 的 `0.0.0.0/0`）与 TUN 同开时 Velum 优先，且只模拟过路由，没有经真实出口验证；同机另跑 sing-box 的 `auto_redirect` 会互相影响；真实 Tailscale、OpenVPN 没测。
+- **测试注意**：以 root 在 netns 里运行 velumd 时，sing-tun 调用的 `resolvectl` 会按 netns 内的网卡序号改动主机的 systemd-resolved，所以 `netns-tun.sh` 用不含 `resolvectl` 的 PATH 运行。服务以 `velum` 用户运行时，虚拟机上 `velum0` 没有被设置 DNS，查询由 53 端口劫持处理。
 - **L2 尚未验证**：Ubuntu 22.04、Debian 12 和 arm64 上的完整安装（arm64 只有 CI 覆盖）；`install.sh` 从 GitHub 下载的路径要等发布后才能测。
 
 ## 阶段二：Linux 桌面（不排期）

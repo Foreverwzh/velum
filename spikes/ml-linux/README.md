@@ -66,7 +66,7 @@ ufw 开启（默认 `deny (routed)`）时：
 | 容器出站 | ✅ | ❌ |
 | 本机出站、新 SSH | ✅ | ✅ |
 
-原因未查明。WireGuard、Tailscale、firewalld 也还没测。
+**L5 查明原因**：接管后容器的 TCP 连接被重定向到网关地址的随机高位端口（内核日志：`[UFW BLOCK] IN=docker0 SRC=172.17.0.2 DST=172.17.0.1 DPT=395xx`），走 INPUT 链，被 ufw 默认的拒绝入站挡住。处理方式见 `docs/ML-PLAN.md`。
 
 ## F7：哪些目标进隧道（S7）
 

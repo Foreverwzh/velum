@@ -35,6 +35,8 @@ type Snapshot struct {
 	DHCPNameservers []string
 	// Tunnels 是平台层按网卡类型判定的隧道接口（Windows 的网卡名不带类型前缀）；按名称前缀的判定（IsTunnel）仍然有效。
 	Tunnels []string
+	// Bypass 是不能进 Velum 隧道的地址（如 WireGuard 对端：隧道外层的包要直接发出去）。
+	Bypass []netip.Prefix
 }
 
 // isTunnel 判断接口是否为隧道：名称前缀（macOS utun 等）或平台层标记。
@@ -132,6 +134,8 @@ type Assessment struct {
 	// sing-box 的系统解析器在 macOS 上只对 .local 使用 mDNSResponder，其余按默认解析器查询，
 	// 而接管系统 DNS 后默认解析器就是 Velum 自己，交给它会回环。
 	SplitDNS []SplitResolver `json:"split_dns,omitempty"`
+	// Bypass 见 Snapshot.Bypass。
+	Bypass []netip.Prefix `json:"bypass,omitempty"`
 }
 
 // SplitResolver 是一个分流域名及其 DNS 服务器。
@@ -176,6 +180,10 @@ func (a Assessment) Key() string {
 		b.WriteString(";" + strings.Join(v.Domains, ",") + ";" + strings.Join(v.Nameservers, ","))
 	}
 	b.WriteString("|stale:" + strings.Join(a.StaleDNS, ","))
+	b.WriteString("|bypass:")
+	for _, p := range a.Bypass {
+		b.WriteString(p.String() + ",")
+	}
 	b.WriteString("|dns:")
 	for _, r := range a.SplitDNS {
 		b.WriteString(r.Domain + "=" + strings.Join(r.Nameservers, ",") + ";")
@@ -266,7 +274,7 @@ func Analyze(s Snapshot, own ...string) Assessment {
 		}
 	}
 	sort.Strings(split)
-	out := Assessment{PrimaryInterface: s.PrimaryInterface, SplitDNSDomains: split}
+	out := Assessment{PrimaryInterface: s.PrimaryInterface, SplitDNSDomains: split, Bypass: s.Bypass}
 	for _, d := range split {
 		out.SplitDNS = append(out.SplitDNS, SplitResolver{Domain: d, Nameservers: splitNS[d]})
 	}

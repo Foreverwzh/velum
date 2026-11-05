@@ -176,8 +176,21 @@ func tunTry(c *rpc.Client, d time.Duration) error {
 	if s.TUN != nil {
 		fmt.Printf("  %s %s，%d 条路由\n", s.TUN.Name, s.TUN.Address, len(s.TUN.Routes))
 	}
+	printFirewallAdvisories(c)
 	fmt.Println("  现在**新开一个 SSH 连接**执行：sudo vlu tun confirm")
 	return nil
+}
+
+func printFirewallAdvisories(c *rpc.Client) {
+	w, err := c.Warnings()
+	if err != nil {
+		return
+	}
+	for _, x := range w.Warnings {
+		if x.Kind == "tun.firewall" {
+			fmt.Printf("  ⚠ %s\n", x.Reason)
+		}
+	}
 }
 
 func tunConfirm(c *rpc.Client, force bool) error {

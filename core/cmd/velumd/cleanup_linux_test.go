@@ -32,10 +32,3 @@ func TestStaleRule(t *testing.T) {
 		}
 	}
 }
-
-func TestParseNameservers(t *testing.T) {
-	got := parseNameservers("# 注释\nnameserver 127.0.0.53\nnameserver 192.168.3.1\noptions edns0\nnameserver 2001:4860:4860::8888\nnameserver bad\nnameserver fe80::1%2\nsearch lan\n")
-	if len(got) != 2 || got[0] != "192.168.3.1" || got[1] != "2001:4860:4860::8888" {
-		t.Fatalf("parseNameservers = %v", got)
-	}
-}
