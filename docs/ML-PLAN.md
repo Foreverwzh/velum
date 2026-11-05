@@ -47,7 +47,8 @@
 | 服务管理 | `velumd service install [--add-user <用户>] \| uninstall [--purge] \| start \| stop \| status`，后三者是 `systemctl` 的薄封装；install 需要 root，创建用户、目录、复制程序到 `/usr/local/bin`、写 unit。已有同名用户但不是 Velum 创建的（主目录不是 `/var/lib/velum`）时拒绝安装，`--purge` 也不删除它。`StartLimitIntervalSec=0`：崩溃后一直重试。`vlu up` / `vlu down` 在服务已安装时走 systemd（`startService` 已有此扩展点） |
 | 本地端口的安全 | **以服务运行时拒绝非回环的 `listen`**，并说明原因。对外提供代理用单独的入口 `listen_public`（地址、用户名、密码，映射 sing-box `users`，缺一项就拒绝）；`listen` 保持无认证的回环入口，核心自身经它拉取订阅的逻辑不用改。桌面平台的 `listen` 行为不变 |
 | 无 TUN 时如何使用 | 新增 `vlu env`，输出 `export http_proxy=…`；文档给出 apt、Docker daemon、systemd 服务的代理设置方法。**不实现桌面代理后端**，服务器上 `system_proxy` 显示为不适用 |
-| TUN | `render.go` 增加 Linux 分支：sing-box 原生 tun + `auto_route`，`route_address` 取 `RoutePlan`（扣除排除网段后的结果），与 Windows 思路一致；`auto_redirect`、`strict_route`、入站回包处理由 S1～S6 决定。`daemon.go` 的 opener 只在 darwin 使用 helper，Linux 不需要改 |
+| TUN | `render.go` 增加 Linux 分支：sing-box 原生 tun + **`auto_route` + `auto_redirect`**（只用 `auto_route` 时，绑定通配地址的 UDP 服务回包会进隧道，见 `spikes/ml-linux/README.md` F1）。默认排除 `169.254.0.0/16` 与 RFC1918（否则云元数据和同 VPC 其他子网会进隧道，F7）。`daemon.go` 的 opener 只在 darwin 使用 helper，Linux 不需要改 |
+| 崩溃清理 | `auto_redirect` 崩溃后留下 `inet sing-box` 表和 `ip rule`，容器出站不通，规则还会累积（F3）。`velumd service cleanup-net` 负责清理，由 `ExecStopPost` 调用，启动时也执行一次。用 netlink 实现，不依赖 `nft` 命令；只删 Velum 自己的表和优先级范围内的规则 |
 | TUN 试运行 | 见下节 |
 | DNS | 同时支持 systemd-resolved 和直接写 `/etc/resolv.conf` 的系统。优先由路由层劫持 53 端口，不改系统文件（S4 验证）；必须改时要能在崩溃后还原 |
 | 网络感知 | 新增 `netsense.LinuxSnapshot`：netlink 取网卡、路由，resolved 取按链路域，识别 WireGuard、Tailscale、OpenVPN。Captive 探测在服务模式下关闭。服务模式下默认不因其他全局 VPN 让出接管（`yield_to_full_vpn` 默认关闭，可手动开启） |
@@ -64,19 +65,19 @@
 
 规则：直接用 `vlu tun on` 时，如果检测到当前是 SSH 会话（`SSH_CONNECTION` 或父进程链）且没有 `--try`，就拒绝并提示，可用 `--force` 覆盖。
 
-### 开工前要验证的问题
+### TUN 验证结果（L3，2026-11-05）
 
-以下是对 sing-box 在服务器上行为的待验证问题，**尚未实测，结论写回本节**。
+过程、数据和测试陷阱见 `spikes/ml-linux/README.md`。测试用上游 sing-box 1.14.3、手写配置和 direct 出站，还没有经过 Velum 的渲染和真实节点。
 
-| # | 问题 | 为什么重要 | 候选做法 |
-| :--- | :--- | :--- | :--- |
-| S1 | 全局 `auto_route` 下，入站连接（SSH、对外服务）的回包会不会进入 TUN | **决定 TUN 能否用于有公网入站的服务器**，桌面平台没有这个问题 | 按连接标记回包（入站打 connmark，`ip rule` 走主路由表）；或限定 `route_address` 只接管部分网段；或对源端口放行 |
-| S2 | 专用用户 + 上述 capabilities 是否足够，尤其是 `auto_redirect` 需要的 nftables | 决定是否必须以 root 运行 | 不够时先记录缺什么，再决定是增加权限还是放弃 `auto_redirect` |
-| S3 | `kill -9` 后路由规则、nft 表是否残留，重启后能否清理 | 崩溃后服务器不能断网 | `ExecStopPost` 清理；启动时先清理残留 |
-| S4 | resolved、纯 `resolv.conf` 两种环境下 DNS 是否都经过 Velum 分流 | 否则规则按域名分流会失效 | 路由层劫持 53；resolved 环境用 `resolvectl` 设置链路 DNS |
-| S5 | Docker 容器的转发流量是否被接管，开启 TUN 后容器之间、端口映射是否正常 | 服务器上 Docker 很常见 | `include_interface` / 排除 `docker0` 等网桥；是否接管容器做成选项 |
-| S6 | 与 ufw、firewalld、Tailscale、WireGuard 的规则是否冲突 | 共存是 Velum 的定位 | 按结果确定 ip rule 优先级，文档列出已知限制 |
-| S7 | 云元数据地址（`169.254.169.254`）、VPC 内网是否默认直连 | 接管后可能导致云主机取不到凭据或内网不通 | 默认排除链路本地与 RFC1918 网段 |
+| # | 问题 | 结论 |
+| :--- | :--- | :--- |
+| S1 | 入站回包会不会进隧道 | TCP 不会。UDP：只用 `auto_route` 时通配地址的服务回包进隧道、源端口被改；加 `auto_redirect` 正常。公网客户端用 netns 模拟 |
+| S2 | 专用用户 + capabilities 是否足够 | 足够，包括 nftables，不依赖 `nft` 命令 |
+| S3 | `kill -9` 后残留 | `auto_redirect` 留下 nft 表和 `ip rule`，容器出站不通、规则累积，需要清理。本机出站在虚拟机和 netns 上结果不同，原因未查明 |
+| S4 | DNS | systemd-resolved 下正常，直接问外部 DNS 也被劫持。**纯 `/etc/resolv.conf` 没测** |
+| S5 | Docker | 容器出站进隧道，端口映射与网桥访问正常 |
+| S6 | 防火墙与其他 VPN | **ufw 开启时接管会让容器出站不通，未解决，原因未查明**；本机与 SSH 不受影响。firewalld、WireGuard、Tailscale 没测（L5） |
+| S7 | 云元数据与内网 | 需要默认排除 `169.254.0.0/16` 与 RFC1918 |
 
 ## 分步（阶段一）
 
@@ -84,9 +85,9 @@
 | :--- | :--- | :--- |
 | **L1 构建与发布** | `core.yml` 加 ubuntu（x64、arm64）；修复 Linux 上失败的测试；`release.yml` 产出压缩包与校验和；`AssetSuffix` 增加 Linux；`vlu env` | CI 全绿；Release 带 Linux 包；干净的 Ubuntu 24.04 上解压后能用订阅跑通本地端口 |
 | **L2 系统服务** | `velumd service`、目录与 socket 权限、`vlu up/down` 接入 systemd、`install.sh`、`listen` 安全检查与 `listen_auth` | 所有目标系统上安装、升级、卸载干净；重启后自动运行；`kill -9` 后自动拉起；未加入 `velum` 组的用户访问被拒绝；无认证的 `0.0.0.0` 被拒绝 |
-| **L3 TUN 验证（spike）** | 在虚拟机里回答 S1～S7，结果写入 `spikes/ml-linux/README.md` 和本文 | 每个问题都有实测结论；S1 有可行方案，否则暂停 L4 并重新评估 TUN 的范围 |
-| **L4 TUN 实现** | render 的 Linux 分支、`--try` / `confirm` / `tun-revert`、崩溃清理、DNS、默认排除网段；netns 集成测试进 CI | 虚拟机上：SSH 全程不断；回退定时器在超时、velumd 被 `SIGSTOP`、`kill -9` 三种情况下都恢复网络；`vlu why` 与实际路由一致 |
-| **L5 共存与感知** | `LinuxSnapshot`；Docker、WireGuard、Tailscale、ufw 的规则与文档 | S5、S6 的场景在 TUN 开启时内外网正常，或有明确记录的限制 |
+| **L3 TUN 验证（spike）** | 在虚拟机里回答 S1～S7，结果写入 `spikes/ml-linux/README.md` 和本文 | S1 有可行方案；未测的项目已列出，转入 L4、L5 |
+| **L4 TUN 实现** | render 的 Linux 分支、`--try` / `confirm` / `tun-revert`、崩溃清理、DNS、默认排除网段；netns 集成测试进 CI | 虚拟机上：SSH 全程不断；回退定时器在超时、velumd 被 `SIGSTOP`、`kill -9` 三种情况下都恢复网络（**含容器出站**）；崩溃多次后 `ip rule` 不累积；经真实节点的流量与 `vlu why` 一致；通配地址的 UDP 服务源地址正确（netns） |
+| **L5 共存与感知** | `LinuxSnapshot`；Docker、WireGuard、Tailscale、ufw 的规则与文档 | ufw 开启时容器出站正常，或有明确记录的限制；WireGuard、Tailscale、firewalld 下内外网正常，或有明确记录的限制 |
 | **L6 发布** | `vlu upgrade`、README 与部署文档（无 TUN、TUN、Docker 三种用法）、发布说明 | 按文档从零部署成功；从上一版本 `vlu upgrade` 成功，失败时保留旧版本 |
 
 L2 完成后可以发布「端口模式」版本，不必等 TUN。
@@ -94,8 +95,9 @@ L2 完成后可以发布「端口模式」版本，不必等 TUN。
 ### 进度
 
 - **L1 代码已完成，2026-11-05 CI 通过**：全量测试在 ubuntu x64、arm64 上首次运行即全部通过，没有需要修的 Linux 失败。两个架构的静态压缩包都跑通了 `core/scripts/smoke.sh`（启动、加载本地订阅、HTTP 与 SOCKS5 入口、`vlu env`、停止）。
-- **L1 尚未验证**：`release.yml` 的 Linux 产物与 `SHA256SUMS` 要等下一次打标签；smoke 用的是本地订阅和直连规则，**没有测过真实订阅和真实节点**。全新 Ubuntu 24.04 虚拟机上的 smoke 已通过（2026-11-05）。
+- **L1 尚未验证**：`release.yml` 的 Linux 产物与 `SHA256SUMS` 要等下一次打标签；全新 Ubuntu 24.04 虚拟机上的 smoke 已通过；真实订阅（19 节点、规则集）经本地端口验证通过，出口符合规则（2026-11-05）。
 - **L2 代码已完成，2026-11-05 在全新 Ubuntu 24.04 x86_64 虚拟机上验证**：`core/scripts/service-smoke.sh` 覆盖安装、目录与 socket 权限、capabilities、访问控制、对外监听、`kill -9` 拉起、`vlu up/down`、升级保留配置、卸载与 `--purge`、同名账号保护；另手动验证了 VM 重启后自动运行、压缩包安装与校验失败。CI 也运行这个脚本。
+- **L3 已完成（2026-11-05）**：结论见上节；选定 `auto_route` + `auto_redirect` + 崩溃清理。
 - **L2 尚未验证**：Ubuntu 22.04、Debian 12 和 arm64 上的完整安装（arm64 只有 CI 覆盖）；`install.sh` 从 GitHub 下载的路径要等发布后才能测。
 
 ## 阶段二：Linux 桌面（不排期）
@@ -122,14 +124,13 @@ L2 完成后可以发布「端口模式」版本，不必等 TUN。
 | Q1 | 是否提供 `.deb` 给服务器用户 | 暂不提供；压缩包加脚本已够用，留到阶段二一起做 |
 | Q2 | `vlu upgrade` 的校验是否只靠 `SHA256SUMS` | 校验和与压缩包都来自 GitHub，防不住发布被篡改；L6 前决定是否复用现有 updater 签名密钥签名 |
 | Q3 | 是否提供 Docker 镜像 | 暂不提供；TUN 在容器里需要额外权限，等有需求再做 |
-| Q4 | S1 没有可靠方案时怎么办 | TUN 限定为「只接管指定网段」或「仅无公网入站的机器」，并在文档中说明 |
 
 ## 风险
 
 | 风险 | 影响 | 应对 |
 | :--- | :--- | :--- |
-| TUN 导致 SSH 断开 | 用户被锁在服务器外 | 试运行与独立回退定时器；未确认不写配置，重启即恢复；S1 不通过不进入 L4 |
-| 崩溃后路由或防火墙规则残留 | 服务器断网 | S3；`ExecStopPost` 与启动时清理；CI 回归 |
+| TUN 导致 SSH 断开 | 用户被锁在服务器外 | 试运行与独立回退定时器；未确认不写配置，重启即恢复。S1 在 netns 模拟下通过，真实公网客户端要在 L6 前用云主机确认 |
+| 崩溃后路由或防火墙规则残留 | 容器断网、规则累积 | `ExecStopPost` 与启动时清理；CI 回归 |
 | 开放代理 | 服务器被他人滥用 | 服务模式拒绝无认证的对外监听 |
 | 订阅地址泄露 | 节点信息被同机其他用户读取 | `/etc/velum` 权限 `0700`；接口只对 `velum` 组开放（组成员可经接口查看和修改配置，需在文档中说明） |
 | 与 Docker、防火墙规则冲突 | 容器或对外服务不可用 | S5、S6；默认不改防火墙，或做成可关闭的选项 |
