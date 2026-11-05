@@ -183,10 +183,14 @@ func Render(p *compiler.Plan, opts Options) (*Rendered, error) {
 			// 而本进程的流量不走 VPN，握手无法完成；改用用户态的 gVisor 栈
 			tun["stack"] = "gvisor"
 		}
-		if p.Options.Platform == "windows" {
+		switch p.Options.Platform {
+		case "windows":
 			// Windows：velumd 以服务运行，内核自建 wintun 并设置地址、接口 DNS 与路由（RoutePlan 已扣除排除网段）
 			tun["interface_name"], tun["auto_route"], tun["route_address"] = WindowsTUNName, true, p.Route.Routes
-		} else {
+		case "linux":
+			// Linux：内核自建 TUN。必须开 auto_redirect：只用 auto_route 时，绑定通配地址的 UDP 服务回包会进隧道（spikes/ml-linux/README.md F1）
+			tun["interface_name"], tun["auto_route"], tun["auto_redirect"], tun["route_address"] = LinuxTUNName, true, true, p.Route.Routes
+		default:
 			// macOS / Android：TUN 由 velum-helper / VpnService 创建并配置路由，内核经平台接口取得 FD，因此不开 auto_route
 			tun["auto_route"] = false
 		}
@@ -208,6 +212,9 @@ func Render(p *compiler.Plan, opts Options) (*Rendered, error) {
 
 // WindowsTUNName 是 Windows 上 wintun 网卡的名称。
 const WindowsTUNName = "Velum"
+
+// LinuxTUNName 是 Linux 上 TUN 网卡的名称。
+const LinuxTUNName = "velum0"
 
 // ---------- nodes ----------
 

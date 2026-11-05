@@ -19,6 +19,7 @@ func TestUnitFile(t *testing.T) {
 	u := unitFile()
 	for _, want := range []string{
 		"User=velum\n", "StartLimitIntervalSec=0\n", "Environment=VELUM_SERVICE=1\n", "ExecStart=/usr/local/bin/velumd --home /etc/velum --foreground\n",
+		"ExecStartPre=-/usr/local/bin/velumd service cleanup-net\n", "ExecStopPost=-/usr/local/bin/velumd service cleanup-net\n",
 		"AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW CAP_NET_BIND_SERVICE\n", "ProtectSystem=strict\n", "ReadWritePaths=/etc/velum /var/lib/velum\n",
 	} {
 		if !strings.Contains(u, want) {

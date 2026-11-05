@@ -24,7 +24,7 @@
 | Windows（x64） | 预发布，待真机验收 | 核心以 Windows 服务运行，使用 wintun |
 | Android 10+ | 预发布，模拟器验证通过 | VpnService，支持按应用分流 |
 | iOS | 计划中 | — |
-| Linux（x64、arm64） | 服务器版开发中：systemd 服务、本地端口；桌面端计划中 | 规划中 |
+| Linux（x64、arm64） | 服务器版开发中：systemd 服务、本地端口、TUN；桌面端计划中 | 规划中 |
 
 ## 安装
 
@@ -44,7 +44,7 @@ vlu conns                      # 最近的连接
 vlu reload / vlu update        # 重新加载 / 强制更新订阅
 ```
 
-Linux 服务器：解压 Release 里的压缩包，运行 `sudo sh install.sh` 安装为系统服务，然后 `vlu sub <订阅地址>`，再用 `eval "$(vlu env)"` 让命令行程序走 Velum。配置在 `/etc/velum`，日志用 `journalctl -u velum` 查看。默认只监听回环地址；要提供给其他机器，在 `config.yaml` 里配置带用户名和密码的 `listen_public`。
+Linux 服务器：解压 Release 里的压缩包，运行 `sudo sh install.sh` 安装为系统服务，然后 `vlu sub <订阅地址>`，再用 `eval "$(vlu env)"` 让命令行程序走 Velum。配置在 `/etc/velum`，日志用 `journalctl -u velum` 查看。默认只监听回环地址；要提供给其他机器，在 `config.yaml` 里配置带用户名和密码的 `listen_public`。要全局接管，运行 `sudo vlu tun on --try`，再新开一个 SSH 连接执行 `sudo vlu tun confirm`；超时未确认会自动回退。
 
 配置文件位于 macOS 的 `~/Library/Application Support/Velum/`、Windows 的 `%AppData%\Velum\`：`config.yaml` 是主配置，`overlay.yaml` 是本地覆盖层，两者都可以直接编辑。Windows 服务模式的日志与缓存在 `%ProgramData%\Velum\`。
 

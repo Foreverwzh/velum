@@ -51,7 +51,7 @@ TCP 回包带已绑定的源地址，跳过这些规则走主路由表，所以 
 
 ## F4：DNS（S4）
 
-systemd-resolved 存根下，解析经 sing-box；直接问 `8.8.8.8` 也被劫持。两种模式相同。纯 `/etc/resolv.conf` 的系统没测。
+systemd-resolved 存根下，解析经 sing-box；直接问 `8.8.8.8` 也被劫持。两种模式相同。纯 `/etc/resolv.conf` 的系统这里没测（L4 已验证）。**L3 的结论有前提**：测试没有排除网段；排除 RFC1918 后，内网上游 DNS 的查询会绕过劫持，L4 为此把上游 DNS 单独加回隧道。
 
 ## F5：Docker（S5）
 

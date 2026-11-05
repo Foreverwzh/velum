@@ -196,6 +196,7 @@ func usage() {
   status            查看状态
   sysproxy on|off|config  系统代理开关（重启后保持，不改 config.yaml；config = 回到 config.yaml 的设置）
   tun on|off|config       TUN 开关（需先 sudo velum-helper）；可与系统代理同时开启
+                          Linux：sudo vlu tun on --try 试运行，新开 SSH 连接用 sudo vlu tun confirm 确认
   reload            重新加载配置（config.yaml / overlay.yaml；订阅与规则集按更新间隔使用缓存）
   update            重新拉取订阅并加载；provider 与规则集随后在后台全部重新拉取
   why <目标>        推演请求会怎么走。目标可以是 URL、host:port、域名或 IP
@@ -302,8 +303,6 @@ func velumdPath() (string, error) {
 
 func setSysProxy(c *rpc.Client, args []string) error { return setSwitch(c, "系统代理", args) }
 
-func setTUN(c *rpc.Client, args []string) error { return setSwitch(c, "TUN", args) }
-
 // setSwitch：on / off / config（回到配置文件的设置）。两个开关相互独立，可同时开启。
 func setSwitch(c *rpc.Client, which string, args []string) error {
 	if len(args) != 1 || (args[0] != "on" && args[0] != "off" && args[0] != "config") {
@@ -400,6 +399,12 @@ func printStatus(s *rpc.Status) error {
 		if n.Paused != "" {
 			fmt.Printf("⏸ 已暂停  %s\n", n.Paused)
 		}
+	}
+	if t := s.TUNTrial; t != nil {
+		fmt.Printf("⏳ TUN 试运行，%s 后回退；新开 SSH 连接执行 sudo vlu tun confirm 确认\n", time.Until(t.Deadline).Round(time.Second))
+	}
+	if s.TUNReverted != "" {
+		fmt.Printf("⚠ %s\n", s.TUNReverted)
 	}
 	if t := s.TUN; t != nil {
 		routes := strings.Join(t.Routes, " ")

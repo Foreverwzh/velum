@@ -430,3 +430,32 @@ func TestRenderImmediateReject(t *testing.T) {
 		t.Fatalf("普通拒绝应经拦截出站：%+v", second)
 	}
 }
+
+// Linux：内核自建 TUN，auto_route + auto_redirect，路由取自 RoutePlan（已扣除排除网段）。
+func TestRenderLinuxTUN(t *testing.T) {
+	plan := buildPlan(t, compiler.ModeTUN)
+	plan.Options.Platform = "linux"
+	r, err := render.Render(plan, render.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	opts, err := sjson.UnmarshalExtendedContext[option.Options](boxContext(), r.JSON)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var tun *option.TunInboundOptions
+	for _, in := range opts.Inbounds {
+		if o, ok := in.Options.(*option.TunInboundOptions); ok {
+			tun = o
+		}
+	}
+	if tun == nil {
+		t.Fatal("缺少 tun 入站")
+	}
+	if tun.InterfaceName != render.LinuxTUNName || !tun.AutoRoute || !tun.AutoRedirect {
+		t.Fatalf("interface_name=%q auto_route=%v auto_redirect=%v", tun.InterfaceName, tun.AutoRoute, tun.AutoRedirect)
+	}
+	if len(tun.RouteAddress) != len(plan.Route.Routes) || len(tun.RouteAddress) == 0 {
+		t.Fatalf("route_address=%v，RoutePlan=%v", tun.RouteAddress, plan.Route.Routes)
+	}
+}

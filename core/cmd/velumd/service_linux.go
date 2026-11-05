@@ -15,6 +15,7 @@ import (
 
 	"github.com/Foreverwzh/velum/core/pkg/config"
 	"github.com/Foreverwzh/velum/core/pkg/ipc"
+	"github.com/Foreverwzh/velum/core/pkg/rpc"
 )
 
 // Linux 系统服务（docs/ML-PLAN.md、D7）：velumd 以专用用户 velum 运行，只带网络相关的 capabilities。
@@ -24,12 +25,17 @@ import (
 //     重复执行就是升级：替换程序并重启，配置不变。
 //   - uninstall（需要 root）：停止并删除服务与程序，默认保留配置和数据；--purge 连同配置、数据和用户一起删除。
 //   - start / stop / status：systemctl 的薄封装。
+//   - cleanup-net：清除 TUN 崩溃后的网络残留，由单元的 ExecStartPre / ExecStopPost 调用。
+//   - tun-revert：TUN 试运行超时未确认时由定时器调用（root）。
 const (
 	serviceName = "velum"
 	serviceUser = "velum"
 	unitPath    = "/etc/systemd/system/velum.service"
 	binDir      = "/usr/local/bin"
 )
+
+// revertMarker 由回退定时器（root）写入，velumd 读取后在 vlu status 里说明原因。
+var revertMarker = filepath.Join(config.ServiceDataDir, "tun-reverted")
 
 func unitFile() string {
 	return `[Unit]
@@ -45,9 +51,12 @@ User=` + serviceUser + `
 Group=` + serviceUser + `
 Environment=VELUM_SERVICE=1
 Environment=HOME=` + config.ServiceDataDir + `
+ExecStartPre=-` + binDir + `/velumd service cleanup-net
 ExecStart=` + binDir + `/velumd --home ` + config.ServiceHome + ` --foreground
+ExecStopPost=-` + binDir + `/velumd service cleanup-net
 Restart=on-failure
 RestartSec=3
+TimeoutStopSec=15
 LimitNOFILE=65535
 RuntimeDirectory=velum
 RuntimeDirectoryMode=0750
@@ -67,7 +76,7 @@ WantedBy=multi-user.target
 }
 
 func serviceCommand(args []string) error {
-	const usage = "用法：velumd service install [--add-user <用户>] | uninstall [--purge] | start | stop | status"
+	const usage = "用法：velumd service install [--add-user <用户>] | uninstall [--purge] | start | stop | status | cleanup-net | tun-revert"
 	if len(args) == 0 {
 		return errors.New(usage)
 	}
@@ -82,6 +91,10 @@ func serviceCommand(args []string) error {
 		return serviceInstall(*addUser)
 	case "uninstall":
 		return serviceUninstall(*purge)
+	case "cleanup-net":
+		return cleanupNet()
+	case "tun-revert":
+		return tunRevert()
 	case "start", "stop", "status":
 		cmd := exec.Command("systemctl", args[0], "--no-pager", serviceName)
 		cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
@@ -96,6 +109,42 @@ func run(name string, args ...string) error {
 		return fmt.Errorf("%s %s：%v\n%s", name, strings.Join(args, " "), err, strings.TrimSpace(string(out)))
 	}
 	return nil
+}
+
+// tunRevert 由试运行的定时器调用：velumd 还在试运行或没有响应时，停止服务、清理网络后重新启动。
+// 试运行不写入配置，重启后就回到关闭状态。不依赖 velumd 配合：它可能已经卡死。
+func tunRevert() error {
+	if trialOver(3 * time.Second) {
+		fmt.Println("没有进行中的试运行，不需要回退")
+		return nil
+	}
+	fmt.Println("TUN 试运行超时未确认，正在回退")
+	if err := run("systemctl", "stop", serviceName); err != nil {
+		fmt.Fprintln(os.Stderr, err) // 继续：网络恢复比服务状态重要
+		_ = run("systemctl", "kill", "--signal=SIGKILL", serviceName)
+	}
+	cerr := cleanupNet()
+	note := "TUN 试运行在 " + time.Now().Format("2006-01-02 15:04:05") + " 超时未确认，已自动回退到端口模式"
+	if err := os.WriteFile(revertMarker, []byte(note+"\n"), 0o644); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+	}
+	return errors.Join(cerr, run("systemctl", "start", serviceName))
+}
+
+// trialOver 询问 velumd 试运行是否已结束；velumd 没有响应（可能已卡死）时返回 false。
+// 不能等 RPC 自身的超时：TUN 卡死时机器一直断网，每一秒都算数。
+func trialOver(wait time.Duration) bool {
+	over := make(chan bool, 1)
+	go func() {
+		s, err := rpc.NewClient(config.ServiceSocket).Status()
+		over <- err == nil && s.TUNTrial == nil
+	}()
+	select {
+	case v := <-over:
+		return v
+	case <-time.After(wait):
+		return false
+	}
 }
 
 // ownUser 判断用户是否由 serviceInstall 创建：主目录是服务的数据目录。

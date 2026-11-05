@@ -85,6 +85,7 @@ type TUNOptions struct {
 	MTU      uint32         //
 	Include  []netip.Prefix // 经 TUN 的网段；为空表示全局（0.0.0.0/1 + 128.0.0.0/1，有 IPv6 地址时另加 ::/1 + 8000::/1）
 	Exclude  []netip.Prefix // 不经 TUN 的网段（另合并 overlay 的 dev_bypass.cidrs）
+	Force    []netip.Prefix // 优先于排除网段、一定经 TUN 的地址
 	// DNSHijack 为 true 时把系统 DNS 指向 TUN 内的 DNS 地址（由 helper 执行）。
 	DNSHijack bool
 	// IncludeApps / ExcludeApps：只经 / 不经 TUN 的应用（Android 包名）。
@@ -190,6 +191,14 @@ func Compile(sub *ir.Config, ov *overlay.Overlay, opts Options) (*Plan, error) {
 			// 立即拒绝，让系统马上回落到普通 DNS，而不是经出站等待超时
 			rules = append(rules, ir.Rule{Match: ir.Leaf(ir.Cond{IPCIDR: []string{netip.PrefixFrom(a.Addr().Next(), 32).String()}, NoResolve: true}),
 				Action: ir.Action{Kind: ir.ActionReject}, Source: velum("TUN 内 DNS 地址只接受 DNS 查询")})
+		}
+		if rs := privateResolvers(opts); len(rs) > 0 {
+			var cidrs []string
+			for _, p := range rs {
+				cidrs = append(cidrs, p.String())
+			}
+			rules = append(rules, ir.Rule{Match: ir.Leaf(ir.Cond{IPCIDR: cidrs, NoResolve: true}),
+				Action: ir.Action{Kind: ir.ActionRoute, Outbound: ir.OutboundDirect}, Source: velum("上游 DNS 地址上的其他连接（如路由器管理页）直连")})
 		}
 	}
 	direct := ir.Action{Kind: ir.ActionRoute, Outbound: ir.OutboundDirect}
@@ -402,7 +411,12 @@ func Compile(sub *ir.Config, ov *overlay.Overlay, opts Options) (*Plan, error) {
 				extra = append(extra, pf)
 			}
 		}
-		rp, err := BuildRoutePlan(opts.TUN, append(extra, envExclude...))
+		if opts.Platform == "linux" {
+			extra = append(extra, linuxDefaultExclude...)
+		}
+		tunOpts := opts.TUN
+		tunOpts.Force = privateResolvers(opts)
+		rp, err := BuildRoutePlan(tunOpts, append(extra, envExclude...))
 		if err != nil {
 			return nil, err
 		}
@@ -416,7 +430,14 @@ func Compile(sub *ir.Config, ov *overlay.Overlay, opts Options) (*Plan, error) {
 				warn("tun.exclude_apps", ir.Degraded, "按应用分流（include_apps / exclude_apps）只在 Android 上生效", "", velum("TUN"))
 			}
 		}
-		if opts.TUN.DNSHijack {
+		if opts.Platform == "linux" {
+			// Linux：由路由层劫持 53 端口，不改系统文件；系统解析器的查询也会被劫持，内核要直接问上游，否则查询会绕回自己
+			if len(phys) == 0 {
+				warn("tun.dns_hijack", ir.Degraded, "未获取到系统的上游 DNS（如只有本机解析器）：经系统解析器的查询可能失败，建议在 overlay 中指定 DNS", "", velum("TUN"))
+			} else {
+				usePhys("53 端口已由 Velum 接管")
+			}
+		} else if opts.TUN.DNSHijack {
 			if len(phys) == 0 {
 				warn("tun.dns_hijack", ir.Degraded, "未获取到物理网络的 DNS，暂不接管系统 DNS（接管后需要它来避免解析绕回 Velum）", "", velum("TUN"))
 			} else {
@@ -582,6 +603,37 @@ func systemDNSSplit(cfg *ir.Config, opts Options, ifaceOutbound func(iface strin
 	}
 }
 
+// linuxDefaultExclude 是 Linux 服务器上默认不进隧道的网段：云元数据、同 VPC 的其他子网（见 spikes/ml-linux/README.md F7）。
+var linuxDefaultExclude = []netip.Prefix{
+	netip.MustParsePrefix("10.0.0.0/8"),
+	netip.MustParsePrefix("172.16.0.0/12"),
+	netip.MustParsePrefix("192.168.0.0/16"),
+	netip.MustParsePrefix("169.254.0.0/16"),
+	netip.MustParsePrefix("fc00::/7"),
+	netip.MustParsePrefix("fe80::/10"),
+}
+
+// privateResolvers 返回落在默认排除网段里的系统上游 DNS（如路由器 192.168.1.1、云厂商的 169.254.169.253）。
+// 53 端口的劫持只对进隧道的目标生效：不把它们加回来，systemd-resolved 的查询就绕过 Velum，分流规则和 fake-ip 都不起作用。
+// 用户明确排除的地址不加回。
+func privateResolvers(opts Options) []netip.Prefix {
+	if opts.Platform != "linux" || opts.Env == nil {
+		return nil
+	}
+	var out []netip.Prefix
+	for _, s := range opts.Env.PhysicalDNS {
+		a, err := netip.ParseAddr(s)
+		if err != nil {
+			continue
+		}
+		in := func(p netip.Prefix) bool { return p.Contains(a) }
+		if slices.ContainsFunc(linuxDefaultExclude, in) && !slices.ContainsFunc(opts.TUN.Exclude, in) {
+			out = append(out, netip.PrefixFrom(a, a.BitLen()))
+		}
+	}
+	return out
+}
+
 // BuildRoutePlan 计算经 TUN 的路由（IPv4，有 IPv6 地址时含 IPv6）：包含网段 − 排除网段，再加上 TUN 自身网段
 // （外部 FD 模式下 sing-tun 不设路由，system 栈 NAT 回包依赖该路由，见 M0 F2）。
 // 全局接管用 0.0.0.0/1 + 128.0.0.0/1，不替换默认路由。
@@ -608,6 +660,11 @@ func BuildRoutePlan(t TUNOptions, extraExclude []netip.Prefix) (RoutePlan, error
 	exclude := append(append([]netip.Prefix(nil), t.Exclude...), extraExclude...)
 	for _, p := range exclude {
 		b.RemovePrefix(p.Masked())
+	}
+	for _, p := range t.Force {
+		if p.Addr().Is4() || t.Address6.IsValid() {
+			b.AddPrefix(p.Masked())
+		}
 	}
 	b.AddPrefix(t.Address.Masked())
 	if t.Address6.IsValid() {

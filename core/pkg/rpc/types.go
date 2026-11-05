@@ -163,6 +163,11 @@ type TUNStatus struct {
 	ExcludeApps []string `json:"exclude_apps,omitempty"`
 }
 
+// TUNTrial 是进行中的 TUN 试运行。
+type TUNTrial struct {
+	Deadline time.Time `json:"deadline"`
+}
+
 type NetworkStatus struct {
 	PrimaryInterface string         `json:"primary_interface"`
 	VPNs             []netsense.VPN `json:"vpns,omitempty"`
@@ -176,9 +181,17 @@ type NetworkStatus struct {
 }
 
 // SwitchRequest 切换开关：on / off / config（回到 config.yaml 的设置）；留空表示不改。保存在 state.json，重启后保持。
+//
+// TUN 还可以是 try（试运行：不写入 state.json，重启后回到关闭）和 confirm（确认试运行并保存），见 docs/ML-PLAN.md。
 type SwitchRequest struct {
 	SystemProxy string `json:"system_proxy,omitempty"`
 	TUN         string `json:"tun,omitempty"`
+	// TrialDeadline 是试运行的回退时间（TUN 为 try 时，只用于展示；回退由独立的定时器执行）。
+	TrialDeadline time.Time `json:"trial_deadline,omitzero"`
+	// TrialSession 标识发起请求的 SSH 连接（TUN 为 try / confirm 时）。确认必须来自另一条连接，才能证明新的入站连接可用。
+	TrialSession string `json:"trial_session,omitempty"`
+	// TrialForce 允许在同一条连接上确认。
+	TrialForce bool `json:"trial_force,omitempty"`
 }
 
 // Traffic 是经过 Velum 的实时流量（速率为最近一秒，字节 / 秒）。
@@ -207,16 +220,19 @@ type Status struct {
 	SystemProxyOn bool   `json:"system_proxy_on"` // 实际生效
 	TUNOn         bool   `json:"tun_on"`          // 实际生效
 	// WantSystemProxy / WantTUN 是用户要求的状态（配置文件或运行时切换）；可能因 NetworkSense 暂停而与实际不同。
-	WantSystemProxy bool           `json:"want_system_proxy"`
-	WantTUN         bool           `json:"want_tun"`
-	Overridden      bool           `json:"overridden,omitempty"` // 有运行时切换，未写入 config.yaml
-	SysProxy        SysProxyStatus `json:"sys_proxy"`
-	TUN             *TUNStatus     `json:"tun,omitempty"`
-	Network         *NetworkStatus `json:"network,omitempty"`
-	Traffic         *Traffic       `json:"traffic,omitempty"` // 引擎不支持统计时为空
-	Listen          string         `json:"listen"`
-	Home            string         `json:"home"`
-	StartedAt       time.Time      `json:"started_at"`
+	WantSystemProxy bool `json:"want_system_proxy"`
+	WantTUN         bool `json:"want_tun"`
+	// TUNTrial 非空表示 TUN 正在试运行，到时未确认就回退；TUNReverted 说明上一次试运行为何被回退。
+	TUNTrial    *TUNTrial      `json:"tun_trial,omitempty"`
+	TUNReverted string         `json:"tun_reverted,omitempty"`
+	Overridden  bool           `json:"overridden,omitempty"` // 有运行时切换，未写入 config.yaml
+	SysProxy    SysProxyStatus `json:"sys_proxy"`
+	TUN         *TUNStatus     `json:"tun,omitempty"`
+	Network     *NetworkStatus `json:"network,omitempty"`
+	Traffic     *Traffic       `json:"traffic,omitempty"` // 引擎不支持统计时为空
+	Listen      string         `json:"listen"`
+	Home        string         `json:"home"`
+	StartedAt   time.Time      `json:"started_at"`
 	// Starting 为 true 时首次加载配置、启动引擎尚未完成（此时其余字段可能为空）。
 	Starting     bool               `json:"starting,omitempty"`
 	LoadedAt     time.Time          `json:"loaded_at"`

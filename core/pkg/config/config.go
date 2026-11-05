@@ -96,10 +96,12 @@ tun:
   address6: fdfe:dcba:9876::1/126
   mtu: 9000
   # 把系统 DNS 指向 TUN（由 helper 设置、退出时还原），使所有应用的 DNS 都经 Velum 分流
+  # Linux 不改系统文件，始终由路由层接管 53 端口，此项不生效
   dns_hijack: true
   # 经 TUN 的目标网段；为空表示全局接管（0.0.0.0/1 + 128.0.0.0/1，不替换默认路由）
   route_include: []
   # 不经 TUN 的网段（另会合并 overlay 的 dev_bypass.cidrs）
+  # Linux 上私有网段与链路本地地址（云元数据）默认不经 TUN
   route_exclude: []
   helper_socket: /var/run/velum-helper.sock
   # Android：只经 TUN 的应用（包名）；为空表示所有应用

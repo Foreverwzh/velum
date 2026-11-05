@@ -55,6 +55,10 @@ jobs:
         run: sh core/scripts/smoke.sh "dist-pkg/$PKG_NAME"
       - name: service smoke
         run: sudo sh core/scripts/service-smoke.sh "dist-pkg/$PKG_NAME"
+      - name: tun regression (netns)
+        run: |
+          command -v nft >/dev/null || sudo apt-get install -y nftables
+          sudo bash core/scripts/netns-tun.sh "dist-pkg/$PKG_NAME"
       - name: archive
         run: tar -C dist-pkg -czf "dist-pkg/$PKG_NAME.tar.gz" "$PKG_NAME"
       - uses: actions/upload-artifact@v7

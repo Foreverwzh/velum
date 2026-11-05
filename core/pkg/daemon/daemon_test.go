@@ -10,6 +10,7 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -603,6 +604,9 @@ func TestRepairResetsStaleDNS(t *testing.T) {
 
 // 接管系统 DNS：有物理 DNS 时，TUN 内的 DNS 地址交给 helper；原本经系统解析器的 DNS 改用物理 DNS 防回环。
 func TestDaemonTUNSystemDNS(t *testing.T) {
+	if runtime.GOOS == "linux" {
+		t.Skip("Linux 不改系统 DNS，由路由层接管 53 端口")
+	}
 	home, _ := os.MkdirTemp(tmpBase(), "velum-test-")
 	defer os.RemoveAll(home)
 	paths := testPaths(home)

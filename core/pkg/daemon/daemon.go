@@ -77,6 +77,11 @@ type Daemon struct {
 	SysProxy SysProxy
 	// TUNUnavailable 非空时 TUN 不可用（如 Windows 上未以服务运行），开启 TUN 会显示为暂停并给出此原因。
 	TUNUnavailable string
+	// TUNTrials 允许试运行 TUN（Linux 服务）；TUNRevertMarker 是回退定时器留下的记录，用于在状态里说明原因。
+	TUNTrials       bool
+	TUNRevertMarker string
+	// SystemDNS 返回系统实际使用的上游 DNS（Linux）：路由层接管 DNS 时，内核不能再问系统解析器，否则查询会绕回来。
+	SystemDNS func() []string
 	// AllowSIDs 是 Windows 上允许访问本地接口的用户（以服务运行时为安装用户）；为空表示当前用户。
 	AllowSIDs []string
 	// SocketMode 是本地接口 socket 的权限（Linux 服务允许 velum 组访问）；为 0 时只有本用户可访问。
@@ -91,7 +96,8 @@ type Daemon struct {
 	spMu      sync.Mutex
 	spApplied *compiler.SysProxyPlan // 上次成功写入的系统代理设置；未接管时为 nil
 
-	sysOverride, tunOverride *bool // 界面 / vlu 设置的开关（持久化到 state.json，覆盖 config.yaml）；nil 表示按 config.yaml
+	trial                    *tunTrial // 进行中的试运行：只在内存里，重启后自动回到关闭
+	sysOverride, tunOverride *bool     // 界面 / vlu 设置的开关（持久化到 state.json，覆盖 config.yaml）；nil 表示按 config.yaml
 
 	// NetSnapshot 采集网络状态（nil 表示不启用 NetworkSense，如测试）。
 	NetSnapshot func() (netsense.Snapshot, error)
@@ -244,6 +250,9 @@ func (d *Daemon) build(mode fetchMode) (*state, error) {
 	if d.tunOverride != nil {
 		st.wantTUN = *d.tunOverride
 	}
+	if d.trial != nil {
+		st.wantTUN = true
+	}
 	env, captive := d.env, d.captive
 	d.mu.RUnlock()
 	// NetworkSense：按环境决定实际生效的开关，并提供分流型 VPN 信息
@@ -294,6 +303,12 @@ func (d *Daemon) build(mode fetchMode) (*state, error) {
 	opts.SystemProxy = st.sysOn
 	if st.tunOn {
 		opts.Mode = compiler.ModeTUN
+		if d.SystemDNS != nil {
+			if opts.Env == nil {
+				opts.Env = &compiler.Environment{}
+			}
+			opts.Env.PhysicalDNS = d.SystemDNS()
+		}
 		if opts.TUN.Address, opts.TUN.Address6, opts.TUN.MTU, opts.TUN.Include, opts.TUN.Exclude, err = cfg.TUNOptions(); err != nil {
 			return nil, err
 		}
@@ -1114,6 +1129,14 @@ func (d *Daemon) status() rpc.Status {
 	defer d.mu.RUnlock()
 	s := rpc.Status{Traffic: traffic, Update: upd, PID: os.Getpid(), Version: Version, Running: d.Engine.Running(), Home: d.Paths.Home, StartedAt: d.startedAt, Starting: d.starting, LastError: d.lastErr,
 		Overridden: d.sysOverride != nil || d.tunOverride != nil}
+	if d.trial != nil {
+		s.TUNTrial = &rpc.TUNTrial{Deadline: d.trial.deadline}
+	}
+	if d.TUNRevertMarker != "" {
+		if b, err := os.ReadFile(d.TUNRevertMarker); err == nil {
+			s.TUNReverted = strings.TrimSpace(string(b))
+		}
+	}
 	if d.SysProxy != nil {
 		s.SysProxy = rpc.SysProxyStatus{Supported: true, Active: d.SysProxy.HasSnapshot()}
 		if s.SysProxy.Active && d.st != nil && eff != nil {
@@ -1418,26 +1441,70 @@ func (d *Daemon) setSwitches(w http.ResponseWriter, r *http.Request) {
 		return nil, fmt.Errorf("开关取值无效：%q（可选 on / off / config）", v)
 	}
 	d.mu.Lock()
-	prevSys, prevTUN := d.sysOverride, d.tunOverride
+	prevSys, prevTUN, prevTrial := d.sysOverride, d.tunOverride, d.trial
+	trial, tunReq, trialErr := d.nextTrial(req)
+	if trialErr != nil {
+		d.mu.Unlock()
+		writeErr(w, http.StatusConflict, trialErr)
+		return
+	}
 	sys, err1 := parse(req.SystemProxy, d.sysOverride)
-	tun, err2 := parse(req.TUN, d.tunOverride)
+	tun, err2 := parse(tunReq, d.tunOverride)
 	if err1 != nil || err2 != nil {
 		d.mu.Unlock()
 		writeErr(w, http.StatusBadRequest, errors.Join(err1, err2))
 		return
 	}
-	d.sysOverride, d.tunOverride = sys, tun
+	d.sysOverride, d.tunOverride, d.trial = sys, tun, trial
 	d.mu.Unlock()
 	if err := d.Reload(r.Context()); err != nil {
 		d.mu.Lock()
-		d.sysOverride, d.tunOverride = prevSys, prevTUN
+		d.sysOverride, d.tunOverride, d.trial = prevSys, prevTUN, prevTrial
 		d.mu.Unlock()
 		_ = d.Reload(r.Context())
 		writeErr(w, http.StatusUnprocessableEntity, err)
 		return
 	}
 	d.saveState()
+	if req.TUN != "" && d.TUNRevertMarker != "" { // 用户已重新做出选择，上一次回退的说明不再需要
+		_ = os.Remove(d.TUNRevertMarker)
+	}
 	writeJSON(w, d.status())
+}
+
+// tunTrial 是进行中的 TUN 试运行（docs/ML-PLAN.md）。
+type tunTrial struct {
+	deadline time.Time
+	session  string
+}
+
+// nextTrial 按请求计算切换后的试运行状态，并把 try / confirm 换算成普通开关值：
+// try 不改持久化的开关，confirm 等同于 on。调用时需持有 d.mu。
+func (d *Daemon) nextTrial(req rpc.SwitchRequest) (*tunTrial, string, error) {
+	switch req.TUN {
+	case "":
+		return d.trial, "", nil
+	case "try":
+		if !d.TUNTrials {
+			return nil, "", errors.New("这个平台不支持试运行 TUN")
+		}
+		if d.trial != nil {
+			return nil, "", errors.New("TUN 已在试运行")
+		}
+		if d.st != nil && d.st.tunOn {
+			return nil, "", errors.New("TUN 已开启，不需要试运行")
+		}
+		return &tunTrial{deadline: req.TrialDeadline, session: req.TrialSession}, "", nil
+	case "confirm":
+		if d.trial == nil {
+			return nil, "", errors.New("没有进行中的试运行（可能已超时回退）")
+		}
+		if d.trial.session != "" && d.trial.session == req.TrialSession && !req.TrialForce {
+			return nil, "", errors.New("请从新开的 SSH 连接确认：只有这样才能证明新的入站连接可用（--force 可跳过）")
+		}
+		return nil, "on", nil
+	}
+	return nil, req.TUN, nil // on / off / config 结束试运行
 }
 
 // ---------------- 策略组 ----------------
