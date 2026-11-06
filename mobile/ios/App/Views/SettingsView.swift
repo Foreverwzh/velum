@@ -67,6 +67,11 @@ struct SettingsView: View {
                 }
                 Section("关于") {
                     LabeledContent("版本", value: model.status?.version ?? "—")
+                    if model.status?.tunOn == true, let m = (model.core as? RealCore)?.tunnelMemory() {
+                        // 隧道受系统内存上限约束，超过会被杀掉：这里能直接看到离上限还有多远
+                        let text = String(format: "%.0f / %.0f / %.0f MB", m.current, m.peak, m.limit)
+                        LabeledContent("隧道内存（当前 / 峰值 / 上限）", value: text).monospacedDigit()
+                    }
                     Link(destination: URL(string: "https://github.com/Foreverwzh/velum")!) {
                         LabeledContent("源代码", value: "GPL-3.0-or-later")
                     }
@@ -273,16 +278,36 @@ struct LocalRulesView: View {
 struct WarningsView: View {
     @Environment(AppModel.self) private var model
 
+    /// 与桌面端相同的分类名。
+    private func categoryName(_ c: String) -> String {
+        switch c {
+        case "node": String(localized: "节点")
+        case "provider": String(localized: "节点源")
+        case "group": String(localized: "策略组")
+        case "rule": String(localized: "规则")
+        case "ruleset": String(localized: "规则集")
+        case "dns": "DNS"
+        case "global": String(localized: "全局")
+        case "overlay": String(localized: "本地覆盖")
+        case "render": String(localized: "规则与出站")
+        default: c
+        }
+    }
+
     var body: some View {
         List {
             ForEach(Dictionary(grouping: model.warnings, by: \.category).sorted { $0.key < $1.key }, id: \.key) { cat, items in
-                Section(cat) {
+                Section(categoryName(cat)) {
                     ForEach(items) { w in
                         VStack(alignment: .leading, spacing: 3) {
                             if let s = w.subject { Text(s).font(.subheadline.monospaced()).lineLimit(2) }
                             Text(w.reason).font(.subheadline)
+                            // 订阅里的原文：没有它，「字段未映射」看不出是哪个字段
+                            if let text = w.source.text, !text.isEmpty {
+                                Text(text).font(.footnote.monospaced()).foregroundStyle(.secondary).lineLimit(3).textSelection(.enabled)
+                            }
                             HStack(spacing: 6) {
-                                Text(w.level == "unsupported" ? "不生效" : "已降级").foregroundStyle(w.level == "unsupported" ? Color.err : Color.warn)
+                                Text(w.level == "unsupported" ? "不支持" : "已降级").foregroundStyle(w.level == "unsupported" ? Color.err : Color.warn)
                                 Text(w.source.location).foregroundStyle(.secondary)
                             }
                             .font(.caption)

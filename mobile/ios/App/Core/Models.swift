@@ -98,7 +98,9 @@ struct Connection: Codable, Hashable, Identifiable {
     var errors: [String]?
 
     var host: String { domain ?? destination }
-    var failed: Bool { !(errors ?? []).isEmpty }
+    /// 按规则拦截是预期行为（如订阅拒绝 IPv6），即使带错误信息也不算失败。
+    var blocked: Bool { chain.last.map { $0 == "REJECT" || $0.hasPrefix("reject") } ?? false }
+    var failed: Bool { !(errors ?? []).isEmpty && !blocked }
 }
 
 extension Connection {

@@ -20,7 +20,6 @@
 "一键修复" = "One-click repair";
 "上行" = "Upload";
 "下行" = "Download";
-"不生效" = "No effect";
 "为什么" = "Why";
 "仅 %@" = "Only %@";
 "仅子域" = "Subdomains only";
@@ -187,3 +186,9 @@
 "（仅此域名）" = " (this domain only)";
 "（含子域）" = " (with subdomains)";
 "，然后 " = ", then ";
+"隧道内存（当前 / 峰值 / 上限）" = "Tunnel memory (now / peak / limit)";
+"不支持" = "Unsupported";
+"节点源" = "Node sources";
+"全局" = "General";
+"本地覆盖" = "Local overlay";
+"规则与出站" = "Rules and outbound";

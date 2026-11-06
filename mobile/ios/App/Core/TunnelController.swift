@@ -16,14 +16,22 @@ final class TunnelController: NSObject, MobilebindTunnelHostProtocol, @unchecked
     private var transitioning = false
     private var wasActive = false
 
-    private let monitor = NWPathMonitor(prohibitedInterfaceTypes: [.other]) // 不看隧道自己
+    private let monitor = NWPathMonitor()
     private var path: Network.NWPath?
+    /// 第一次网络状态到达：启动时核心立刻会查询，不等就会被当成没有网络。
+    private let firstPath = DispatchSemaphore(value: 0)
+    private var gotPath = false
 
     override init() {
         super.init()
         monitor.pathUpdateHandler = { [weak self] p in
             guard let self else { return }
-            lock.withLock { self.path = p }
+            let first = lock.withLock { () -> Bool in
+                self.path = p
+                defer { self.gotPath = true }
+                return !self.gotPath
+            }
+            if first { firstPath.signal() }
         }
         monitor.start(queue: DispatchQueue(label: "velum.path"))
         // 通知在主线程发出，而 statusChanged 要等 NE 的回调（回调也在主线程）：必须转到后台且不等待。
@@ -172,8 +180,10 @@ final class TunnelController: NSObject, MobilebindTunnelHostProtocol, @unchecked
 
     /// 当前物理网络。隧道开着时系统解析器返回的是隧道的 DNS，这时用切换前记下的值。
     func network() -> String {
+        if !lock.withLock({ gotPath }), firstPath.wait(timeout: .now() + 1) == .success { firstPath.signal() }
         let p = lock.withLock { path }
-        guard let p, p.status == .satisfied, let iface = p.availableInterfaces.first else { return "" }
+        // 隧道开着时列表里也有隧道接口（类型 other），要跳过它才是物理网络
+        guard let p, p.status == .satisfied, let iface = p.availableInterfaces.first(where: { $0.type != .other }) else { return "" }
         var dns = Self.resolvers().filter { !$0.hasPrefix("172.19.") && !$0.hasPrefix("fdfe:dcba:") }
         let key = "dns." + iface.name
         if dns.isEmpty { dns = UserDefaults.standard.stringArray(forKey: key) ?? [] }

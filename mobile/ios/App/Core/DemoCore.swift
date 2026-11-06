@@ -67,7 +67,21 @@ final class DemoCore: VelumCore, @unchecked Sendable {
 
     func status() async throws -> Status { read { s } }
     func traffic() async throws -> Traffic { Traffic(upRate: Int64.random(in: 8_000...40_000), downRate: Int64.random(in: 300_000...1_900_000), active: Int.random(in: 11...16)) }
-    func connections() async throws -> [Connection] { read { conns } }
+    func connections() async throws -> [Connection] {
+        read {
+            // 模拟持续有新连接（滚动稳定性的测试用）
+            if UserDefaults.standard.bool(forKey: "liveConns"), let first = conns.first {
+                var c = first
+                nextID += 1
+                c.id = nextID
+                c.domain = "live\(nextID).example.com"
+                c.start = .now
+                c.end = .now
+                conns.insert(c, at: 0)
+            }
+            return conns
+        }
+    }
 
     func warnings() async throws -> [Warning] {
         guard read({ s.warnings }) > 0 else { return [] }

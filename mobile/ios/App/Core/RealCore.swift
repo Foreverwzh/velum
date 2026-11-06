@@ -40,6 +40,18 @@ final class RealCore: VelumCore, @unchecked Sendable {
         return base.appendingPathComponent("velum")
     }
 
+    /// 隧道扩展的内存读数（扩展每 2 秒写一行）：当前、峰值、系统上限，单位 MB。
+    func tunnelMemory() -> (current: Double, peak: Double, limit: Double)? {
+        guard let line = try? String(contentsOf: Self.home().appendingPathComponent("tunnel/memory.txt"), encoding: .utf8) else { return nil }
+        var v: [String: Double] = [:]
+        for part in line.split(whereSeparator: \.isWhitespace) {
+            let kv = part.split(separator: "=")
+            if kv.count == 2, let d = Double(kv[1]) { v[String(kv[0])] = d }
+        }
+        guard let c = v["footprint"], let p = v["peak"], let l = v["limit"] else { return nil }
+        return (c, p, l)
+    }
+
     private func raw(_ method: String, _ path: String, _ body: [String: Any]?) async throws -> Data {
         try await started.value
         let data = try body.map { try JSONSerialization.data(withJSONObject: $0) }

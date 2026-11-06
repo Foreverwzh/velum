@@ -5,6 +5,10 @@ struct ActivityView: View {
     @Environment(AppModel.self) private var model
     @State private var filter = "all"
     @State private var query = ""
+    /// 正在显示的连接。滚离顶部或手指在滚动时不更新：新连接插到顶部会让内容跳动。
+    @State private var shown: [Connection] = []
+    @State private var atTop = true
+    @State private var scrolling = false
 
     var body: some View {
         NavigationStack {
@@ -17,25 +21,49 @@ struct ActivityView: View {
                         }
                 }
             }
+            .contentMargins(.top, 8, for: .scrollContent) // 搜索框下面不留大片空白
             .overlay { empty }
             .navigationTitle("活动")
-            .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "筛选地址或节点")
-            .safeAreaInset(edge: .top, spacing: 0) {
-                Picker("筛选", selection: $filter) {
-                    Text("全部").tag("all")
-                    Text("失败").tag("failed")
+            // 标题和搜索框都不随滚动折叠：折叠会改变内容偏移，和不断到来的新连接叠加就会来回跳
+            .navigationBarTitleDisplayMode(.inline)
+            .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "筛选地址或节点")
+            .toolbar {
+                ToolbarItem(placement: .principal) {
+                    Picker("筛选", selection: $filter) {
+                        Text("全部").tag("all")
+                        Text("失败").tag("failed")
+                    }
+                    .pickerStyle(.segmented)
+                    .frame(width: 260) // 导航栏默认只给内容所需的宽度，两段会挤成一小块
                 }
-                .pickerStyle(.segmented)
-                .padding(.horizontal)
-                .padding(.bottom, 8)
+                .sharedBackgroundVisibility(.hidden) // 分段控件自带背景，不再套一层玻璃胶囊
             }
-            .refreshable { await model.refreshActivity() }
+            .onScrollGeometryChange(for: Bool.self) { g in
+                g.contentOffset.y <= -g.contentInsets.top + 8
+            } action: { _, top in
+                atTop = top
+                syncIfIdle()
+            }
+            .onScrollPhaseChange { _, phase in
+                scrolling = phase != .idle
+                syncIfIdle()
+            }
+            .onChange(of: model.connections) { syncIfIdle() }
+            .onAppear { shown = model.connections }
+            .refreshable {
+                await model.refreshActivity()
+                shown = model.connections
+            }
             .velumRoutes()
         }
     }
 
+    private func syncIfIdle() {
+        if atTop && !scrolling { shown = model.connections }
+    }
+
     private var items: [Connection] {
-        model.connections.filter { c in
+        shown.filter { c in
             if filter == "failed" && !c.failed { return false }
             if query.isEmpty { return true }
             return c.host.localizedCaseInsensitiveContains(query) || c.chain.contains { $0.localizedCaseInsensitiveContains(query) }

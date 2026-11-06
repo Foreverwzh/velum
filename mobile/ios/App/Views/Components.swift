@@ -122,7 +122,9 @@ struct FlowLayout: Layout {
     var lineSpacing: CGFloat = 4
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        arrange(width: proposal.width ?? .infinity, subviews: subviews).size
+        let s = arrange(width: proposal.width ?? .infinity, subviews: subviews).size
+        // 向上取整：放置时拿到的宽度可能比这里算出的小一点点，不能因此把最后一段挤到下一行
+        return CGSize(width: s.width.rounded(.up), height: s.height.rounded(.up))
     }
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
@@ -137,7 +139,7 @@ struct FlowLayout: Layout {
         var points: [CGPoint] = [], sizes: [CGSize] = []
         for v in subviews {
             let s = v.sizeThatFits(ProposedViewSize(width: width, height: nil))
-            if x > 0, x + s.width > width { x = 0; y += line + lineSpacing; line = 0 }
+            if x > 0, x + s.width > width + 0.5 { x = 0; y += line + lineSpacing; line = 0 } // 容忍浮点误差
             points.append(CGPoint(x: x, y: y))
             sizes.append(s)
             x += s.width + spacing
