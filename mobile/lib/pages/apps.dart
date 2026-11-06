@@ -1,5 +1,6 @@
 // 按应用分流：选择不经 Velum 的应用（或只让所选应用经 Velum），写入 config.yaml 的 tun 节。
 
+import '../i18n.dart';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -55,7 +56,7 @@ class _AppsPageState extends State<AppsPage> {
       await v.run(() => _include ? v.api.setTunApps(include: list) : v.api.setTunApps(exclude: list));
       if (mounted) {
         setState(() => _dirty = false);
-        toast(context, '已保存，VPN 已按新设置重新建立');
+        toast(context, t('已保存，VPN 已按新设置重新建立'));
       }
     } catch (e) {
       if (mounted) toast(context, errText(e));
@@ -75,18 +76,18 @@ class _AppsPageState extends State<AppsPage> {
         .toList()
       ?..sort((a, b) => (_initial.contains(a.package) ? 0 : 1).compareTo(_initial.contains(b.package) ? 0 : 1));
     return Scaffold(
-      appBar: AppBar(title: const Text('按应用分流'), actions: [
-        TextButton(onPressed: !_dirty || _saving ? null : _save, child: Text(_saving ? '保存中…' : '保存')),
+      appBar: AppBar(title: Text(t('按应用分流')), actions: [
+        TextButton(onPressed: !_dirty || _saving ? null : _save, child: Text(_saving ? t('保存中…') : t('保存'))),
       ]),
       body: apps == null
           ? const Center(child: CircularProgressIndicator())
           : Column(children: [
               Padding(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                padding: EdgeInsets.fromLTRB(16, 8, 16, 0),
                 child: SegmentedButton<bool>(
-                  segments: const [
-                    ButtonSegment(value: false, label: Text('所选应用不经 Velum')),
-                    ButtonSegment(value: true, label: Text('只有所选应用经 Velum')),
+                  segments: [
+                    ButtonSegment(value: false, label: Text(t('所选应用不经 Velum'))),
+                    ButtonSegment(value: true, label: Text(t('只有所选应用经 Velum'))),
                   ],
                   selected: {_include},
                   onSelectionChanged: (v) => setState(() {
@@ -98,13 +99,13 @@ class _AppsPageState extends State<AppsPage> {
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
                 child: TextField(
-                  decoration: const InputDecoration(prefixIcon: Icon(Icons.search), hintText: '搜索应用', isDense: true, border: OutlineInputBorder()),
+                  decoration: InputDecoration(prefixIcon: Icon(Icons.search), hintText: t('搜索应用'), isDense: true, border: OutlineInputBorder()),
                   onChanged: (v) => setState(() => _filter = v.trim()),
                 ),
               ),
               SwitchListTile(
                 dense: true,
-                title: const Text('显示系统应用'),
+                title: Text(t('显示系统应用')),
                 value: _showSystem,
                 onChanged: (v) => setState(() => _showSystem = v),
               ),

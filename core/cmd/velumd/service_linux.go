@@ -4,6 +4,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"github.com/Foreverwzh/velum/core/pkg/i18n"
 	"io"
 	"os"
 	"os/exec"
@@ -78,11 +79,11 @@ WantedBy=multi-user.target
 func serviceCommand(args []string) error {
 	const usage = "用法：velumd service install [--add-user <用户>] | uninstall [--purge] | start | stop | status | cleanup-net | tun-revert"
 	if len(args) == 0 {
-		return errors.New(usage)
+		return i18n.New(usage)
 	}
 	fs := flag.NewFlagSet("service "+args[0], flag.ContinueOnError)
-	addUser := fs.String("add-user", "", "允许该用户用 vlu 操作服务（加入 velum 组）；默认是执行 sudo 的用户")
-	purge := fs.Bool("purge", false, "同时删除配置、数据和 velum 用户")
+	addUser := fs.String("add-user", "", i18n.T("允许该用户用 vlu 操作服务（加入 velum 组）；默认是执行 sudo 的用户"))
+	purge := fs.Bool("purge", false, i18n.T("同时删除配置、数据和 velum 用户"))
 	if err := fs.Parse(args[1:]); err != nil {
 		return err
 	}
@@ -100,7 +101,7 @@ func serviceCommand(args []string) error {
 		cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 		return cmd.Run()
 	}
-	return errors.New(usage)
+	return i18n.New(usage)
 }
 
 func run(name string, args ...string) error {
@@ -115,16 +116,16 @@ func run(name string, args ...string) error {
 // 试运行不写入配置，重启后就回到关闭状态。不依赖 velumd 配合：它可能已经卡死。
 func tunRevert() error {
 	if trialOver(3 * time.Second) {
-		fmt.Println("没有进行中的试运行，不需要回退")
+		fmt.Println(i18n.T("没有进行中的试运行，不需要回退"))
 		return nil
 	}
-	fmt.Println("TUN 试运行超时未确认，正在回退")
+	fmt.Println(i18n.T("TUN 试运行超时未确认，正在回退"))
 	if err := run("systemctl", "stop", serviceName); err != nil {
 		fmt.Fprintln(os.Stderr, err) // 继续：网络恢复比服务状态重要
 		_ = run("systemctl", "kill", "--signal=SIGKILL", serviceName)
 	}
 	cerr := cleanupNet()
-	note := "TUN 试运行在 " + time.Now().Format("2006-01-02 15:04:05") + " 超时未确认，已自动回退到端口模式"
+	note := i18n.T("TUN 试运行在 ") + time.Now().Format("2006-01-02 15:04:05") + i18n.T(" 超时未确认，已自动回退到端口模式")
 	if err := os.WriteFile(revertMarker, []byte(note+"\n"), 0o644); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 	}
@@ -152,10 +153,10 @@ func ownUser(u *user.User) bool { return u.HomeDir == config.ServiceDataDir }
 
 func requireRootSystemd() error {
 	if os.Geteuid() != 0 {
-		return errors.New("需要 root（用 sudo 运行）")
+		return i18n.New("需要 root（用 sudo 运行）")
 	}
 	if _, err := os.Stat("/run/systemd/system"); err != nil {
-		return errors.New("这台机器没有运行 systemd；可以用 velumd --foreground 直接运行")
+		return i18n.New("这台机器没有运行 systemd；可以用 velumd --foreground 直接运行")
 	}
 	return nil
 }
@@ -171,12 +172,12 @@ func serviceInstall(addUser string) error {
 	}
 	if addUser != "" {
 		if _, err := user.Lookup(addUser); err != nil { // 先检查，不留下装了一半的状态
-			return fmt.Errorf("用户 %s 不存在", addUser)
+			return i18n.Errorf("用户 %s 不存在", addUser)
 		}
 	}
 	// 同名用户不是我们创建的（如真人账号）时不能借用：服务会以它的身份运行，--purge 还会删掉它
 	if u, err := user.Lookup(serviceUser); err == nil && !ownUser(u) {
-		return fmt.Errorf("系统里已有用户 %s（主目录 %s），不是 Velum 创建的；为避免影响它，已停止安装", serviceUser, u.HomeDir)
+		return i18n.Errorf("系统里已有用户 %s（主目录 %s），不是 Velum 创建的；为避免影响它，已停止安装", serviceUser, u.HomeDir)
 	}
 	exe, err := os.Executable()
 	if err != nil {
@@ -187,7 +188,7 @@ func serviceInstall(addUser string) error {
 	}
 	vlu := filepath.Join(filepath.Dir(exe), "vlu")
 	if _, err := os.Stat(vlu); err != nil {
-		return fmt.Errorf("没有找到 %s：velumd 和 vlu 需要放在同一目录", vlu)
+		return i18n.Errorf("没有找到 %s：velumd 和 vlu 需要放在同一目录", vlu)
 	}
 
 	u, err := user.Lookup(serviceUser)
@@ -240,14 +241,14 @@ func serviceInstall(addUser string) error {
 		time.Sleep(100 * time.Millisecond)
 	}
 	if !ipc.Alive(config.ServiceSocket) {
-		return fmt.Errorf("服务已启动，但 10 秒内本地接口没有就绪；查看日志：journalctl -u %s", serviceName)
+		return i18n.Errorf("服务已启动，但 10 秒内本地接口没有就绪；查看日志：journalctl -u %s", serviceName)
 	}
-	fmt.Println("velum 服务已安装并启动（开机自动运行）")
-	fmt.Printf("  配置 %s，数据 %s，日志 journalctl -u %s\n", config.ServiceHome, config.ServiceDataDir, serviceName)
+	fmt.Println(i18n.T("velum 服务已安装并启动（开机自动运行）"))
+	i18n.Printf("  配置 %s，数据 %s，日志 journalctl -u %s\n", config.ServiceHome, config.ServiceDataDir, serviceName)
 	if addUser != "" {
-		fmt.Printf("  已把 %s 加入 velum 组，重新登录后可直接用 vlu；现在可以用 sudo vlu\n", addUser)
+		i18n.Printf("  已把 %s 加入 velum 组，重新登录后可直接用 vlu；现在可以用 sudo vlu\n", addUser)
 	}
-	fmt.Println("  下一步：vlu sub <订阅地址>")
+	fmt.Println(i18n.T("  下一步：vlu sub <订阅地址>"))
 	return nil
 }
 
@@ -298,7 +299,7 @@ func serviceUninstall(purge bool) error {
 		}
 	}
 	if !purge {
-		fmt.Printf("velum 服务已卸载；配置和数据保留在 %s、%s（--purge 可一并删除）\n", config.ServiceHome, config.ServiceDataDir)
+		i18n.Printf("velum 服务已卸载；配置和数据保留在 %s、%s（--purge 可一并删除）\n", config.ServiceHome, config.ServiceDataDir)
 		return nil
 	}
 	for _, d := range []string{config.ServiceHome, config.ServiceDataDir} {
@@ -308,7 +309,7 @@ func serviceUninstall(purge bool) error {
 	}
 	u, err := user.Lookup(serviceUser)
 	if err == nil && !ownUser(u) {
-		fmt.Printf("velum 服务已卸载，配置和数据已删除；用户 %s 不是 Velum 创建的，已保留\n", serviceUser)
+		i18n.Printf("velum 服务已卸载，配置和数据已删除；用户 %s 不是 Velum 创建的，已保留\n", serviceUser)
 		return nil
 	}
 	if err == nil {
@@ -322,6 +323,6 @@ func serviceUninstall(purge bool) error {
 			}
 		}
 	}
-	fmt.Println("velum 服务已卸载，配置、数据和 velum 用户已删除")
+	fmt.Println(i18n.T("velum 服务已卸载，配置、数据和 velum 用户已删除"))
 	return nil
 }

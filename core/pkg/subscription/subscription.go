@@ -5,6 +5,7 @@ package subscription
 
 import (
 	"fmt"
+	"github.com/Foreverwzh/velum/core/pkg/i18n"
 	"net/netip"
 	"net/url"
 	"path/filepath"
@@ -107,13 +108,13 @@ func (c *converter) global(doc *yaml.Node) {
 		case "proxies", "proxy-groups", "rules", "rule-providers", "dns", "proxy-providers":
 		case "mode":
 			if !strings.EqualFold(v.Value, "rule") {
-				c.warn("global", "mode="+v.Value, ir.Degraded, "非 rule 模式由 Velum 运行时切换实现", "", c.src(v, k))
+				c.warn("global", "mode="+v.Value, ir.Degraded, i18n.T("非 rule 模式由 Velum 运行时切换实现"), "", c.src(v, k))
 			}
 		case "ipv6":
 			c.cfg.IPv6 = v.Value == "true"
 			c.cfg.IPv6Disabled = v.Value == "false"
 		default:
-			c.warn("global", k, ir.Degraded, "顶层字段未映射", "", c.src(doc.Content[i], k))
+			c.warn("global", k, ir.Degraded, i18n.T("顶层字段未映射"), "", c.src(doc.Content[i], k))
 		}
 	}
 }
@@ -136,7 +137,7 @@ func (c *converter) addNode(n ir.Node, typ string) string {
 func (c *converter) convertAndAdd(item *yaml.Node, src ir.Source) (string, bool) {
 	var p obj
 	if err := item.Decode(&p); err != nil {
-		c.warn("node", "?", ir.Unsupported, "无法解析", "", src)
+		c.warn("node", "?", ir.Unsupported, i18n.T("无法解析"), "", src)
 		return "", false
 	}
 	main, extra, ok := c.convertProxy(p, src)
@@ -171,21 +172,21 @@ func (c *converter) proxyProviders(m *yaml.Node) {
 		src := c.src(m.Content[i], "proxy-provider "+name)
 		data, err := c.read(orDefault(str(pp, "path"), "./proxy_providers/"+name+".yaml"), str(pp, "url"))
 		if err != nil {
-			c.warn("provider", str(pp, "type"), ir.Unsupported, "无法读取 provider 内容", name, src)
+			c.warn("provider", str(pp, "type"), ir.Unsupported, i18n.T("无法读取 provider 内容"), name, src)
 			continue
 		}
 		var pdoc yaml.Node
 		if err := yaml.Unmarshal(data, &pdoc); err != nil || len(pdoc.Content) == 0 {
-			c.warn("provider", str(pp, "type"), ir.Unsupported, "provider 内容无法解析", name, src)
+			c.warn("provider", str(pp, "type"), ir.Unsupported, i18n.T("provider 内容无法解析"), name, src)
 			continue
 		}
 		include, err1 := compileFilters(str(pp, "filter"))
 		exclude, err2 := compileFilters(str(pp, "exclude-filter"))
 		if err1 != nil || err2 != nil {
-			c.warn("provider", "filter", ir.Degraded, "filter 正则含 Go RE2 不支持的语法，已忽略过滤", name, src)
+			c.warn("provider", "filter", ir.Degraded, i18n.T("filter 正则含 Go RE2 不支持的语法，已忽略过滤"), name, src)
 		}
 		if _, ok := pp["override"]; ok {
-			c.warn("provider", "override", ir.Degraded, "override 未实现", name, src)
+			c.warn("provider", "override", ir.Degraded, i18n.T("override 未实现"), name, src)
 		}
 		if seq := mapGet(pdoc.Content[0], "proxies"); seq != nil {
 			for _, item := range seq.Content {
@@ -330,7 +331,7 @@ func (c *converter) group(g obj, src ir.Source) bool {
 	for _, m := range strList(g["proxies"]) {
 		t := mapTarget(m)
 		if !c.tags[t] {
-			c.warn("group", typ, ir.Degraded, "成员引用的节点 / 组不可用，已移除", name+" → "+m, src)
+			c.warn("group", typ, ir.Degraded, i18n.T("成员引用的节点 / 组不可用，已移除"), name+" → "+m, src)
 			continue
 		}
 		add(t)
@@ -358,7 +359,7 @@ func (c *converter) group(g obj, src ir.Source) bool {
 		include, err1 := compileFilters(str(g, "filter"))
 		exclude, err2 := compileFilters(str(g, "exclude-filter"))
 		if err1 != nil || err2 != nil {
-			c.warn("group", "filter", ir.Degraded, "filter 正则含 Go RE2 不支持的语法，已忽略过滤", name, src)
+			c.warn("group", "filter", ir.Degraded, i18n.T("filter 正则含 Go RE2 不支持的语法，已忽略过滤"), name, src)
 		}
 		exTypes := map[string]bool{}
 		for _, t := range strings.Split(str(g, "exclude-type"), "|") {
@@ -373,15 +374,15 @@ func (c *converter) group(g obj, src ir.Source) bool {
 		}
 	}
 	if _, ok := g["ssid-policy"]; ok {
-		c.warn("group", "ssid-policy", ir.Degraded, "Stash 私有（按 Wi-Fi 切换），将由 NetworkSense 场景触发实现", name, src)
+		c.warn("group", "ssid-policy", ir.Degraded, i18n.T("Stash 私有（按 Wi-Fi 切换），将由 NetworkSense 场景触发实现"), name, src)
 	}
 	for _, k := range sortedKeys(g) {
 		if !knownGroupFields[k] {
-			c.warn("group", typ, ir.Degraded, "字段 "+k+" 未映射", name, src)
+			c.warn("group", typ, ir.Degraded, i18n.T("字段 ")+k+i18n.T(" 未映射"), name, src)
 		}
 	}
 	if len(members) == 0 {
-		c.warn("group", typ, ir.Unsupported, "无可用成员", name, src)
+		c.warn("group", typ, ir.Unsupported, i18n.T("无可用成员"), name, src)
 		return false
 	}
 	out := ir.Group{Tag: name, Members: members, OriginalType: typ, Source: src}
@@ -399,14 +400,14 @@ func (c *converter) group(g obj, src ir.Source) bool {
 		}
 		switch typ {
 		case "fallback":
-			c.warn("group", typ, ir.Degraded, "降级为 urltest：按延迟而非顺序选择", name, src)
+			c.warn("group", typ, ir.Degraded, i18n.T("降级为 urltest：按延迟而非顺序选择"), name, src)
 		case "load-balance":
-			c.warn("group", typ, ir.Degraded, "降级为 urltest：无负载均衡（strategy="+orDefault(str(g, "strategy"), "consistent-hashing")+"）", name, src)
+			c.warn("group", typ, ir.Degraded, i18n.T("降级为 urltest：无负载均衡（strategy=")+orDefault(str(g, "strategy"), "consistent-hashing")+"）", name, src)
 		}
 	case "relay":
 		return c.relay(name, members, src)
 	default:
-		c.warn("group", typ, ir.Unsupported, "类型无对应", name, src)
+		c.warn("group", typ, ir.Unsupported, i18n.T("类型无对应"), name, src)
 		return false
 	}
 	c.cfg.Groups = append(c.cfg.Groups, out)
@@ -416,7 +417,7 @@ func (c *converter) group(g obj, src ir.Source) bool {
 // relay [A, B, C]：本机 → A → B → C → 目标。克隆 B、C 并挂 detour：B'.Detour = A，C'.Detour = B'，C' 以组名为 tag。
 func (c *converter) relay(name string, members []string, src ir.Source) bool {
 	if len(members) < 2 {
-		c.warn("group", "relay", ir.Unsupported, "relay 至少需要两跳", name, src)
+		c.warn("group", "relay", ir.Unsupported, i18n.T("relay 至少需要两跳"), name, src)
 		return false
 	}
 	var clones []ir.Node
@@ -424,7 +425,7 @@ func (c *converter) relay(name string, members []string, src ir.Source) bool {
 	for i, m := range members[1:] {
 		idx, ok := c.nodeIndex[m]
 		if !ok || c.cfg.Nodes[idx].Protocol == "wireguard" {
-			c.warn("group", "relay", ir.Unsupported, "非首跳成员是策略组或 endpoint，无法挂 detour", name, src)
+			c.warn("group", "relay", ir.Unsupported, i18n.T("非首跳成员是策略组或 endpoint，无法挂 detour"), name, src)
 			return false
 		}
 		clone := c.cfg.Nodes[idx]
@@ -459,15 +460,15 @@ func (c *converter) ruleProviders(m *yaml.Node) {
 		behavior := str(rp, "behavior")
 		data, err := c.read(str(rp, "path"), str(rp, "url"))
 		if err != nil {
-			c.warn("ruleset", behavior, ir.Unsupported, "无法读取规则集内容", name, src)
+			c.warn("ruleset", behavior, ir.Unsupported, i18n.T("无法读取规则集内容"), name, src)
 			continue
 		}
 		res := ConvertEntries(ParseProvider(data, behavior, str(rp, "format")))
 		for t, n := range res.Unsupported {
-			c.warn("ruleset", t, ir.Unsupported, fmt.Sprintf("规则类型无对应（%d 条）", n), name, src)
+			c.warn("ruleset", t, ir.Unsupported, i18n.T("规则类型无对应（%d 条）", n), name, src)
 		}
 		for t, n := range res.Degraded {
-			c.warn("ruleset", t, ir.Degraded, fmt.Sprintf("通配符转正则（%d 条）", n), name, src)
+			c.warn("ruleset", t, ir.Degraded, i18n.T("通配符转正则（%d 条）", n), name, src)
 		}
 		rs := &ir.RuleSet{Tag: "rs:" + name, Kind: ir.RuleSetInline, Rules: res.Conds, NeedsResolve: res.NeedsResolve, Source: src}
 		c.ruleSets[name] = rs
@@ -508,12 +509,12 @@ func (c *converter) rules(seq *yaml.Node) {
 			continue
 		}
 		if typ == "SUB-RULE" || typ == "SCRIPT" {
-			c.warn("rule", typ, ir.Unsupported, "子规则 / 脚本规则无对应", line, src)
+			c.warn("rule", typ, ir.Unsupported, i18n.T("子规则 / 脚本规则无对应"), line, src)
 			continue
 		}
 		body, target, params := SplitRuleLine(line)
 		if target == "" {
-			c.warn("rule", typ, ir.Unsupported, "格式无法解析", line, src)
+			c.warn("rule", typ, ir.Unsupported, i18n.T("格式无法解析"), line, src)
 			continue
 		}
 		noResolve := false
@@ -531,7 +532,7 @@ func (c *converter) rules(seq *yaml.Node) {
 		case "RULE-SET":
 			rs := c.ruleSets[val]
 			if rs == nil {
-				c.warn("rule", typ, ir.Unsupported, "引用的规则集不可用", line, src)
+				c.warn("rule", typ, ir.Unsupported, i18n.T("引用的规则集不可用"), line, src)
 				continue
 			}
 			m = ir.Leaf(ir.Cond{RuleSet: []string{rs.Tag}, NoResolve: noResolve})
@@ -546,7 +547,7 @@ func (c *converter) rules(seq *yaml.Node) {
 		default:
 			node, err := ParseRuleNode(body)
 			if err != nil {
-				c.warn("rule", typ, ir.Unsupported, "无法解析："+err.Error(), line, src)
+				c.warn("rule", typ, ir.Unsupported, i18n.T("无法解析：")+err.Error(), line, src)
 				continue
 			}
 			if node.Leaf != nil {
@@ -586,7 +587,7 @@ func (c *converter) target(t, line string, src ir.Source) ir.Action {
 		return ir.Action{Kind: ir.ActionDrop}
 	}
 	if !c.tags[t] {
-		c.warn("rule", "target", ir.Degraded, "目标策略「"+t+"」不存在，回落 DIRECT", line, src)
+		c.warn("rule", "target", ir.Degraded, i18n.T("目标策略「")+t+i18n.T("」不存在，回落 DIRECT"), line, src)
 		return ir.Action{Kind: ir.ActionRoute, Outbound: ir.OutboundDirect}
 	}
 	return ir.Action{Kind: ir.ActionRoute, Outbound: t}
@@ -613,7 +614,7 @@ func (c *converter) dns(node *yaml.Node) {
 	}
 	for _, k := range sortedKeys(d) {
 		if !knownDNSFields[k] {
-			c.warn("dns", k, ir.Degraded, "字段未映射", "", field(k))
+			c.warn("dns", k, ir.Degraded, i18n.T("字段未映射"), "", field(k))
 		}
 	}
 	D := &c.cfg.DNS
@@ -634,7 +635,7 @@ func (c *converter) dns(node *yaml.Node) {
 	respect, _ := boolv(d, "respect-rules")
 	if respect && len(strList(d["proxy-server-nameserver"])) == 0 {
 		respect = false
-		c.warn("dns", "respect-rules", ir.Degraded, "未配置 proxy-server-nameserver，respect-rules 不生效（否则节点域名的解析会依赖节点本身）", "", field("respect-rules"))
+		c.warn("dns", "respect-rules", ir.Degraded, i18n.T("未配置 proxy-server-nameserver，respect-rules 不生效（否则节点域名的解析会依赖节点本身）"), "", field("respect-rules"))
 	}
 	add := func(list []string, prefix, key string) []string {
 		var tags []string
@@ -643,7 +644,7 @@ func (c *converter) dns(node *yaml.Node) {
 			addr, detour, _ := strings.Cut(s, "#")
 			sv, ok := dnsServer(addr, fmt.Sprintf("%s-%d", prefix, i), bootstrap)
 			if !ok {
-				c.warn("dns", "server", ir.Unsupported, "无法解析的 DNS 地址格式", s, field(key))
+				c.warn("dns", "server", ir.Unsupported, i18n.T("无法解析的 DNS 地址格式"), s, field(key))
 				continue
 			}
 			sv.Source = field(key)
@@ -652,7 +653,7 @@ func (c *converter) dns(node *yaml.Node) {
 			case c.tags[detour]:
 				sv.Detour = detour
 			default:
-				c.warn("dns", "server", ir.Degraded, "指定的出站 "+detour+" 不存在，改为按默认方式连接", s, field(key))
+				c.warn("dns", "server", ir.Degraded, i18n.T("指定的出站 ")+detour+i18n.T(" 不存在，改为按默认方式连接"), s, field(key))
 			}
 			if respect && (key == "nameserver" || key == "nameserver-policy") && sv.Detour == "" && sv.Type != "local" && sv.Type != "dhcp" {
 				sv.RespectRules = true
@@ -678,7 +679,7 @@ func (c *converter) dns(node *yaml.Node) {
 		D.OutboundResolver = ps
 	}
 	if len(strList(d["fallback"])) > 0 || d["fallback-filter"] != nil {
-		c.warn("dns", "fallback", ir.Unsupported, "fallback / fallback-filter 无对应", "", field("fallback"))
+		c.warn("dns", "fallback", ir.Unsupported, i18n.T("fallback / fallback-filter 无对应"), "", field("fallback"))
 	}
 	if polNode := mapGet(node, "nameserver-policy"); polNode != nil {
 		for i := 0; i+1 < len(polNode.Content); i += 2 {
@@ -696,7 +697,7 @@ func (c *converter) dns(node *yaml.Node) {
 			}
 			conds, ok := c.domainPatterns(strings.Split(k, ","), psrc)
 			if !ok {
-				c.warn("dns", "nameserver-policy", ir.Unsupported, "域名模式无法转换", k, psrc)
+				c.warn("dns", "nameserver-policy", ir.Unsupported, i18n.T("域名模式无法转换"), k, psrc)
 				continue
 			}
 			for _, cond := range conds {
@@ -717,7 +718,7 @@ func (c *converter) dns(node *yaml.Node) {
 					D.Rules = append(D.Rules, ir.DNSRule{Match: ir.Leaf(cond), Server: main, Source: fsrc})
 				}
 			} else {
-				c.warn("dns", "fake-ip-filter", ir.Degraded, "部分模式无法转换", "", fsrc)
+				c.warn("dns", "fake-ip-filter", ir.Degraded, i18n.T("部分模式无法转换"), "", fsrc)
 			}
 		}
 	}

@@ -3,7 +3,7 @@ package sysproxy
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
+	"github.com/Foreverwzh/velum/core/pkg/i18n"
 	"net"
 	"net/netip"
 	"os"
@@ -58,17 +58,17 @@ func (m *WinManager) HasSnapshot() bool {
 // Apply 接管系统代理：手动代理指向 Velum，接管期间关闭 PAC 与自动检测（还原时写回）。
 func (m *WinManager) Apply(plan compiler.SysProxyPlan) error {
 	if plan.Host == "" || plan.Port == 0 {
-		return errors.New("系统代理地址无效")
+		return i18n.New("系统代理地址无效")
 	}
 	if !m.HasSnapshot() {
 		cur, err := m.Backend.Read()
 		if err != nil {
-			return fmt.Errorf("读取当前系统代理：%w", err)
+			return i18n.Errorf("读取当前系统代理：%w", err)
 		}
 		snap := Snapshot{TakenAt: time.Now(), Host: plan.Host, Port: int(plan.Port), Windows: &cur}
 		data, _ := json.MarshalIndent(snap, "", "  ")
 		if err := os.WriteFile(m.SnapshotPath, data, 0o600); err != nil {
-			return fmt.Errorf("写入快照：%w", err)
+			return i18n.Errorf("写入快照：%w", err)
 		}
 	} else if err := retarget(m.SnapshotPath, plan.Host, int(plan.Port)); err != nil {
 		return err
@@ -100,7 +100,7 @@ func (m *WinManager) Restore() error {
 			w.Flags &^= WinProxyManual
 			w.Flags |= WinProxyDirect
 			if m.Logf != nil {
-				m.Logf("还原系统代理：原先的代理 %s 已无程序监听（原代理工具已退出），改为关闭", w.Server)
+				m.Logf(i18n.T("还原系统代理：原先的代理 %s 已无程序监听（原代理工具已退出），改为关闭"), w.Server)
 			}
 		}
 		if err := m.Backend.Write(*w); err != nil {
@@ -145,7 +145,7 @@ func (m *WinManager) ClearOwn(host string, port int) (bool, error) {
 		return false, err
 	}
 	if m.Logf != nil {
-		m.Logf("系统代理：仍指向 Velum（%s:%d）但未接管，已关闭", host, port)
+		m.Logf(i18n.T("系统代理：仍指向 Velum（%s:%d）但未接管，已关闭"), host, port)
 	}
 	return true, nil
 }

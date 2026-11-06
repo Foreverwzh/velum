@@ -3,8 +3,8 @@
 package helper
 
 import (
-	"errors"
 	"fmt"
+	"github.com/Foreverwzh/velum/core/pkg/i18n"
 	"net"
 	"sync"
 	"time"
@@ -20,7 +20,7 @@ type Client struct {
 func Dial(socket string) (*Client, error) {
 	c, err := net.DialUnix("unix", nil, &net.UnixAddr{Name: socket, Net: "unix"})
 	if err != nil {
-		return nil, fmt.Errorf("连接 velum-helper（%s）：%w；TUN 模式需要先以 root 启动 helper：sudo velum-helper", socket, err)
+		return nil, i18n.Errorf("连接 velum-helper（%s）：%w；TUN 模式需要先以 root 启动 helper：sudo velum-helper", socket, err)
 	}
 	cl := &Client{conn: c}
 	resp, _, err := cl.call(Request{Op: OpPing})
@@ -30,7 +30,7 @@ func Dial(socket string) (*Client, error) {
 	}
 	if resp.Version != Version {
 		c.Close()
-		return nil, fmt.Errorf("%w：helper=%s velumd=%s，请更新 velum-helper", ErrVersionMismatch, resp.Version, Version)
+		return nil, i18n.Errorf("%w：helper=%s velumd=%s，请更新 velum-helper", ErrVersionMismatch, resp.Version, Version)
 	}
 	return cl, nil
 }
@@ -39,7 +39,7 @@ func (c *Client) call(req Request) (Response, int, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.conn == nil {
-		return Response{}, -1, errors.New("helper 连接已关闭")
+		return Response{}, -1, i18n.New("helper 连接已关闭")
 	}
 	if err := send(c.conn, req, -1); err != nil {
 		return Response{}, -1, err
@@ -62,7 +62,7 @@ func (c *Client) OpenTun(mtu uint32, inet4, inet6, routes []string) (fd int, nam
 		return -1, "", err
 	}
 	if fd < 0 {
-		return -1, "", errors.New("helper 未返回 TUN 文件描述符")
+		return -1, "", i18n.New("helper 未返回 TUN 文件描述符")
 	}
 	return fd, resp.Name, nil
 }

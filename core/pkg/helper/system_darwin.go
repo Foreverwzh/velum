@@ -1,10 +1,11 @@
-//go:build darwin
+//go:build darwin && !ios
 
 package helper
 
 import (
 	"errors"
 	"fmt"
+	"github.com/Foreverwzh/velum/core/pkg/i18n"
 	"net"
 	"net/netip"
 	"os/exec"
@@ -211,7 +212,7 @@ func (DarwinSystem) SetDNS(servers []string) (func() error, error) {
 	for _, svc := range svcs {
 		out, err := exec.Command("/usr/sbin/networksetup", "-getdnsservers", svc).Output()
 		if err != nil {
-			return nil, fmt.Errorf("读取 %s 的 DNS：%w", svc, err)
+			return nil, i18n.Errorf("读取 %s 的 DNS：%w", svc, err)
 		}
 		orig[svc] = restorable(string(out), servers)
 	}
@@ -221,7 +222,7 @@ func (DarwinSystem) SetDNS(servers []string) (func() error, error) {
 		}
 		out, err := exec.Command("/usr/sbin/networksetup", append([]string{"-setdnsservers", svc}, vals...)...).CombinedOutput()
 		if err != nil {
-			return fmt.Errorf("设置 %s 的 DNS：%v %s", svc, err, strings.TrimSpace(string(out)))
+			return i18n.Errorf("设置 %s 的 DNS：%v %s", svc, err, strings.TrimSpace(string(out)))
 		}
 		return nil
 	}
@@ -258,13 +259,13 @@ func (DarwinSystem) ResetDNS(servers []string) ([]string, error) {
 	for _, svc := range svcs {
 		out, err := exec.Command("/usr/sbin/networksetup", "-getdnsservers", svc).Output()
 		if err != nil {
-			return reset, fmt.Errorf("读取 %s 的 DNS：%w", svc, err)
+			return reset, i18n.Errorf("读取 %s 的 DNS：%w", svc, err)
 		}
 		if !slices.ContainsFunc(strings.Fields(string(out)), func(f string) bool { return slices.Contains(servers, f) }) {
 			continue // 不含要清理的地址
 		}
 		if out, err := exec.Command("/usr/sbin/networksetup", "-setdnsservers", svc, "Empty").CombinedOutput(); err != nil {
-			return reset, fmt.Errorf("还原 %s 的 DNS：%v %s", svc, err, strings.TrimSpace(string(out)))
+			return reset, i18n.Errorf("还原 %s 的 DNS：%v %s", svc, err, strings.TrimSpace(string(out)))
 		}
 		reset = append(reset, svc)
 	}
@@ -325,14 +326,14 @@ func (DarwinSystem) EnsureScopedDefaults() ([]string, func() error, error) {
 			// 换了网络但网卡没断（典型是合盖睡眠后在另一处唤醒）：旧网络的作用域默认路由还在，
 			// 绑定物理网卡的连接会沿用它的旧源地址，一律 can't assign requested address
 			if err := execScopedDefault(unix.RTM_DELETE, *stale); err != nil && !errors.Is(err, unix.ESRCH) {
-				errs = append(errs, fmt.Errorf("删除 %s 过期的作用域默认路由（经 %s）：%w", stale.ifName, stale.gw, err))
+				errs = append(errs, i18n.Errorf("删除 %s 过期的作用域默认路由（经 %s）：%w", stale.ifName, stale.gw, err))
 				continue
 			}
-			note = fmt.Sprintf("（替换经 %s 的旧路由）", stale.gw)
+			note = i18n.T("（替换经 %s 的旧路由）", stale.gw)
 		}
 		if err := execScopedDefault(unix.RTM_ADD, r); err != nil {
 			if !errors.Is(err, unix.EEXIST) {
-				errs = append(errs, fmt.Errorf("添加 %s 作用域默认路由（经 %s）：%w", r.ifName, r.gw, err))
+				errs = append(errs, i18n.Errorf("添加 %s 作用域默认路由（经 %s）：%w", r.ifName, r.gw, err))
 			}
 			continue
 		}

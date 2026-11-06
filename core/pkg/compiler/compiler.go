@@ -7,6 +7,7 @@ package compiler
 
 import (
 	"fmt"
+	"github.com/Foreverwzh/velum/core/pkg/i18n"
 	"net/netip"
 	"slices"
 	"strings"
@@ -171,7 +172,7 @@ func Compile(sub *ir.Config, ov *overlay.Overlay, opts Options) (*Plan, error) {
 	}
 
 	// ---- DNS：注入系统 DNS，供本地开发域名与兜底使用 ----
-	cfg.DNS.Servers = append(cfg.DNS.Servers, ir.DNSServer{Tag: LocalDNS, Type: "local", Source: velum("系统 DNS")})
+	cfg.DNS.Servers = append(cfg.DNS.Servers, ir.DNSServer{Tag: LocalDNS, Type: "local", Source: velum(i18n.T("系统 DNS"))})
 	if cfg.DNS.Final == "" {
 		cfg.DNS.Final = LocalDNS
 	}
@@ -185,14 +186,14 @@ func Compile(sub *ir.Config, ov *overlay.Overlay, opts Options) (*Plan, error) {
 
 	// ---- 规则：内置 + Overlay 优先于订阅 ----
 	var rules []ir.Rule
-	rules = append(rules, ir.Rule{Action: ir.Action{Kind: ir.ActionSniff}, Source: velum("协议嗅探")})
+	rules = append(rules, ir.Rule{Action: ir.Action{Kind: ir.ActionSniff}, Source: velum(i18n.T("协议嗅探"))})
 	if opts.Mode == ModeTUN {
-		rules = append(rules, ir.Rule{Match: ir.Leaf(ir.Cond{Protocol: []string{"dns"}}), Action: ir.Action{Kind: ir.ActionHijackDNS}, Source: velum("接管 DNS 查询")})
+		rules = append(rules, ir.Rule{Match: ir.Leaf(ir.Cond{Protocol: []string{"dns"}}), Action: ir.Action{Kind: ir.ActionHijackDNS}, Source: velum(i18n.T("接管 DNS 查询"))})
 		if a := opts.TUN.Address; a.IsValid() {
 			// 发往 TUN 内 DNS 地址的其他连接（如 Android「私人 DNS」对 DNS 服务器的 DoT 探测，853 端口）没有服务可接，
 			// 立即拒绝，让系统马上回落到普通 DNS，而不是经出站等待超时
 			rules = append(rules, ir.Rule{Match: ir.Leaf(ir.Cond{IPCIDR: []string{netip.PrefixFrom(a.Addr().Next(), 32).String()}, NoResolve: true}),
-				Action: ir.Action{Kind: ir.ActionReject}, Source: velum("TUN 内 DNS 地址只接受 DNS 查询")})
+				Action: ir.Action{Kind: ir.ActionReject}, Source: velum(i18n.T("TUN 内 DNS 地址只接受 DNS 查询"))})
 		}
 		if rs := privateResolvers(opts); len(rs) > 0 {
 			var cidrs []string
@@ -200,7 +201,7 @@ func Compile(sub *ir.Config, ov *overlay.Overlay, opts Options) (*Plan, error) {
 				cidrs = append(cidrs, p.String())
 			}
 			rules = append(rules, ir.Rule{Match: ir.Leaf(ir.Cond{IPCIDR: cidrs, NoResolve: true}),
-				Action: ir.Action{Kind: ir.ActionRoute, Outbound: ir.OutboundDirect}, Source: velum("上游 DNS 地址上的其他连接（如路由器管理页）直连")})
+				Action: ir.Action{Kind: ir.ActionRoute, Outbound: ir.OutboundDirect}, Source: velum(i18n.T("上游 DNS 地址上的其他连接（如路由器管理页）直连"))})
 		}
 	}
 	direct := ir.Action{Kind: ir.ActionRoute, Outbound: ir.OutboundDirect}
@@ -221,7 +222,7 @@ func Compile(sub *ir.Config, ov *overlay.Overlay, opts Options) (*Plan, error) {
 	if !cfg.DNS.NoSystemHosts {
 		// 系统 hosts 文件里有记录的域名按文件应答（Clash use-system-hosts，mihomo 默认开启），排在 Overlay hosts 之后、
 		// 其他 DNS 规则之前：否则只写在 hosts 里的本地开发域名会被送到上游（如 VPN 作用域 DNS）而解析失败。文件修改后自动生效。
-		src := velum("系统 hosts 文件")
+		src := velum(i18n.T("系统 hosts 文件"))
 		cfg.DNS.Servers = append(cfg.DNS.Servers, ir.DNSServer{Tag: SystemHostsDNS, Type: "hosts", Source: src})
 		cfg.DNS.Rules = append(cfg.DNS.Rules, ir.DNSRule{PreferredBy: SystemHostsDNS, Server: SystemHostsDNS, Source: src})
 	}
@@ -247,7 +248,7 @@ func Compile(sub *ir.Config, ov *overlay.Overlay, opts Options) (*Plan, error) {
 					v.Domains = append(v.Domains, d)
 				}
 			}
-			src := velum(fmt.Sprintf("NetworkSense：检测到 VPN %s", v.Iface))
+			src := velum(i18n.T("NetworkSense：检测到 VPN %s", v.Iface))
 			ob := VPNOutbound(v.Iface)
 			// 绑定到 VPN 接口的直连出站：TUN 模式下普通 DIRECT 会绑定物理网卡，导致内网流量走错接口
 			cfg.Nodes = append(cfg.Nodes, ir.Node{Tag: ob, Protocol: "direct", Dial: ir.Dial{BindInterface: v.Iface}, Source: src})
@@ -283,7 +284,7 @@ func Compile(sub *ir.Config, ov *overlay.Overlay, opts Options) (*Plan, error) {
 			ob := VPNOutbound(iface)
 			if !ifaceOutbounds[ob] {
 				ifaceOutbounds[ob] = true
-				cfg.Nodes = append(cfg.Nodes, ir.Node{Tag: ob, Protocol: "direct", Dial: ir.Dial{BindInterface: iface}, Source: velum("NetworkSense：经 " + iface + " 直连")})
+				cfg.Nodes = append(cfg.Nodes, ir.Node{Tag: ob, Protocol: "direct", Dial: ir.Dial{BindInterface: iface}, Source: velum(i18n.T("NetworkSense：经 ") + iface + i18n.T(" 直连"))})
 			}
 			return ob
 		})
@@ -312,7 +313,7 @@ func Compile(sub *ir.Config, ov *overlay.Overlay, opts Options) (*Plan, error) {
 		for _, pat := range sysProxyPatterns(name, kind) {
 			if h := coveredHost(pat, hostDomains); h != "" {
 				// 豁免会让浏览器绕过 Velum 直连并使用系统 DNS，hosts 覆盖随之失效（ARCHITECTURE §4.2）。
-				warn("domains", ir.Degraded, fmt.Sprintf("豁免写法 %s 会覆盖 hosts 主机 %s，已不写入系统代理豁免；这些域名改为经 Velum 代理端口直连", pat, h), d.Value, src)
+				warn("domains", ir.Degraded, i18n.T("豁免写法 %s 会覆盖 hosts 主机 %s，已不写入系统代理豁免；这些域名改为经 Velum 代理端口直连", pat, h), d.Value, src)
 				continue
 			}
 			p.SysProxy.Exceptions = append(p.SysProxy.Exceptions, Exception{pat, src})
@@ -328,7 +329,7 @@ func Compile(sub *ir.Config, ov *overlay.Overlay, opts Options) (*Plan, error) {
 	for _, pr := range ov.Processes {
 		src := ovSrc(pr.Line, "processes: "+pr.Value)
 		if opts.Platform == "ios" {
-			warn("processes", ir.Unsupported, "iOS 不支持进程规则，已忽略", pr.Value, src)
+			warn("processes", ir.Unsupported, i18n.T("iOS 不支持进程规则，已忽略"), pr.Value, src)
 			continue
 		}
 		rules = append(rules, ir.Rule{Match: ir.Leaf(ir.Cond{ProcessName: []string{pr.Value}}), Action: direct, Source: src})
@@ -338,7 +339,7 @@ func Compile(sub *ir.Config, ov *overlay.Overlay, opts Options) (*Plan, error) {
 	// 系统 DNS 被其他工具（如企业 VPN 客户端）抢先应答时，应用会拿到真实的 IPv6 地址；经不支持 IPv6 的节点转发只会卡住。
 	// 放在 Overlay 与 VPN 规则之后：显式的直连 / VPN 网段不受影响。
 	if opts.Mode == ModeTUN && sub.IPv6Disabled {
-		src := ir.Source{Kind: ir.SourceSubscription, Text: "ipv6: false（拒绝 IPv6 连接，应用回落到 IPv4）"}
+		src := ir.Source{Kind: ir.SourceSubscription, Text: i18n.T("ipv6: false（拒绝 IPv6 连接，应用回落到 IPv4）")}
 		rules = append(rules, ir.Rule{Match: ir.Leaf(ir.Cond{IPCIDR: []string{"::/0"}, NoResolve: true}), Action: ir.Action{Kind: ir.ActionReject}, Source: src})
 		// TCP 在嗅探之前就拒绝：嗅探要等首个数据包，TUN 已在本地完成握手，此时拒绝应用收到的是「连接被重置」，
 		// 有的网络库（如 Claude Code）不会换 IPv4 重试；握手前拒绝则是「连接被拒绝」，应用随即尝试下一个地址。
@@ -360,7 +361,7 @@ func Compile(sub *ir.Config, ov *overlay.Overlay, opts Options) (*Plan, error) {
 	for _, r := range sub.Rules {
 		if !resolved && NeedsResolve(r.Match, sets) {
 			rules = append(rules, ir.Rule{Action: ir.Action{Kind: ir.ActionResolve},
-				Source: velum("解析域名（模拟 Clash 对未标 no-resolve 的 IP 规则按需解析）")})
+				Source: velum(i18n.T("解析域名（模拟 Clash 对未标 no-resolve 的 IP 规则按需解析）"))})
 			resolved = true
 		}
 		rules = append(rules, r)
@@ -380,7 +381,7 @@ func Compile(sub *ir.Config, ov *overlay.Overlay, opts Options) (*Plan, error) {
 	for _, b := range ov.SysProxyBypass {
 		src := ovSrc(b.Line, "system_proxy.bypass: "+b.Value)
 		if h := coveredHost(b.Value, hostDomains); h != "" {
-			warn("system_proxy.bypass", ir.Degraded, fmt.Sprintf("豁免写法 %s 会覆盖 hosts 主机 %s，已不写入系统代理豁免", b.Value, h), b.Value, src)
+			warn("system_proxy.bypass", ir.Degraded, i18n.T("豁免写法 %s 会覆盖 hosts 主机 %s，已不写入系统代理豁免", b.Value, h), b.Value, src)
 			continue
 		}
 		user = append(user, Exception{b.Value, src})
@@ -395,16 +396,16 @@ func Compile(sub *ir.Config, ov *overlay.Overlay, opts Options) (*Plan, error) {
 		for i := range cfg.DNS.Servers {
 			if sv := &cfg.DNS.Servers[i]; sv.Type == "local" && sv.Tag != SystemResolverDNS {
 				sv.Type, sv.Address = "udp", phys[0]
-				sv.Source.Text += "（" + why + "，改用物理网络 DNS " + phys[0] + "）"
+				sv.Source.Text += "（" + why + i18n.T("，改用物理网络 DNS ") + phys[0] + "）"
 			}
 		}
 	}
-	if opts.Platform == "android" {
-		// Android 没有 /etc/resolv.conf，内核的系统解析器不可用：始终使用平台层报告的当前网络 DNS
+	if opts.Platform == "android" || opts.Platform == "ios" {
+		// 移动端没有 /etc/resolv.conf，内核的系统解析器不可用：始终使用平台层报告的当前网络 DNS
 		if len(phys) == 0 {
-			warn("dns", ir.Degraded, "未获取到当前网络的 DNS，域名解析可能失败", "", velum("系统 DNS"))
+			warn("dns", ir.Degraded, i18n.T("未获取到当前网络的 DNS，域名解析可能失败"), "", velum(i18n.T("系统 DNS")))
 		} else {
-			usePhys("Android 上由系统报告当前网络的 DNS")
+			usePhys(i18n.T("移动端由系统报告当前网络的 DNS"))
 		}
 	}
 	if opts.Mode == ModeTUN {
@@ -427,26 +428,26 @@ func Compile(sub *ir.Config, ov *overlay.Overlay, opts Options) (*Plan, error) {
 			if opts.Platform == "android" {
 				rp.IncludeApps, rp.ExcludeApps = opts.TUN.IncludeApps, opts.TUN.ExcludeApps
 				if len(rp.IncludeApps) > 0 && len(rp.ExcludeApps) > 0 {
-					warn("tun.exclude_apps", ir.Degraded, "同时设置了 include_apps 与 exclude_apps：只有 include_apps 生效", "", velum("TUN"))
+					warn("tun.exclude_apps", ir.Degraded, i18n.T("同时设置了 include_apps 与 exclude_apps：只有 include_apps 生效"), "", velum("TUN"))
 				}
 			} else {
-				warn("tun.exclude_apps", ir.Degraded, "按应用分流（include_apps / exclude_apps）只在 Android 上生效", "", velum("TUN"))
+				warn("tun.exclude_apps", ir.Degraded, i18n.T("按应用分流（include_apps / exclude_apps）只在 Android 上生效"), "", velum("TUN"))
 			}
 		}
 		if opts.Platform == "linux" {
 			// Linux：由路由层劫持 53 端口，不改系统文件；系统解析器的查询也会被劫持，内核要直接问上游，否则查询会绕回自己
 			if len(phys) == 0 {
-				warn("tun.dns_hijack", ir.Degraded, "未获取到系统的上游 DNS（如只有本机解析器）：经系统解析器的查询可能失败，建议在 overlay 中指定 DNS", "", velum("TUN"))
+				warn("tun.dns_hijack", ir.Degraded, i18n.T("未获取到系统的上游 DNS（如只有本机解析器）：经系统解析器的查询可能失败，建议在 overlay 中指定 DNS"), "", velum("TUN"))
 			} else {
-				usePhys("53 端口已由 Velum 接管")
+				usePhys(i18n.T("53 端口已由 Velum 接管"))
 			}
 		} else if opts.TUN.DNSHijack {
 			if len(phys) == 0 {
-				warn("tun.dns_hijack", ir.Degraded, "未获取到物理网络的 DNS，暂不接管系统 DNS（接管后需要它来避免解析绕回 Velum）", "", velum("TUN"))
+				warn("tun.dns_hijack", ir.Degraded, i18n.T("未获取到物理网络的 DNS，暂不接管系统 DNS（接管后需要它来避免解析绕回 Velum）"), "", velum("TUN"))
 			} else {
 				rp.SystemDNS = []string{opts.TUN.Address.Addr().Next().String()}
 				// 系统默认 DNS 将指向 Velum：原本经系统解析器（local）的解析改为直接询问物理网络的 DNS，避免回环
-				usePhys("系统 DNS 已由 Velum 接管")
+				usePhys(i18n.T("系统 DNS 已由 Velum 接管"))
 			}
 		}
 		p.Route = rp
@@ -563,7 +564,7 @@ func systemDNSSplit(cfg *ir.Config, opts Options, ifaceOutbound func(iface strin
 		}
 		groups[k] = append(groups[k], r.Domain)
 	}
-	src := velum("NetworkSense：系统 DNS 分流（/etc/resolver、VPN 作用域 DNS 等）")
+	src := velum(i18n.T("NetworkSense：系统 DNS 分流（/etc/resolver、VPN 作用域 DNS 等）"))
 	for gi, k := range order {
 		var members []string
 		for ni, ns := range strings.Split(k, ",") {
@@ -601,7 +602,7 @@ func systemDNSSplit(cfg *ir.Config, opts Options, ifaceOutbound func(iface strin
 		}
 	}
 	if len(rest) > 0 {
-		cfg.DNS.Servers = append(cfg.DNS.Servers, ir.DNSServer{Tag: SystemResolverDNS, Type: "local", Source: velum("系统解析器")})
+		cfg.DNS.Servers = append(cfg.DNS.Servers, ir.DNSServer{Tag: SystemResolverDNS, Type: "local", Source: velum(i18n.T("系统解析器"))})
 		cfg.DNS.Rules = append(cfg.DNS.Rules, ir.DNSRule{Match: ir.Leaf(ir.Cond{DomainSuffix: rest, NoResolve: true}), Server: SystemResolverDNS, Source: src})
 	}
 }
@@ -642,10 +643,10 @@ func privateResolvers(opts Options) []netip.Prefix {
 // 全局接管用 0.0.0.0/1 + 128.0.0.0/1，不替换默认路由。
 func BuildRoutePlan(t TUNOptions, extraExclude []netip.Prefix) (RoutePlan, error) {
 	if !t.Address.IsValid() || !t.Address.Addr().Is4() {
-		return RoutePlan{}, fmt.Errorf("tun.address 无效：%v", t.Address)
+		return RoutePlan{}, i18n.Errorf("tun.address 无效：%v", t.Address)
 	}
 	if t.Address6.IsValid() && !t.Address6.Addr().Is6() {
-		return RoutePlan{}, fmt.Errorf("tun.address6 无效：%v", t.Address6)
+		return RoutePlan{}, i18n.Errorf("tun.address6 无效：%v", t.Address6)
 	}
 	include := t.Include
 	if len(include) == 0 {

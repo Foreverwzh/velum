@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"github.com/Foreverwzh/velum/core/pkg/i18n"
 	"os"
 
 	"github.com/Foreverwzh/velum/core/pkg/config"
@@ -18,7 +19,7 @@ func asService() bool { return os.Getenv("VELUM_SERVICE") == "1" }
 // TUN 只在服务模式下提供：崩溃清理由 systemd 单元负责，试运行的回退也依赖 systemd（docs/ML-PLAN.md）。
 func setupPlatform(d *daemon.Daemon, _ config.Paths) {
 	if !asService() {
-		d.TUNUnavailable = "Linux 上 TUN 需要以系统服务运行：sudo velumd service install"
+		d.TUNUnavailable = i18n.T("Linux 上 TUN 需要以系统服务运行：sudo velumd service install")
 		return
 	}
 	d.SocketMode, d.LoopbackListenOnly = 0o660, true

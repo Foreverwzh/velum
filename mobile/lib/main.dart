@@ -1,3 +1,4 @@
+import 'i18n.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -70,7 +71,7 @@ class _BootState extends State<Boot> {
       body: Center(
         child: Padding(
           padding: const EdgeInsets.all(24),
-          child: _error == null ? const CircularProgressIndicator() : Text('核心启动失败：$_error', textAlign: TextAlign.center),
+          child: _error == null ? const CircularProgressIndicator() : Text(t('核心启动失败：{0}', [_error]), textAlign: TextAlign.center),
         ),
       ),
     );
@@ -92,10 +93,10 @@ class _ShellState extends State<Shell> {
   Widget build(BuildContext context) {
     final pro = Velum.of(context).pro;
     final tabs = [
-      (id: 'home', label: '首页', icon: Icons.shield_outlined, page: const HomePage()),
-      if (pro) (id: 'conns', label: '连接', icon: Icons.swap_vert, page: const ConnectionsPage()),
-      if (pro) (id: 'why', label: '诊断', icon: Icons.troubleshoot, page: const DiagnosePage()),
-      (id: 'settings', label: '设置', icon: Icons.settings_outlined, page: const SettingsPage()),
+      (id: 'home', label: t('首页'), icon: Icons.shield_outlined, page: const HomePage()),
+      if (pro) (id: 'conns', label: t('连接'), icon: Icons.swap_vert, page: const ConnectionsPage()),
+      if (pro) (id: 'why', label: t('诊断'), icon: Icons.troubleshoot, page: const DiagnosePage()),
+      (id: 'settings', label: t('设置'), icon: Icons.settings_outlined, page: const SettingsPage()),
     ];
     var index = tabs.indexWhere((t) => t.id == _tab);
     if (index < 0) index = 0;

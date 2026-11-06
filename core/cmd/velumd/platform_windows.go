@@ -2,8 +2,8 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
+	"github.com/Foreverwzh/velum/core/pkg/i18n"
 	"io"
 	"os"
 	"os/exec"
@@ -33,7 +33,7 @@ func setupPlatform(d *daemon.Daemon, paths config.Paths) {
 		exe, _ := os.Executable()
 		b = sysproxy.UserSessionBackend{Exe: exe, AllowSIDs: d.AllowSIDs}
 	} else {
-		d.TUNUnavailable = "TUN 需要安装 Velum 服务：在 App 中开启 TUN 时按提示安装（或以管理员身份运行 velumd service install）"
+		d.TUNUnavailable = i18n.T("TUN 需要安装 Velum 服务：在 App 中开启 TUN 时按提示安装（或以管理员身份运行 velumd service install）")
 	}
 	m := sysproxy.NewWindows(paths.SysProxySnapshot, b)
 	m.Logf = d.Logger.Printf
@@ -48,7 +48,7 @@ func preparePaths(paths config.Paths, allowSIDs []string) (config.Paths, error) 
 		return paths, nil
 	}
 	if len(allowSIDs) == 0 {
-		return paths, errors.New("以服务运行需要 --allow-sid（由 velumd service install 设置）")
+		return paths, i18n.New("以服务运行需要 --allow-sid（由 velumd service install 设置）")
 	}
 	userfs.Impersonate = func(fn func() error) error { return winuser.Impersonate(allowSIDs, fn) }
 	dir, err := config.ServiceDataDir()

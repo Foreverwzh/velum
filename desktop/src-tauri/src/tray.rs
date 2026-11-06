@@ -3,6 +3,7 @@
 //! 菜单随 velumd 状态刷新：策略组结构（组、类型、成员）变化时整体重建，否则只更新有变化的勾选与文字，
 //! 菜单打开时也不会闪动。
 
+use crate::i18n::{t, tf};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{LazyLock, Mutex};
@@ -19,7 +20,9 @@ use crate::{system, velum};
 /// 菜单项 id 中分隔组名与成员名（名称里不会出现的控制字符）。
 const SEP: char = '\u{1f}';
 /// 策略组子菜单中「延迟测试」的标题（macOS 上点击后菜单保持打开，见 menu_tabs）。
-pub const TEST_TITLE: &str = "延迟测试";
+pub fn test_title() -> &'static str {
+    t("延迟测试")
+}
 
 #[derive(Default)]
 struct Items {
@@ -62,7 +65,7 @@ fn group_title(g: &Value) -> String {
 
 fn member_label(g: &Value, m: &str) -> String {
     match g["delays"][m].as_i64() {
-        Some(d) if d < 0 => format!("{m}\t超时"),
+        Some(d) if d < 0 => tf("{0}\t超时", &[&m]),
         Some(d) => format!("{m}\t{d} ms"),
         None => m.to_string(),
     }
@@ -90,18 +93,18 @@ fn profile_label(p: &Value) -> String {
     let num = |k: &str| info[k].as_f64().unwrap_or(0.0);
     if num("total") > 0.0 {
         let left = (num("total") - num("upload") - num("download")).max(0.0);
-        return format!("{name}\t剩余 {}", bytes(left));
+        return tf("{0}\t剩余 {1}", &[&name, &bytes(left)]);
     }
     match info["expire"].as_str().and_then(|e| e.get(..10)) {
-        Some(day) => format!("{name}\t{day} 到期"),
+        Some(day) => tf("{0}\t{1} 到期", &[&name, &day]),
         None => name.to_string(),
     }
 }
 
 fn profiles_title(profiles: &[Value]) -> String {
     match profiles.iter().find(|p| p["active"].as_bool() == Some(true)) {
-        Some(p) => format!("订阅\t{}", p["name"].as_str().unwrap_or("")),
-        None => "订阅".into(),
+        Some(p) => tf("订阅\t{0}", &[&p["name"].as_str().unwrap_or("")]),
+        None => t("订阅").into(),
     }
 }
 
@@ -145,12 +148,12 @@ fn build(app: &AppHandle, groups: &[Value], profiles: &[Value]) -> tauri::Result
     let menu = Menu::new(app)?;
     let sep = || PredefinedMenuItem::separator(app);
 
-    let status = MenuItem::with_id(app, "status", "Velum：启动中…", false, None::<&str>)?;
+    let status = MenuItem::with_id(app, "status", t("Velum：启动中…"), false, None::<&str>)?;
     menu.append(&status)?;
     menu.append(&MenuItem::with_id(
         app,
         "open",
-        "打开 Velum",
+        t("打开 Velum"),
         true,
         Some("CmdOrCtrl+D"),
     )?)?;
@@ -183,7 +186,7 @@ fn build(app: &AppHandle, groups: &[Value], profiles: &[Value]) -> tauri::Result
             sub.append(&MenuItem::with_id(
                 app,
                 format!("test{SEP}{tag}"),
-                TEST_TITLE,
+                test_title(),
                 true,
                 None::<&str>,
             )?)?;
@@ -191,7 +194,7 @@ fn build(app: &AppHandle, groups: &[Value], profiles: &[Value]) -> tauri::Result
                 sub.append(&MenuItem::with_id(
                     app,
                     format!("note{SEP}{tag}"),
-                    "自动选择延迟最低的节点",
+                    t("自动选择延迟最低的节点"),
                     false,
                     None::<&str>,
                 )?)?;
@@ -220,7 +223,7 @@ fn build(app: &AppHandle, groups: &[Value], profiles: &[Value]) -> tauri::Result
     let sysproxy = CheckMenuItem::with_id(
         app,
         "sysproxy",
-        "设置为系统代理",
+        t("设置为系统代理"),
         true,
         false,
         Some("CmdOrCtrl+S"),
@@ -228,7 +231,7 @@ fn build(app: &AppHandle, groups: &[Value], profiles: &[Value]) -> tauri::Result
     let tun = CheckMenuItem::with_id(
         app,
         "tun",
-        "TUN（接管所有应用）",
+        t("TUN（接管所有应用）"),
         true,
         false,
         Some("CmdOrCtrl+E"),
@@ -236,14 +239,14 @@ fn build(app: &AppHandle, groups: &[Value], profiles: &[Value]) -> tauri::Result
     let shell = MenuItem::with_id(
         app,
         "copyshell",
-        "复制终端代理命令",
+        t("复制终端代理命令"),
         true,
         Some("CmdOrCtrl+C"),
     )?;
     let autostart = CheckMenuItem::with_id(
         app,
         "autostart",
-        "登录时启动",
+        t("登录时启动"),
         true,
         system::autostart_get(),
         None::<&str>,
@@ -251,16 +254,16 @@ fn build(app: &AppHandle, groups: &[Value], profiles: &[Value]) -> tauri::Result
     let speed_title = CheckMenuItem::with_id(
         app,
         "speedtitle",
-        "在菜单栏显示网速",
+        t("在菜单栏显示网速"),
         cfg!(target_os = "macos"), // 只有 macOS 的菜单栏能在图标旁显示文字
         SPEED_TITLE.load(Ordering::Relaxed),
         None::<&str>,
     )?;
-    let reload = MenuItem::with_id(app, "reload", "重新加载配置", true, Some("CmdOrCtrl+R"))?;
-    let update = MenuItem::with_id(app, "update", "更新订阅", true, Some("CmdOrCtrl+U"))?;
-    let repair = MenuItem::with_id(app, "repair", "一键修复", true, None::<&str>)?;
+    let reload = MenuItem::with_id(app, "reload", t("重新加载配置"), true, Some("CmdOrCtrl+R"))?;
+    let update = MenuItem::with_id(app, "update", t("更新订阅"), true, Some("CmdOrCtrl+U"))?;
+    let repair = MenuItem::with_id(app, "repair", t("一键修复"), true, None::<&str>)?;
     let upgrade = MenuItem::with_id(app, "upgrade", upgrade_text(None), true, None::<&str>)?;
-    let quit = MenuItem::with_id(app, "quit", "退出 Velum", true, Some("CmdOrCtrl+Q"))?;
+    let quit = MenuItem::with_id(app, "quit", t("退出 Velum"), true, Some("CmdOrCtrl+Q"))?;
     let rest: [&dyn IsMenuItem<Wry>; 13] = [
         &sysproxy,
         &tun,
@@ -289,6 +292,14 @@ fn build(app: &AppHandle, groups: &[Value], profiles: &[Value]) -> tauri::Result
     items.upgrade = Some(upgrade);
     items.built = true;
     Ok((menu, items))
+}
+
+/// 语言变化时重建菜单：文字都是建菜单时写进去的。
+pub fn rebuild(app: &AppHandle) {
+    if let (Ok(menu), Some(tray)) = (initial(app), app.tray_by_id("main")) {
+        let _ = tray.set_menu(Some(menu));
+    }
+    refresh_now(app);
 }
 
 /// 构建初始菜单（velumd 尚未连上时）。
@@ -419,9 +430,9 @@ pub fn refresh(app: &AppHandle, status: Option<&Value>, text: &str) {
 fn upgrade_text(status: Option<&Value>) -> String {
     let u = status.map(|s| &s["update"]).filter(|u| u["available"].as_bool() == Some(true));
     match u.and_then(|u| Some((u["latest"].as_str()?, u["manifest"].is_string()))) {
-        Some((v, true)) => format!("更新到 {v}…"),
-        Some((v, false)) => format!("下载新版本 {v}…"),
-        None => "检查更新…".into(),
+        Some((v, true)) => tf("更新到 {0}…", &[&v]),
+        Some((v, false)) => tf("下载新版本 {0}…", &[&v]),
+        None => t("检查更新…").into(),
     }
 }
 
@@ -532,7 +543,7 @@ fn own(path: &str) -> bool {
 }
 
 /// 未识别出进程的流量（root 进程、局域网设备等）显示的名称与图标（通用的可执行文件图标）。
-const OTHER: (&str, &str) = ("其他", "/usr/bin/true");
+const OTHER_ICON: &str = "/usr/bin/true";
 
 /// 各客户端（进程）在上一秒的速率：velumd 与总速率同一时刻按进程统计（含期间已结束的连接），各项之和等于总速率。
 /// 同名的进程合并，按速率、连接数排序；不含 Velum 自身。
@@ -543,7 +554,7 @@ fn clients(t: Option<&Value>) -> Vec<(String, String, i64)> {
         if own(path) {
             continue;
         }
-        let (name, icon) = if path.is_empty() { (OTHER.0.to_string(), OTHER.1.to_string()) } else { label(path) };
+        let (name, icon) = if path.is_empty() { (crate::i18n::t("其他").to_string(), OTHER_ICON.to_string()) } else { label(path) };
         let e = by.entry(name).or_insert((icon, 0, 0));
         e.1 += c["up_rate"].as_i64().unwrap_or(0) + c["down_rate"].as_i64().unwrap_or(0);
         e.2 += c["active"].as_i64().unwrap_or(0);
@@ -602,7 +613,7 @@ fn set_clients(app: &AppHandle, rows: &[(String, String, i64)]) -> bool {
             .and_then(|v| v.iter().position(|i| i.id() == "sysproxy"));
         if let (false, Some(pos)) = (rows.is_empty(), pos) {
             let (Ok(head), Ok(sep)) = (
-                MenuItem::with_id(app, "clients", "活跃客户端", false, None::<&str>),
+                MenuItem::with_id(app, "clients", t("活跃客户端"), false, None::<&str>),
                 PredefinedMenuItem::separator(app),
             ) else {
                 return false;
@@ -660,7 +671,7 @@ pub fn traffic(app: &AppHandle, t: Option<&Value>) {
 pub fn refresh_now(app: &AppHandle) {
     match velum::call("GET", "/v1/status", None) {
         Ok(s) => refresh(app, Some(&s), &crate::summary(&s)),
-        Err(_) => refresh(app, None, "未运行"),
+        Err(_) => refresh(app, None, t("未运行")),
     }
 }
 

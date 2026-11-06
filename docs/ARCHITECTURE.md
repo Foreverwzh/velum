@@ -246,6 +246,16 @@ type PlatformHooks interface {
 - 同一时间只能有一个 VPN。与公司 VPN 共存的替代方案是**按应用排除**（`addDisallowedApplication`）。
 - Captive Portal 检测使用系统的 `NET_CAPABILITY_CAPTIVE_PORTAL` 信号。
 
+### 3.5.1 语言
+
+中文和英文，所有端都支持：核心、CLI、桌面界面、托盘、Android、iOS。
+
+- **源文字就是中文，同时作为查找英文的键**（`core/pkg/i18n`、`desktop/src/i18n.ts`、`desktop/src-tauri/src/i18n.rs`、`mobile/lib/i18n.dart`；iOS 用系统的 `Localizable.strings`）。代码读起来和以前一样，没有译文时显示中文。
+- **语言**：默认跟随系统，中文系统显示中文，其他都显示英文。桌面端可以在设置里选；Android、iOS 用系统的按应用语言设置。CLI 可以用 `VELUM_LANG` 指定。
+- **核心的语言跟随界面**：错误、告警由核心生成，桌面界面启动时调用 `PUT /v1/language`，移动端启动前调用 `SetLocale`。语言是进程级的，一个核心只服务一个用户。无界面的 Linux 服务按环境变量，没有设置时用英文。
+- **日志不翻译**：是给开发者看的。订阅内容（节点名等）原样显示。
+- **防止漏译**：每端都有检查（`core/pkg/i18n/catalog_test.go`、`desktop/scripts/check-i18n.cjs`、`i18n_en.rs` 的测试、`mobile/test/i18n_test.dart`、`mobile/ios/scripts/check-i18n.py` 和 `UITests/EnglishTests.swift`），覆盖缺少译文、占位符不一致和不再使用的条目。
+
 ### 3.6 本地 RPC
 
 - 协议：**HTTP/1.1 over UDS（macOS / Android）/ Named Pipe（Windows）**，REST 请求 + SSE 事件流（连接、日志、状态）。

@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/Foreverwzh/velum/core/pkg/i18n"
 	"net"
 	"net/netip"
 	"os"
@@ -218,7 +219,7 @@ func retarget(path, host string, port int) error {
 	snap.Host, snap.Port = host, port
 	data, _ := json.MarshalIndent(snap, "", "  ")
 	if err := os.WriteFile(path, data, 0o600); err != nil {
-		return fmt.Errorf("更新快照：%w", err)
+		return i18n.Errorf("更新快照：%w", err)
 	}
 	return nil
 }
@@ -230,7 +231,7 @@ func loadSnapshot(path string) (*Snapshot, error) {
 	}
 	var s Snapshot
 	if err := json.Unmarshal(data, &s); err != nil {
-		return nil, fmt.Errorf("快照损坏：%w", err)
+		return nil, i18n.Errorf("快照损坏：%w", err)
 	}
 	return &s, nil
 }
@@ -244,17 +245,17 @@ func (m *Manager) HasSnapshot() bool {
 // Apply 接管系统代理。首次接管时先保存快照；已接管时只更新设置（快照保持最初的状态）。
 func (m *Manager) Apply(plan compiler.SysProxyPlan) error {
 	if plan.Host == "" || plan.Port == 0 {
-		return errors.New("系统代理地址无效")
+		return i18n.New("系统代理地址无效")
 	}
 	if !m.HasSnapshot() {
 		cur, err := m.Read()
 		if err != nil {
-			return fmt.Errorf("读取当前系统代理：%w", err)
+			return i18n.Errorf("读取当前系统代理：%w", err)
 		}
 		snap := Snapshot{TakenAt: time.Now(), Host: plan.Host, Port: int(plan.Port), Services: cur}
 		data, _ := json.MarshalIndent(snap, "", "  ")
 		if err := os.WriteFile(m.SnapshotPath, data, 0o600); err != nil {
-			return fmt.Errorf("写入快照：%w", err)
+			return i18n.Errorf("写入快照：%w", err)
 		}
 	} else if err := retarget(m.SnapshotPath, plan.Host, int(plan.Port)); err != nil {
 		return err
@@ -335,7 +336,7 @@ func (m *Manager) ClearOwn(host string, port int) (bool, error) {
 		}
 		changed = true
 		if m.Logf != nil {
-			m.Logf("系统代理：%s 仍指向 Velum（%s:%d）但未接管，已关闭", s.Name, host, port)
+			m.Logf(i18n.T("系统代理：%s 仍指向 Velum（%s:%d）但未接管，已关闭"), s.Name, host, port)
 		}
 	}
 	return changed, nil
@@ -359,9 +360,9 @@ func (m *Manager) dropDeadLocal(s *Service, host string, port int) {
 			continue
 		}
 		if own {
-			m.Logf("还原系统代理：%s 原先的代理 %s:%d 就是 Velum 自己（残留的接管设置），改为关闭", s.Name, p.Server, p.Port)
+			m.Logf(i18n.T("还原系统代理：%s 原先的代理 %s:%d 就是 Velum 自己（残留的接管设置），改为关闭"), s.Name, p.Server, p.Port)
 		} else {
-			m.Logf("还原系统代理：%s 原先的代理 %s:%d 已无程序监听（原代理工具已退出），改为关闭", s.Name, p.Server, p.Port)
+			m.Logf(i18n.T("还原系统代理：%s 原先的代理 %s:%d 已无程序监听（原代理工具已退出），改为关闭"), s.Name, p.Server, p.Port)
 		}
 	}
 }

@@ -5,6 +5,7 @@
 package explain
 
 import (
+	"github.com/Foreverwzh/velum/core/pkg/i18n"
 	"net/netip"
 	"path/filepath"
 	"regexp"
@@ -115,12 +116,12 @@ func EvalCond(c *ir.Cond, m Meta, sets Sets) CondResult {
 			}
 		}
 		if hit == "" {
-			reason := "域名 / IP 均未命中"
+			reason := i18n.T("域名 / IP 均未命中")
 			if (len(c.IPCIDR) > 0 || c.IPPrivate) && len(m.ips()) == 0 && domain != "" {
 				if m.Unresolved {
-					return CondResult{Unknown: true, Reason: "IP 条件需要解析结果（可用 --resolve 指定）"}
+					return CondResult{Unknown: true, Reason: i18n.T("IP 条件需要解析结果（可用 --resolve 指定）")}
 				}
-				reason = "目标是域名且尚未解析，IP 条件无法匹配"
+				reason = i18n.T("目标是域名且尚未解析，IP 条件无法匹配")
 			}
 			return CondResult{Reason: reason}
 		}
@@ -134,20 +135,20 @@ func EvalCond(c *ir.Cond, m Meta, sets Sets) CondResult {
 
 func evalOthers(c *ir.Cond, m Meta, sets Sets) CondResult {
 	if len(c.Port) > 0 && !containsInt(c.Port, int(m.Port)) {
-		return CondResult{Reason: "端口不匹配"}
+		return CondResult{Reason: i18n.T("端口不匹配")}
 	}
 	if len(c.Network) > 0 && !containsStr(c.Network, m.network()) {
-		return CondResult{Reason: "网络类型不匹配"}
+		return CondResult{Reason: i18n.T("网络类型不匹配")}
 	}
 	if len(c.Protocol) > 0 && !containsStr(c.Protocol, m.Protocol) {
-		return CondResult{Reason: "嗅探协议不匹配"}
+		return CondResult{Reason: i18n.T("嗅探协议不匹配")}
 	}
 	// 进程名 / 路径区分大小写，与 sing-box 一致。
 	if len(c.ProcessName) > 0 && (m.ProcessPath == "" || !containsExact(c.ProcessName, filepath.Base(m.ProcessPath))) {
-		return CondResult{Reason: "进程名不匹配"}
+		return CondResult{Reason: i18n.T("进程名不匹配")}
 	}
 	if len(c.ProcessPath) > 0 && !containsExact(c.ProcessPath, m.ProcessPath) {
-		return CondResult{Reason: "进程路径不匹配"}
+		return CondResult{Reason: i18n.T("进程路径不匹配")}
 	}
 	if len(c.SourceIPCIDR) > 0 {
 		ok := false
@@ -157,7 +158,7 @@ func evalOthers(c *ir.Cond, m Meta, sets Sets) CondResult {
 			}
 		}
 		if !ok {
-			return CondResult{Reason: "源地址不匹配"}
+			return CondResult{Reason: i18n.T("源地址不匹配")}
 		}
 	}
 	if len(c.RuleSet) > 0 {
@@ -178,13 +179,13 @@ func evalOthers(c *ir.Cond, m Meta, sets Sets) CondResult {
 		}
 		switch {
 		case unloaded:
-			return CondResult{Unknown: true, Reason: "依赖尚未加载的远程规则集，静态推演无法求值"}
+			return CondResult{Unknown: true, Reason: i18n.T("依赖尚未加载的远程规则集，静态推演无法求值")}
 		case unknown:
-			return CondResult{Unknown: true, Reason: "规则集中的 IP 条目需要解析结果（可用 --resolve 指定）"}
+			return CondResult{Unknown: true, Reason: i18n.T("规则集中的 IP 条目需要解析结果（可用 --resolve 指定）")}
 		}
-		return CondResult{Reason: "规则集内无条目命中"}
+		return CondResult{Reason: i18n.T("规则集内无条目命中")}
 	}
-	return CondResult{Matched: true, Reason: "条件满足"}
+	return CondResult{Matched: true, Reason: i18n.T("条件满足")}
 }
 
 // EvalMatch 对 Match（含逻辑组合）求值。空 Match 视为无条件命中。
@@ -193,7 +194,7 @@ func EvalMatch(mt ir.Match, m Meta, sets Sets) CondResult {
 		return EvalCond(mt.Cond, m, sets)
 	}
 	if mt.Logical == "" {
-		return CondResult{Matched: true, Reason: "无条件"}
+		return CondResult{Matched: true, Reason: i18n.T("无条件")}
 	}
 	var v bool
 	unknown := false
@@ -221,9 +222,9 @@ func EvalMatch(mt ir.Match, m Meta, sets Sets) CondResult {
 		v = !v
 	}
 	if v {
-		return CondResult{Matched: true, Reason: "逻辑组合（" + mt.Logical + "）满足"}
+		return CondResult{Matched: true, Reason: i18n.T("逻辑组合（") + mt.Logical + i18n.T("）满足")}
 	}
-	return CondResult{Unknown: unknown, Reason: "逻辑组合（" + mt.Logical + "）不满足"}
+	return CondResult{Unknown: unknown, Reason: i18n.T("逻辑组合（") + mt.Logical + i18n.T("）不满足")}
 }
 
 // isPrivate 与 sing-box ip_is_private 一致（!N.IsPublicAddr）：不含 CGNAT 100.64.0.0/10。

@@ -1,7 +1,7 @@
 package main
 
 import (
-	"fmt"
+	"github.com/Foreverwzh/velum/core/pkg/i18n"
 
 	"github.com/sagernet/nftables"
 	"github.com/sagernet/nftables/binaryutil"
@@ -71,7 +71,7 @@ func setConnGuard(on bool) error {
 		Hooknum: nftables.ChainHookOutput, Priority: nftables.ChainPriorityMangle, Policy: &policy})
 	nft.AddRule(&nftables.Rule{Table: t, Chain: c, Exprs: guardExprs()})
 	if err := nft.Flush(); err != nil {
-		return fmt.Errorf("加载连接保护规则：%w", err)
+		return i18n.Errorf("加载连接保护规则：%w", err)
 	}
 	return nil
 }

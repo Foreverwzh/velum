@@ -1,4 +1,4 @@
-//go:build darwin
+//go:build darwin && !ios
 
 package helper
 
@@ -47,6 +47,7 @@ import "C"
 
 import (
 	"fmt"
+	"github.com/Foreverwzh/velum/core/pkg/i18n"
 	"net"
 	"unsafe"
 )
@@ -79,7 +80,7 @@ func verifyPeerCode(conn *net.UnixConn, req string) error {
 	case 0:
 		return nil
 	case -1:
-		return fmt.Errorf("取不到对端 audit token")
+		return i18n.Errorf("取不到对端 audit token")
 	}
-	return fmt.Errorf("代码签名不满足要求（OSStatus %d）", int(st))
+	return i18n.Errorf("代码签名不满足要求（OSStatus %d）", int(st))
 }

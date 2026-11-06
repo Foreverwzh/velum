@@ -195,6 +195,11 @@ type SwitchRequest struct {
 }
 
 // Traffic 是经过 Velum 的实时流量（速率为最近一秒，字节 / 秒）。
+// LanguageRequest 设置核心的语言。
+type LanguageRequest struct {
+	Language string `json:"language"`
+}
+
 type Traffic struct {
 	Up       int64 `json:"up"`
 	Down     int64 `json:"down"`

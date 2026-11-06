@@ -1,5 +1,6 @@
 // 订阅地址：先拉取并校验，通过后才写入 config.yaml。
 
+import '../i18n.dart';
 import 'package:flutter/material.dart';
 
 import '../state.dart';
@@ -35,10 +36,10 @@ class _SubscriptionFormState extends State<SubscriptionForm> {
     setState(() => _saving = true);
     try {
       await Velum.read(context).api.setSubscription(_ctl.text.trim());
-      if (mounted) toast(context, '订阅已更新');
+      if (mounted) toast(context, t('订阅已更新'));
       widget.onSaved();
     } catch (e) {
-      if (mounted) toast(context, '订阅无效：${errText(e)}');
+      if (mounted) toast(context, t('订阅无效：{0}', [errText(e)]));
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -49,13 +50,13 @@ class _SubscriptionFormState extends State<SubscriptionForm> {
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       TextField(
         controller: _ctl,
-        decoration: const InputDecoration(labelText: '订阅地址', hintText: 'https://…', border: OutlineInputBorder()),
+        decoration: InputDecoration(labelText: t('订阅地址'), hintText: 'https://…', border: OutlineInputBorder()),
         keyboardType: TextInputType.url,
         autocorrect: false,
         onSubmitted: (_) => _save(),
       ),
       const SizedBox(height: 8),
-      FilledButton(onPressed: _saving ? null : _save, child: Text(_saving ? '校验中…' : '保存')),
+      FilledButton(onPressed: _saving ? null : _save, child: Text(_saving ? t('校验中…') : t('保存'))),
     ]);
   }
 }

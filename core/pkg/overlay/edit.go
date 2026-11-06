@@ -2,7 +2,7 @@ package overlay
 
 import (
 	"bytes"
-	"fmt"
+	"github.com/Foreverwzh/velum/core/pkg/i18n"
 	"net/netip"
 	"strings"
 
@@ -51,23 +51,23 @@ func (o *Overlay) Entries() []Entry {
 func (e Entry) normalize() (Entry, error) {
 	e.Value = strings.TrimSpace(e.Value)
 	if e.Value == "" {
-		return e, fmt.Errorf("内容为空")
+		return e, i18n.Errorf("内容为空")
 	}
 	switch e.Kind {
 	case KindDomain:
 		name, kind := ParseDomain(e.Value)
 		if !validDomain(name) {
-			return e, fmt.Errorf("域名无效：%s", e.Value)
+			return e, i18n.Errorf("域名无效：%s", e.Value)
 		}
 		e.Value = map[DomainKind]string{DomainSuffix: "", DomainSubOnly: ".", DomainExact: "="}[kind] + name
 	case KindHost:
 		e.Value = strings.ToLower(e.Value)
 		if !validDomain(e.Value) {
-			return e, fmt.Errorf("域名无效：%s", e.Value)
+			return e, i18n.Errorf("域名无效：%s", e.Value)
 		}
 		a, err := netip.ParseAddr(strings.TrimSpace(e.IP))
 		if err != nil {
-			return e, fmt.Errorf("IP 地址无效：%s", e.IP)
+			return e, i18n.Errorf("IP 地址无效：%s", e.IP)
 		}
 		e.IP = a.String()
 	case KindCIDR:
@@ -75,14 +75,14 @@ func (e Entry) normalize() (Entry, error) {
 		if err != nil {
 			a, err2 := netip.ParseAddr(e.Value)
 			if err2 != nil {
-				return e, fmt.Errorf("网段无效：%s", e.Value)
+				return e, i18n.Errorf("网段无效：%s", e.Value)
 			}
 			p = netip.PrefixFrom(a, a.BitLen())
 		}
 		e.Value = p.Masked().String()
 	case KindProcess, KindBypass:
 	default:
-		return e, fmt.Errorf("未知类型 %q", e.Kind)
+		return e, i18n.Errorf("未知类型 %q", e.Kind)
 	}
 	return e, nil
 }
@@ -177,7 +177,7 @@ func Remove(data []byte, e Entry) ([]byte, error) {
 		}
 	}
 	if !found {
-		return nil, fmt.Errorf("没有找到条目 %s", e.Value)
+		return nil, i18n.Errorf("没有找到条目 %s", e.Value)
 	}
 	if len(n.Content) == 0 {
 		del(sec, key)
@@ -215,7 +215,7 @@ func load(data []byte) (*yaml.Node, error) {
 		doc.Content = []*yaml.Node{{Kind: yaml.MappingNode}}
 	}
 	if doc.Content[0].Kind != yaml.MappingNode {
-		return nil, fmt.Errorf("overlay 顶层必须是映射")
+		return nil, i18n.Errorf("overlay 顶层必须是映射")
 	}
 	return &doc, nil
 }

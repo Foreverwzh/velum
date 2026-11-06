@@ -4,8 +4,7 @@ import (
 	"bytes"
 	"crypto/ed25519"
 	"encoding/base64"
-	"errors"
-	"fmt"
+	"github.com/Foreverwzh/velum/core/pkg/i18n"
 	"strings"
 
 	"golang.org/x/crypto/blake2b"
@@ -26,41 +25,41 @@ const (
 func VerifySums(sums, sig []byte, pubkey, version string) error {
 	keyID, pub, err := parsePublicKey(pubkey)
 	if err != nil {
-		return fmt.Errorf("发布公钥无效：%w", err)
+		return i18n.Errorf("发布公钥无效：%w", err)
 	}
 	text, err := base64.StdEncoding.DecodeString(strings.TrimSpace(string(sig)))
 	if err != nil {
-		return fmt.Errorf("签名格式错误：%w", err)
+		return i18n.Errorf("签名格式错误：%w", err)
 	}
 	lines := strings.Split(strings.TrimRight(string(text), "\n"), "\n")
 	if len(lines) != 4 {
-		return errors.New("签名格式错误：应为 4 行")
+		return i18n.New("签名格式错误：应为 4 行")
 	}
 	body, err := base64.StdEncoding.DecodeString(lines[1])
 	if err != nil || len(body) != 74 {
-		return errors.New("签名格式错误：签名内容无效")
+		return i18n.New("签名格式错误：签名内容无效")
 	}
 	// 只接受预哈希算法（ED）；旧的 Ed 没有理由出现，接受它只会增加攻击面
 	if string(body[:2]) != "ED" {
-		return fmt.Errorf("不支持的签名算法 %q", body[:2])
+		return i18n.Errorf("不支持的签名算法 %q", body[:2])
 	}
 	if !bytes.Equal(body[2:10], keyID) {
-		return errors.New("签名不是由 Velum 的发布密钥产生的")
+		return i18n.New("签名不是由 Velum 的发布密钥产生的")
 	}
 	digest := blake2b.Sum512(sums)
 	if !ed25519.Verify(pub, digest[:], body[10:]) {
-		return errors.New("签名校验失败：文件被改动过，或不是由 Velum 发布的")
+		return i18n.New("签名校验失败：文件被改动过，或不是由 Velum 发布的")
 	}
 	comment, ok := strings.CutPrefix(lines[2], "trusted comment: ")
 	if !ok {
-		return errors.New("签名格式错误：缺少受保护的注释")
+		return i18n.New("签名格式错误：缺少受保护的注释")
 	}
 	global, err := base64.StdEncoding.DecodeString(lines[3])
 	if err != nil || len(global) != ed25519.SignatureSize {
-		return errors.New("签名格式错误：全局签名无效")
+		return i18n.New("签名格式错误：全局签名无效")
 	}
 	if !ed25519.Verify(pub, append(append([]byte(nil), body[10:]...), comment...), global) {
-		return errors.New("签名校验失败：受保护的注释被改动过")
+		return i18n.New("签名校验失败：受保护的注释被改动过")
 	}
 	fields := map[string]string{}
 	for _, f := range strings.Split(comment, "\t") {
@@ -69,10 +68,10 @@ func VerifySums(sums, sig []byte, pubkey, version string) error {
 		}
 	}
 	if fields["file"] != SumsName {
-		return fmt.Errorf("签名针对的是 %q，不是 %s", fields["file"], SumsName)
+		return i18n.Errorf("签名针对的是 %q，不是 %s", fields["file"], SumsName)
 	}
 	if fields["version"] != version {
-		return fmt.Errorf("签名针对的版本是 %q，不是 %s", fields["version"], version)
+		return i18n.Errorf("签名针对的版本是 %q，不是 %s", fields["version"], version)
 	}
 	return nil
 }
@@ -84,14 +83,14 @@ func parsePublicKey(b64 string) (keyID []byte, pub ed25519.PublicKey, err error)
 	}
 	lines := strings.Split(strings.TrimSpace(string(text)), "\n")
 	if len(lines) != 2 {
-		return nil, nil, errors.New("应为 2 行")
+		return nil, nil, i18n.New("应为 2 行")
 	}
 	raw, err := base64.StdEncoding.DecodeString(lines[1])
 	if err != nil {
 		return nil, nil, err
 	}
 	if len(raw) != 42 || string(raw[:2]) != "Ed" {
-		return nil, nil, errors.New("不是 Ed25519 公钥")
+		return nil, nil, i18n.New("不是 Ed25519 公钥")
 	}
 	return raw[2:10], ed25519.PublicKey(raw[10:]), nil
 }
@@ -104,5 +103,5 @@ func Checksum(sums []byte, name string) (string, error) {
 			return f[0], nil
 		}
 	}
-	return "", fmt.Errorf("%s 里没有 %s", SumsName, name)
+	return "", i18n.Errorf("%s 里没有 %s", SumsName, name)
 }

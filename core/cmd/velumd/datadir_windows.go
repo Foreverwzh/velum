@@ -2,7 +2,7 @@ package main
 
 import (
 	"errors"
-	"fmt"
+	"github.com/Foreverwzh/velum/core/pkg/i18n"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -19,7 +19,7 @@ func secureDataDir(dir string, readers []string) error {
 	if fi, err := os.Lstat(dir); err == nil {
 		if untrusted(dir, fi) || walkUntrusted(dir) {
 			if err := os.RemoveAll(dir); err != nil {
-				return fmt.Errorf("清理不可信的数据目录 %s：%w", dir, err)
+				return i18n.Errorf("清理不可信的数据目录 %s：%w", dir, err)
 			}
 		}
 	} else if !errors.Is(err, os.ErrNotExist) {
@@ -28,7 +28,7 @@ func secureDataDir(dir string, readers []string) error {
 	sddl := "D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)"
 	for _, s := range readers {
 		if _, err := windows.StringToSid(s); err != nil {
-			return fmt.Errorf("无效的 SID %q：%w", s, err)
+			return i18n.Errorf("无效的 SID %q：%w", s, err)
 		}
 		sddl += "(A;OICI;FR;;;" + s + ")"
 	}
@@ -42,7 +42,7 @@ func secureDataDir(dir string, readers []string) error {
 	p, _ := windows.UTF16PtrFromString(dir)
 	sa := windows.SecurityAttributes{Length: uint32(unsafe.Sizeof(windows.SecurityAttributes{})), SecurityDescriptor: sd}
 	if err := windows.CreateDirectory(p, &sa); err != nil && !errors.Is(err, windows.ERROR_ALREADY_EXISTS) {
-		return fmt.Errorf("创建数据目录 %s：%w", dir, err)
+		return i18n.Errorf("创建数据目录 %s：%w", dir, err)
 	}
 	// 已存在的目录：重置所有者与受保护的 DACL（继承到现有子项）。
 	// 所有者设为 Administrators 组：管理员令牌只能把所有者设为自己或 Administrators，
@@ -57,7 +57,7 @@ func secureDataDir(dir string, readers []string) error {
 	}
 	if err := windows.SetNamedSecurityInfo(dir, windows.SE_FILE_OBJECT,
 		windows.OWNER_SECURITY_INFORMATION|windows.DACL_SECURITY_INFORMATION|windows.PROTECTED_DACL_SECURITY_INFORMATION, admins, nil, dacl, nil); err != nil {
-		return fmt.Errorf("设置数据目录 %s 的权限：%w", dir, err)
+		return i18n.Errorf("设置数据目录 %s 的权限：%w", dir, err)
 	}
 	return nil
 }

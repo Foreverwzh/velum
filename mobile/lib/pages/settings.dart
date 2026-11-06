@@ -1,5 +1,6 @@
 // 设置：订阅、按应用分流、本地覆盖、告警、日志、专业模式与关于。
 
+import '../i18n.dart';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -24,12 +25,12 @@ class SettingsPage extends StatelessWidget {
 
     return ListView(padding: const EdgeInsets.symmetric(vertical: 8), children: [
       Section(
-        title: '订阅',
+        title: t('订阅'),
         child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           if (sub != null && (sub['source'] as String? ?? '').isNotEmpty) ...[
-            Text('${sub['nodes']} 个节点 · ${sub['groups']} 个策略组 · ${sub['rules']} 条规则', style: outline),
+            Text(t('{0} 个节点 · {1} 个策略组 · {2} 条规则', [sub['nodes'], sub['groups'], sub['rules']]), style: outline),
             if ((sub['fetch_error'] as String?)?.isNotEmpty == true)
-              Text('上次更新失败：${sub['fetch_error']}', style: TextStyle(color: Theme.of(context).colorScheme.error)),
+              Text(t('上次更新失败：{0}', [sub['fetch_error']]), style: TextStyle(color: Theme.of(context).colorScheme.error)),
             const SizedBox(height: 8),
           ],
           SubscriptionForm(onSaved: v.refresh),
@@ -40,34 +41,34 @@ class SettingsPage extends StatelessWidget {
         child: Column(children: [
           ListTile(
             leading: const Icon(Icons.apps),
-            title: const Text('按应用分流'),
+            title: Text(t('按应用分流')),
             subtitle: Text(tun == null
-                ? '选择不经 Velum 的应用'
+                ? t('选择不经 Velum 的应用')
                 : (tun['include_apps'] as List?)?.isNotEmpty == true
-                    ? '只有 ${(tun['include_apps'] as List).length} 个应用经 Velum'
+                    ? t('只有 {0} 个应用经 Velum', [(tun['include_apps'] as List).length])
                     : (tun['exclude_apps'] as List?)?.isNotEmpty == true
-                        ? '${(tun['exclude_apps'] as List).length} 个应用不经 Velum'
-                        : '所有应用都经 Velum'),
+                        ? t('{0} 个应用不经 Velum', [(tun['exclude_apps'] as List).length])
+                        : t('所有应用都经 Velum')),
             trailing: const Icon(Icons.chevron_right),
             onTap: () => push(const AppsPage()),
           ),
           ListTile(
             leading: const Icon(Icons.edit_note),
-            title: const Text('本地覆盖'),
-            subtitle: const Text('开发直连、hosts 覆盖（overlay.yaml）'),
+            title: Text(t('本地覆盖')),
+            subtitle: Text(t('开发直连、hosts 覆盖（overlay.yaml）')),
             trailing: const Icon(Icons.chevron_right),
             onTap: () => push(const OverlayPage()),
           ),
           ListTile(
             leading: const Icon(Icons.warning_amber),
-            title: const Text('告警'),
-            subtitle: Text('${s?['warnings'] ?? 0} 条：订阅中不支持或已降级的内容'),
+            title: Text(t('告警')),
+            subtitle: Text(t('{0} 条：订阅中不支持或已降级的内容', [s?['warnings'] ?? 0])),
             trailing: const Icon(Icons.chevron_right),
             onTap: () => push(const WarningsPage()),
           ),
           ListTile(
             leading: const Icon(Icons.article_outlined),
-            title: const Text('日志'),
+            title: Text(t('日志')),
             trailing: const Icon(Icons.chevron_right),
             onTap: () => push(const LogPage()),
           ),
@@ -77,17 +78,17 @@ class SettingsPage extends StatelessWidget {
         padding: EdgeInsets.zero,
         child: SwitchListTile(
           secondary: const Icon(Icons.tune),
-          title: const Text('专业模式'),
-          subtitle: const Text('显示连接与诊断页面'),
+          title: Text(t('专业模式')),
+          subtitle: Text(t('显示连接与诊断页面')),
           value: v.pro,
           onChanged: v.setPro,
         ),
       ),
       Section(
-        title: '关于',
+        title: t('关于'),
         child: Column(children: [
-          KV('版本', Text('${s?['version'] ?? '—'}')),
-          KV('Velum 目录', SelectableText(v.home)),
+          KV(t('版本'), Text('${s?['version'] ?? '—'}')),
+          KV(t('Velum 目录'), SelectableText(v.home)),
         ]),
       ),
     ]);
@@ -132,7 +133,7 @@ class _OverlayPageState extends State<OverlayPage> {
     setState(() => _saving = true);
     try {
       await Velum.read(context).run(() => Velum.read(context).api.saveOverlay(_ctl.text));
-      if (mounted) toast(context, '已应用');
+      if (mounted) toast(context, t('已应用'));
     } catch (e) {
       if (mounted) toast(context, errText(e));
     } finally {
@@ -143,8 +144,8 @@ class _OverlayPageState extends State<OverlayPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('本地覆盖'), actions: [
-        TextButton(onPressed: !_loaded || _saving ? null : _save, child: Text(_saving ? '应用中…' : '应用')),
+      appBar: AppBar(title: Text(t('本地覆盖')), actions: [
+        TextButton(onPressed: !_loaded || _saving ? null : _save, child: Text(_saving ? t('应用中…') : t('应用'))),
       ]),
       body: Padding(
         padding: const EdgeInsets.all(12),
@@ -183,8 +184,8 @@ class _WarningsPageState extends State<WarningsPage> {
     });
   }
 
-  static const _names = {
-    'node': '节点', 'provider': '订阅源', 'group': '策略组', 'rule': '规则', 'ruleset': '规则集', 'dns': 'DNS', 'global': '全局', 'overlay': '本地设置',
+  static final _names = {
+    'node': t('节点'), 'provider': t('订阅源'), 'group': t('策略组'), 'rule': t('规则'), 'ruleset': t('规则集'), 'dns': 'DNS', 'global': t('全局'), 'overlay': t('本地设置'),
   };
 
   @override
@@ -196,11 +197,11 @@ class _WarningsPageState extends State<WarningsPage> {
     }
     final outline = TextStyle(color: Theme.of(context).colorScheme.outline);
     return Scaffold(
-      appBar: AppBar(title: const Text('告警')),
+      appBar: AppBar(title: Text(t('告警'))),
       body: list == null
           ? const Center(child: CircularProgressIndicator())
           : list.isEmpty
-              ? Center(child: Text('没有告警', style: outline))
+              ? Center(child: Text(t('没有告警'), style: outline))
               : ListView(padding: const EdgeInsets.symmetric(vertical: 8), children: [
                   for (final e in byCat.entries)
                     Section(
@@ -245,7 +246,7 @@ class _LogPageState extends State<LogPage> {
       final lines = await f.readAsLines();
       text = lines.skip(lines.length > 500 ? lines.length - 500 : 0).join('\n');
     } catch (e) {
-      text = '无法读取日志：$e';
+      text = t('无法读取日志：{0}', [e]);
     }
     if (mounted) setState(() => _text = text);
   }
@@ -253,7 +254,7 @@ class _LogPageState extends State<LogPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('日志'), actions: [IconButton(onPressed: _load, icon: const Icon(Icons.refresh))]),
+      appBar: AppBar(title: Text(t('日志')), actions: [IconButton(onPressed: _load, icon: const Icon(Icons.refresh))]),
       body: SingleChildScrollView(
         reverse: true,
         padding: const EdgeInsets.all(12),

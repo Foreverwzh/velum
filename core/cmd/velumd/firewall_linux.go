@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/Foreverwzh/velum/core/pkg/i18n"
 	"os"
 	"path/filepath"
 	"strings"
@@ -22,8 +23,8 @@ func firewallAdvice(ufw, bridge bool) []ir.Warning {
 		return nil
 	}
 	return []ir.Warning{{Category: "global", Kind: "tun.firewall", Level: ir.Degraded,
-		Reason:  "ufw 已开启且有容器网络：TUN 接管后容器可能无法出站。如需要，执行 " + ufwContainerRule + "（只放行容器到本机的高位 TCP 端口；已放行可忽略）",
-		Subject: "ufw", Source: ir.Source{Kind: ir.SourceVelum, Text: "防火墙检查"}}}
+		Reason:  i18n.T("ufw 已开启且有容器网络：TUN 接管后容器可能无法出站。如需要，执行 ") + ufwContainerRule + i18n.T("（只放行容器到本机的高位 TCP 端口；已放行可忽略）"),
+		Subject: "ufw", Source: ir.Source{Kind: ir.SourceVelum, Text: i18n.T("防火墙检查")}}}
 }
 
 func ufwEnabled(conf string) bool {

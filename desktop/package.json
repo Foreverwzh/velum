@@ -8,7 +8,8 @@
     "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
     "tauri": "tauri",
-    "sidecars": "sh scripts/sidecars.sh"
+    "sidecars": "sh scripts/sidecars.sh",
+    "check:i18n": "node scripts/check-i18n.cjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",

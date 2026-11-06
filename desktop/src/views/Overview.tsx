@@ -9,6 +9,7 @@ import { Button, Chain, Latency, Notice, Panel, Section, StatusMark, Tag, chainS
 import { installHelper, SwitchRows } from "../components/TunToggle";
 import { SubscriptionForm } from "../components/SubscriptionForm";
 import { UsageBar, usageOf } from "../components/Usage";
+import { t } from "../i18n";
 
 export default function Overview({ status: s, refresh, go }: { status: Status; refresh: Refresh; go: Go }) {
   const h = health(s);
@@ -26,9 +27,9 @@ export default function Overview({ status: s, refresh, go }: { status: Status; r
             <p className="selectable mt-0.5 text-[13px] text-fg-2">{h.detail}</p>
           </div>
           {staleDaemon(s) && isWindows && (
-            <Button variant="primary" loading={busy === "service"} disabled={!!busy} onClick={() => run("service", installHelper)}>更新服务</Button>
+            <Button variant="primary" loading={busy === "service"} disabled={!!busy} onClick={() => run("service", installHelper)}>{t("更新服务")}</Button>
           )}
-          <Button icon={Wrench} loading={busy === "repair"} title={REPAIR_HINT} onClick={() => run("repair", async () => setSteps((await api.repair()).steps))}>一键修复</Button>
+          <Button icon={Wrench} loading={busy === "repair"} title={REPAIR_HINT} onClick={() => run("repair", async () => setSteps((await api.repair()).steps))}>{t("一键修复")}</Button>
         </header>
 
         {steps && (
@@ -36,7 +37,7 @@ export default function Overview({ status: s, refresh, go }: { status: Status; r
             <div className="border-b border-line px-3.5 py-2 text-[12px] text-fg-3">{REPAIR_HINT}</div>
             {steps.map((st) => (
               <div key={st.name} className="flex items-center gap-3 border-b border-line px-3.5 py-2 text-[12.5px] last:border-0">
-                <Tag tone={st.ok ? "accent" : st.warn ? "warn" : "err"}>{st.ok ? "完成" : st.warn ? "需处理" : "失败"}</Tag>
+                <Tag tone={st.ok ? "accent" : st.warn ? "warn" : "err"}>{st.ok ? t("完成") : st.warn ? t("需处理") : t("失败")}</Tag>
                 <span className="shrink-0">{st.name}</span>
                 {st.detail && <span className={cx("selectable text-fg-3", !st.warn && "truncate")}>{st.detail}</span>}
               </div>
@@ -52,9 +53,9 @@ export default function Overview({ status: s, refresh, go }: { status: Status; r
         <NetworkLine status={s} />
 
         {!hasSub ? (
-          <Section title="添加订阅">
+          <Section title={t("添加订阅")}>
             <Panel className="p-4">
-              <p className="mb-3 text-[12.5px] text-fg-2">填写订阅地址即可开始使用。订阅地址由提供订阅的服务给你。</p>
+              <p className="mb-3 text-[12.5px] text-fg-2">{t("填写订阅地址即可开始使用。订阅地址由提供订阅的服务给你。")}</p>
               <SubscriptionForm onDone={refresh} autoFocus />
             </Panel>
           </Section>
@@ -70,25 +71,25 @@ export default function Overview({ status: s, refresh, go }: { status: Status; r
   );
 }
 
-const REPAIR_HINT = "依次清空系统 DNS 缓存、重新检测网络环境、还原残留的系统 DNS、检查其他代理工具的残留、重新拉取订阅并加载（规则集在后台更新）、校正系统代理、节点测速";
+const REPAIR_HINT = t("依次清空系统 DNS 缓存、重新检测网络环境、还原残留的系统 DNS、检查其他代理工具的残留、重新拉取订阅并加载（规则集在后台更新）、校正系统代理、节点测速");
 
 function NetworkLine({ status: s }: { status: Status }) {
   const n = s.network;
   if (!n) return null;
-  const captive = { online: { t: "网络正常", tone: "text-fg-2" }, captive: { t: "需要网页认证", tone: "text-warn" }, offline: { t: "网络不通", tone: "text-err" } }[n.captive ?? ""] ?? { t: "检测中", tone: "text-fg-3" };
+  const captive = { online: { t: t("网络正常"), tone: "text-fg-2" }, captive: { t: t("需要网页认证"), tone: "text-warn" }, offline: { t: t("网络不通"), tone: "text-err" } }[n.captive ?? ""] ?? { t: t("检测中"), tone: "text-fg-3" };
   const items: { icon: typeof Wifi; text: string; tone?: string; title?: string }[] = [
-    { icon: Wifi, text: n.primary_interface || "无主接口" },
+    { icon: Wifi, text: n.primary_interface || t("无主接口") },
     { icon: Globe, text: captive.t, tone: captive.tone, title: n.captive_detail },
     ...(n.vpns ?? []).map((v) => ({
       icon: v.full ? Network : Building2,
-      text: v.full ? `其他 VPN / 代理工具全局接管（${v.iface}）` : `企业 VPN 分流中（${v.iface}）`,
+      text: v.full ? t("其他 VPN / 代理工具全局接管（{0}）", v.iface) : t("企业 VPN 分流中（{0}）", v.iface),
       tone: v.full ? "text-warn" : undefined,
-      title: v.full ? "如果不是正在使用的 VPN，多为其他代理工具的 TUN 没有退出干净：在该工具中关闭 TUN 并退出，或重启电脑" : `${v.routes?.length ?? 0} 个网段、${v.domains?.length ?? 0} 个域名直连`,
+      title: v.full ? t("如果不是正在使用的 VPN，多为其他代理工具的 TUN 没有退出干净：在该工具中关闭 TUN 并退出，或重启电脑") : t("{0} 个网段、{1} 个域名直连", v.routes?.length ?? 0, v.domains?.length ?? 0),
     })),
     ...(n.stale_dns?.length
-      ? [{ icon: TriangleAlert, text: `系统 DNS 残留（${n.stale_dns.join("、")}）`, tone: "text-warn", title: "代理工具退出时没有还原系统 DNS，解析会失败或很慢：在网络设置中把 DNS 改回自动获取" }]
+      ? [{ icon: TriangleAlert, text: t("系统 DNS 残留（{0}）", n.stale_dns.join("、")), tone: "text-warn", title: t("代理工具退出时没有还原系统 DNS，解析会失败或很慢：在网络设置中把 DNS 改回自动获取") }]
       : []),
-    ...(n.split_dns_domains?.length ? [{ icon: Split, text: `DNS 分流 ${n.split_dns_domains.length} 个域名`, title: n.split_dns_domains.join("、") }] : []),
+    ...(n.split_dns_domains?.length ? [{ icon: Split, text: t("DNS 分流 {0} 个域名", n.split_dns_domains.length), title: n.split_dns_domains.join("、") }] : []),
   ];
   return (
     <div className="-mt-3 flex flex-wrap items-center gap-x-5 gap-y-1.5 px-1 text-[12px] text-fg-3">
@@ -111,7 +112,7 @@ function SubscriptionLine({ status: s, refresh, go }: { status: Status; refresh:
   return (
     <Panel className="px-3.5 py-2.5">
       <div className="flex items-center gap-3">
-        <span className="shrink-0 text-[12px] text-fg-3">订阅</span>
+        <span className="shrink-0 text-[12px] text-fg-3">{t("订阅")}</span>
         {profiles.length > 1 ? (
           <select value={s.subscription.id} disabled={!!busy} onChange={(e) => run("use", () => api.activateProfile(e.target.value))}
             className="h-7 min-w-0 rounded-md border border-line-strong bg-raised px-2 text-[12.5px] font-medium">
@@ -120,12 +121,12 @@ function SubscriptionLine({ status: s, refresh, go }: { status: Status; refresh:
         ) : (
           <span className="truncate font-medium">{s.subscription.name}</span>
         )}
-        {busy && <span className="text-[12px] text-fg-3">正在切换…</span>}
+        {busy && <span className="text-[12px] text-fg-3">{t("正在切换…")}</span>}
         <div className="min-w-0 flex-1">
           {u?.pct !== undefined && <UsageBar pct={u.pct} tone={u.tone} />}
           {u && <div className={cx("tnum mt-1 truncate text-[12px]", u.tone === "err" ? "text-err" : u.tone === "warn" ? "text-warn" : "text-fg-2")}>{u.text}</div>}
         </div>
-        <Button size="sm" variant="ghost" onClick={() => go("settings")}>管理<ArrowRight className="size-3" /></Button>
+        <Button size="sm" variant="ghost" onClick={() => go("settings")}>{t("管理")}<ArrowRight className="size-3" /></Button>
       </div>
       {error && <div className="mt-2"><Notice tone="err">{error}</Notice></div>}
     </Panel>
@@ -139,11 +140,11 @@ function GroupSummary({ status: s, go, busy, onTest }: { status: Status; go: Go;
   const shown = selectable.slice(0, 8);
   return (
     <Section
-      title="策略组"
+      title={t("策略组")}
       actions={
         <>
-          <Button size="sm" variant="ghost" icon={Gauge} loading={busy === "test"} onClick={onTest}>测速</Button>
-          <Button size="sm" variant="ghost" onClick={() => go("groups")}>全部 {selectable.length} 个<ArrowRight className="size-3" /></Button>
+          <Button size="sm" variant="ghost" icon={Gauge} loading={busy === "test"} onClick={onTest}>{t("测速")}</Button>
+          <Button size="sm" variant="ghost" onClick={() => go("groups")}>{t("全部")}{" "}{selectable.length}{" "}{t("个")}<ArrowRight className="size-3" /></Button>
         </>
       }
     >
@@ -172,11 +173,11 @@ function RecentConnections({ go }: { go: Go }) {
     return subscribeConnections((c) => !isRejected(c) && setList((xs) => [c, ...xs.filter((x) => x.id !== c.id)].slice(0, 6)));
   }, []);
   return (
-    <Section title="最近连接" actions={<Button size="sm" variant="ghost" onClick={() => go("connections")}>全部连接<ArrowRight className="size-3" /></Button>}>
+    <Section title={t("最近连接")} actions={<Button size="sm" variant="ghost" onClick={() => go("connections")}>{t("全部连接")}<ArrowRight className="size-3" /></Button>}>
       <Panel>
-        {!list.length && <div className="px-3.5 py-6 text-center text-[12.5px] text-fg-3">经 Velum 访问任意网站后，这里会实时显示它走了哪条规则、哪个节点</div>}
+        {!list.length && <div className="px-3.5 py-6 text-center text-[12.5px] text-fg-3">{t("经 Velum 访问任意网站后，这里会实时显示它走了哪条规则、哪个节点")}</div>}
         {list.map((c) => (
-          <button key={c.id} onClick={() => go("diagnose", c.domain || c.destination)} title="诊断这个目标"
+          <button key={c.id} onClick={() => go("diagnose", c.domain || c.destination)} title={t("诊断这个目标")}
             className="grid h-10 w-full grid-cols-[minmax(120px,200px)_1fr_64px] items-center gap-3 border-b border-line px-3.5 text-left transition-colors last:border-0 hover:bg-hover">
             <span className="truncate font-medium">{c.domain || c.destination}</span>
             <Chain size="sm" steps={chainSteps(c.chain, { label: c.rule_index >= 0 ? `#${c.rule_index}` : "final", title: c.provenance.text })} />

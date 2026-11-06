@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="vpn_not_authorized">尚未授权 Velum 建立 VPN，请在 App 中开启 TUN</string>
+    <string name="vpn_refused">系统拒绝建立 VPN（可能未授权）</string>
+    <string name="channel_name">Velum 运行状态</string>
+    <string name="notification_title">Velum 正在保护</string>
+    <string name="notification_text">所有应用的流量经 Velum 分流</string>
+</resources>

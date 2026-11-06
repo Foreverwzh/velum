@@ -1,5 +1,6 @@
 // 共用的小部件。
 
+import 'i18n.dart';
 import 'package:flutter/material.dart';
 
 import 'health.dart';
@@ -14,7 +15,7 @@ class Section extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final t = Theme.of(context).textTheme;
+    final theme = Theme.of(context).textTheme;
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
       clipBehavior: Clip.antiAlias,
@@ -27,7 +28,7 @@ class Section extends StatelessWidget {
               Padding(
                 padding: const EdgeInsets.only(bottom: 8),
                 child: Row(children: [
-                  Expanded(child: Text(title ?? '', style: t.titleSmall)),
+                  Expanded(child: Text(title ?? '', style: theme.titleSmall)),
                   ?trailing,
                 ]),
               ),
@@ -56,7 +57,7 @@ class DelayText extends StatelessWidget {
     final ms = this.ms;
     final style = Theme.of(context).textTheme.bodySmall;
     if (ms == null) return Text('—', style: style?.copyWith(color: Theme.of(context).colorScheme.outline));
-    if (ms < 0) return Text('超时', style: style?.copyWith(color: Theme.of(context).colorScheme.error));
+    if (ms < 0) return Text(t('超时'), style: style?.copyWith(color: Theme.of(context).colorScheme.error));
     final c = ms < 300 ? Colors.green : (ms < 800 ? Colors.orange : Theme.of(context).colorScheme.error);
     return Text('${ms}ms', style: style?.copyWith(color: c, fontFeatures: const [FontFeature.tabularFigures()]));
   }

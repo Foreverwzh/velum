@@ -6,6 +6,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"github.com/Foreverwzh/velum/core/pkg/i18n"
 	"io"
 	"log"
 	"os"
@@ -20,13 +21,14 @@ import (
 )
 
 func main() {
+	i18n.SetLocale(i18n.Detect())
 	if len(os.Args) > 1 && platformCommand(os.Args[1], os.Args[2:]) {
 		return
 	}
-	home := flag.String("home", "", "Velum 目录（默认 $VELUM_HOME，否则 macOS ~/Library/Application Support/Velum、Windows %APPDATA%\\Velum）")
-	allowSIDs := flag.String("allow-sid", "", "Windows：允许访问本地接口的用户 SID，逗号分隔（以服务运行时为安装用户）")
-	fg := flag.Bool("foreground", false, "日志同时输出到终端")
-	version := flag.Bool("version", false, "打印版本")
+	home := flag.String("home", "", i18n.T("Velum 目录（默认 $VELUM_HOME，否则 macOS ~/Library/Application Support/Velum、Windows %APPDATA%\\Velum）"))
+	allowSIDs := flag.String("allow-sid", "", i18n.T("Windows：允许访问本地接口的用户 SID，逗号分隔（以服务运行时为安装用户）"))
+	fg := flag.Bool("foreground", false, i18n.T("日志同时输出到终端"))
+	version := flag.Bool("version", false, i18n.T("打印版本"))
 	flag.Parse()
 	if *version {
 		fmt.Println(daemon.Version)

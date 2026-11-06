@@ -3,6 +3,7 @@
 //! 没有付费开发者账号，无法使用 SMAppService，因此通过 osascript 请求一次管理员权限完成安装。
 //! 安装脚本作为参数直接交给 osascript，不经过临时文件（避免被替换后以 root 执行）。
 
+use crate::i18n::{t, tf};
 use std::os::unix::fs::MetadataExt;
 use std::path::PathBuf;
 use std::process::Command;
@@ -26,7 +27,7 @@ fn xml_escape(s: &str) -> String {
 
 fn current_uid() -> Result<u32, String> {
     let home = std::env::var("HOME").map_err(|e| e.to_string())?;
-    std::fs::metadata(&home).map(|m| m.uid()).map_err(|e| format!("无法确定当前用户：{e}"))
+    std::fs::metadata(&home).map(|m| m.uid()).map_err(|e| tf("无法确定当前用户：{0}", &[&e]))
 }
 
 /// 以管理员身份执行脚本（系统会弹出密码框）。
@@ -39,19 +40,19 @@ fn run_admin(script: &str, prompt: &str) -> Result<(), String> {
             script, prompt,
         ])
         .output()
-        .map_err(|e| format!("无法请求管理员权限：{e}"))?;
+        .map_err(|e| tf("无法请求管理员权限：{0}", &[&e]))?;
     if out.status.success() {
         return Ok(());
     }
     let err = String::from_utf8_lossy(&out.stderr);
     if err.contains("-128") {
-        return Err("已取消".into());
+        return Err(t("已取消").into());
     }
     Err(err.trim().to_string())
 }
 
 pub fn helper_install() -> Result<(), String> {
-    let src = velum::bin_path("velum-helper").ok_or("找不到内置的 velum-helper")?;
+    let src = velum::bin_path("velum-helper").ok_or(t("找不到内置的 velum-helper"))?;
     let uid = current_uid()?;
     let plist = format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>
@@ -95,14 +96,14 @@ done
         src = sh_quote(&src.to_string_lossy()),
         plist = plist, // 内容全为常量与数字 uid，无外部输入
     );
-    run_admin(&script, "Velum 要安装 TUN 组件（velum-helper），用于创建虚拟网卡和设置路由。")
+    run_admin(&script, t("Velum 要安装 TUN 组件（velum-helper），用于创建虚拟网卡和设置路由。"))
 }
 
 pub fn helper_uninstall() -> Result<(), String> {
     let script = format!(
         "launchctl bootout system/{HELPER_LABEL} 2>/dev/null || true\nrm -f {HELPER_PLIST} {HELPER_BIN} {HELPER_SOCKET}\n"
     );
-    run_admin(&script, "Velum 要卸载 TUN 组件（velum-helper）。")
+    run_admin(&script, t("Velum 要卸载 TUN 组件（velum-helper）。"))
 }
 
 /// TUN 组件状态由 velumd 的 /v1/helper 报告（界面直接查询），这里不需要额外信息。
@@ -128,9 +129,9 @@ pub fn cli_status() -> serde_json::Value {
 
 /// 在 /usr/local/bin（macOS 默认 PATH 中）创建 vlu 的符号链接；该目录归 root 所有，需要管理员权限。
 pub fn cli_install() -> Result<(), String> {
-    let src = velum::bin_path("vlu").ok_or("找不到内置的 vlu")?;
+    let src = velum::bin_path("vlu").ok_or(t("找不到内置的 vlu"))?;
     let script = format!("mkdir -p /usr/local/bin && ln -sfn {} {CLI_LINK}", sh_quote(&src.to_string_lossy()));
-    run_admin(&script, "Velum 要把命令行工具 vlu 安装到 /usr/local/bin。")
+    run_admin(&script, t("Velum 要把命令行工具 vlu 安装到 /usr/local/bin。"))
 }
 
 /// 只删除指向本 App 的链接，不动用户自己放置的 vlu。
@@ -138,7 +139,7 @@ pub fn cli_uninstall() -> Result<(), String> {
     if !cli_status()["installed"].as_bool().unwrap_or(false) {
         return Ok(());
     }
-    run_admin(&format!("rm -f {CLI_LINK}"), "Velum 要移除命令行工具 vlu。")
+    run_admin(&format!("rm -f {CLI_LINK}"), t("Velum 要移除命令行工具 vlu。"))
 }
 
 fn agent_plist() -> Result<PathBuf, String> {

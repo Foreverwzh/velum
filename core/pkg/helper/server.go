@@ -1,4 +1,4 @@
-//go:build darwin
+//go:build darwin && !ios
 
 package helper
 
@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/Foreverwzh/velum/core/pkg/i18n"
 	"log"
 	"net"
 	"net/netip"
@@ -71,12 +72,12 @@ type session struct {
 func (x *session) gateway(p netip.Prefix) (netip.Addr, error) {
 	if p.Addr().Is4() {
 		if !x.gw4.IsValid() {
-			return netip.Addr{}, errors.New("TUN 未配置 IPv4 地址")
+			return netip.Addr{}, i18n.New("TUN 未配置 IPv4 地址")
 		}
 		return x.gw4, nil
 	}
 	if !x.gw6.IsValid() {
-		return netip.Addr{}, errors.New("TUN 未配置 IPv6 地址")
+		return netip.Addr{}, i18n.New("TUN 未配置 IPv6 地址")
 	}
 	return x.gw6, nil
 }
@@ -210,12 +211,12 @@ func (s *Server) handle(conn *net.UnixConn) {
 	for {
 		var req Request
 		if err := dec.Decode(&req); err != nil {
-			x.cleanup(fmt.Sprintf("对端断开（%v）", err)) // 含 kill -9
+			x.cleanup(i18n.T("对端断开（%v）", err)) // 含 kill -9
 			return
 		}
 		resp, fd := x.dispatch(req)
 		if err := send(conn, resp, fd); err != nil {
-			x.cleanup("发送失败：" + err.Error())
+			x.cleanup(i18n.T("发送失败：") + err.Error())
 			return
 		}
 	}
@@ -229,36 +230,36 @@ func (x *session) dispatch(req Request) (Response, int) {
 		return Response{OK: true, Version: Version}, -1
 	case OpOpenTun:
 		if x.tunFd >= 0 {
-			return Response{Error: "本会话已打开 TUN"}, -1
+			return Response{Error: i18n.T("本会话已打开 TUN")}, -1
 		}
 		var v4, v6 []netip.Prefix
 		for _, a := range req.Inet4 {
 			p, err := netip.ParsePrefix(a)
 			if err != nil || !p.Addr().Is4() {
-				return Response{Error: fmt.Sprintf("TUN 地址无效：%q", a)}, -1
+				return Response{Error: i18n.T("TUN 地址无效：%q", a)}, -1
 			}
 			v4 = append(v4, p)
 		}
 		for _, a := range req.Inet6 {
 			p, err := netip.ParsePrefix(a)
 			if err != nil || !p.Addr().Is6() {
-				return Response{Error: fmt.Sprintf("TUN IPv6 地址无效：%q", a)}, -1
+				return Response{Error: i18n.T("TUN IPv6 地址无效：%q", a)}, -1
 			}
 			v6 = append(v6, p)
 		}
 		if len(v4) == 0 {
-			return Response{Error: "缺少 TUN 地址"}, -1
+			return Response{Error: i18n.T("缺少 TUN 地址")}, -1
 		}
 		fd, name, err := x.srv.Sys.OpenTun(req.MTU, v4, v6)
 		if err != nil {
-			return Response{Error: "创建 utun：" + err.Error()}, -1
+			return Response{Error: i18n.T("创建 utun：") + err.Error()}, -1
 		}
 		x.tunFd, x.name, x.gw4 = fd, name, v4[0].Addr()
 		if len(v6) > 0 {
 			x.gw6 = v6[0].Addr()
 		}
 		if err := x.addRoutesLocked(req.Routes); err != nil {
-			x.cleanupLocked("打开 TUN 时添加路由失败")
+			x.cleanupLocked(i18n.T("打开 TUN 时添加路由失败"))
 			return Response{Error: err.Error()}, -1
 		}
 		x.srv.Logger.Printf("%s 打开 %s，路由 %v", x.peer, name, x.routes)
@@ -274,22 +275,22 @@ func (x *session) dispatch(req Request) (Response, int) {
 		return Response{OK: true, Name: name, Routes: x.routeStrings()}, fd
 	case OpSetDNS:
 		if x.tunFd < 0 {
-			return Response{Error: "尚未打开 TUN"}, -1
+			return Response{Error: i18n.T("尚未打开 TUN")}, -1
 		}
 		if x.restoreDNS != nil {
-			return Response{Error: "本会话已接管系统 DNS"}, -1
+			return Response{Error: i18n.T("本会话已接管系统 DNS")}, -1
 		}
 		for _, d := range req.DNS {
 			if _, err := netip.ParseAddr(d); err != nil {
-				return Response{Error: fmt.Sprintf("DNS 地址无效：%q", d)}, -1
+				return Response{Error: i18n.T("DNS 地址无效：%q", d)}, -1
 			}
 		}
 		if len(req.DNS) == 0 {
-			return Response{Error: "缺少 DNS 地址"}, -1
+			return Response{Error: i18n.T("缺少 DNS 地址")}, -1
 		}
 		restore, err := x.srv.Sys.SetDNS(req.DNS)
 		if err != nil {
-			return Response{Error: "设置系统 DNS：" + err.Error()}, -1
+			return Response{Error: i18n.T("设置系统 DNS：") + err.Error()}, -1
 		}
 		x.restoreDNS = restore
 		x.srv.mu.Lock()
@@ -299,33 +300,33 @@ func (x *session) dispatch(req Request) (Response, int) {
 		return Response{OK: true, Name: x.name}, -1
 	case OpResetDNS:
 		if len(req.DNS) == 0 {
-			return Response{Error: "缺少 DNS 地址"}, -1
+			return Response{Error: i18n.T("缺少 DNS 地址")}, -1
 		}
 		for _, d := range req.DNS {
 			if _, err := netip.ParseAddr(d); err != nil {
-				return Response{Error: fmt.Sprintf("DNS 地址无效：%q", d)}, -1
+				return Response{Error: i18n.T("DNS 地址无效：%q", d)}, -1
 			}
 		}
 		x.srv.mu.Lock()
 		held := x.srv.dnsHeld
 		x.srv.mu.Unlock()
 		if held > 0 {
-			return Response{Error: "TUN 正在接管系统 DNS，不能还原"}, -1
+			return Response{Error: i18n.T("TUN 正在接管系统 DNS，不能还原")}, -1
 		}
 		svcs, err := x.srv.Sys.ResetDNS(req.DNS)
 		if err != nil {
-			return Response{Error: "还原系统 DNS：" + err.Error(), Services: svcs}, -1
+			return Response{Error: i18n.T("还原系统 DNS：") + err.Error(), Services: svcs}, -1
 		}
 		if len(svcs) > 0 {
 			x.srv.Logger.Printf("%s 清理残留 DNS %v：%v 改回自动获取", x.peer, req.DNS, svcs)
 		}
 		return Response{OK: true, Services: svcs}, -1
 	case OpClose:
-		x.cleanupLocked("velumd 关闭会话")
+		x.cleanupLocked(i18n.T("velumd 关闭会话"))
 		return Response{OK: true}, -1
 	case OpAddRoutes, OpDelRoutes:
 		if x.tunFd < 0 {
-			return Response{Error: "尚未打开 TUN"}, -1
+			return Response{Error: i18n.T("尚未打开 TUN")}, -1
 		}
 		var err error
 		if req.Op == OpAddRoutes {
@@ -338,7 +339,7 @@ func (x *session) dispatch(req Request) (Response, int) {
 		}
 		return Response{OK: true, Name: x.name, Routes: x.routeStrings()}, -1
 	}
-	return Response{Error: "未知操作 " + req.Op}, -1
+	return Response{Error: i18n.T("未知操作 ") + req.Op}, -1
 }
 
 func (x *session) addRoutesLocked(routes []string) error {
@@ -352,13 +353,13 @@ func (x *session) addRoutesLocked(routes []string) error {
 		}
 		gw, err := x.gateway(p)
 		if err != nil {
-			return fmt.Errorf("添加路由 %s：%w", p, err)
+			return i18n.Errorf("添加路由 %s：%w", p, err)
 		}
 		if err := x.srv.Sys.AddRoute(p, gw); err != nil {
 			if errors.Is(err, ErrRouteExists) {
-				return fmt.Errorf("路由 %s 已存在（可能已被其他 TUN / VPN 占用），不覆盖", p)
+				return i18n.Errorf("路由 %s 已存在（可能已被其他 TUN / VPN 占用），不覆盖", p)
 			}
-			return fmt.Errorf("添加路由 %s：%w", p, err)
+			return i18n.Errorf("添加路由 %s：%w", p, err)
 		}
 		x.routes = append(x.routes, p)
 	}
@@ -379,11 +380,11 @@ func (x *session) delRoutesLocked(routes []string) error {
 			}
 		}
 		if idx < 0 {
-			return fmt.Errorf("路由 %s 不属于本会话", p)
+			return i18n.Errorf("路由 %s 不属于本会话", p)
 		}
 		gw, _ := x.gateway(p)
 		if err := x.srv.Sys.DeleteRoute(p, gw); err != nil {
-			return fmt.Errorf("删除路由 %s：%w", p, err)
+			return i18n.Errorf("删除路由 %s：%w", p, err)
 		}
 		x.routes = append(x.routes[:idx], x.routes[idx+1:]...)
 	}
@@ -423,7 +424,7 @@ func (x *session) cleanupLocked(reason string) {
 	// 先还原 DNS：TUN 关闭后指向 TUN 的系统 DNS 将不可用
 	if x.restoreDNS != nil {
 		if err := x.restoreDNS(); err != nil {
-			failed = append(failed, "还原系统 DNS："+err.Error())
+			failed = append(failed, i18n.T("还原系统 DNS：")+err.Error())
 		} else {
 			x.srv.Logger.Printf("已还原系统 DNS")
 		}
@@ -440,7 +441,7 @@ func (x *session) cleanupLocked(reason string) {
 	}
 	if x.undoScoped != nil {
 		if err := x.undoScoped(); err != nil {
-			failed = append(failed, "删除作用域默认路由："+err.Error())
+			failed = append(failed, i18n.T("删除作用域默认路由：")+err.Error())
 		}
 		x.undoScoped = nil
 	}

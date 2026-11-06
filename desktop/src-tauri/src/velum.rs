@@ -1,6 +1,7 @@
 //! velumd 本地接口客户端：HTTP/1.1 over Unix socket（macOS）/ Named Pipe（Windows），支持 Content-Length 与 chunked。
 //! 桌面壳不含业务逻辑，所有能力都经此访问 velumd。
 
+use crate::i18n::{t, tf};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
@@ -67,13 +68,13 @@ fn connect(timeout: Option<Duration>) -> Result<Conn, String> {
         Err(e) => e,
     };
     let Some((hostport, token)) = extension_addr() else {
-        return Err(format!("无法连接 velumd：{uds_err}"));
+        return Err(tf("无法连接 velumd：{0}", &[&uds_err]));
     };
     let mut s = std::net::TcpStream::connect_timeout(
-        &hostport.parse().map_err(|e| format!("extension.addr 无效：{e}"))?,
+        &hostport.parse().map_err(|e| tf("extension.addr 无效：{0}", &[&e]))?,
         Duration::from_secs(3),
     )
-    .map_err(|e| format!("无法连接 Velum 网络扩展：{e}"))?;
+    .map_err(|e| tf("无法连接 Velum 网络扩展：{0}", &[&e]))?;
     s.set_read_timeout(timeout).ok();
     s.set_write_timeout(write_timeout).ok();
     s.write_all(format!("{token}\n").as_bytes()).map_err(|e| e.to_string())?;
@@ -121,13 +122,13 @@ fn connect(_timeout: Option<Duration>) -> Result<Conn, String> {
                 Ok(()) => return Ok(f),
                 Err(e) => e,
             },
-            Some(Err(e)) if e.raw_os_error() == Some(ERROR_FILE_NOT_FOUND) => "velumd 未运行".to_string(),
+            Some(Err(e)) if e.raw_os_error() == Some(ERROR_FILE_NOT_FOUND) => t("velumd 未运行").to_string(),
             Some(Err(e)) => e.to_string(),
-            None => "所有连接都忙".to_string(),
+            None => t("所有连接都忙").to_string(),
         };
         first.get_or_insert(err);
     }
-    Err(format!("无法连接 velumd：{}", first.unwrap_or_default()))
+    Err(tf("无法连接 velumd：{0}", &[&first.unwrap_or_default()]))
 }
 
 /// 在限定时间内完成一次请求。Unix socket 已设置读写超时；Windows 的同步 Pipe 没有读超时，
@@ -144,7 +145,7 @@ fn with_deadline<T>(s: &mut Conn, t: Duration, f: impl FnOnce(&mut Conn) -> Resu
 }
 
 fn timeout_msg(t: Duration) -> String {
-    format!("velumd 未在 {} 秒内响应（可能正在拉取订阅或规则集，稍后查看状态）", t.as_secs())
+    tf("velumd 未在 {0} 秒内响应（可能正在拉取订阅或规则集，稍后查看状态）", &[&t.as_secs()])
 }
 
 #[cfg(windows)]
@@ -181,7 +182,7 @@ fn write_request(s: &mut Conn, method: &str, path: &str, body: Option<&str>) -> 
 fn read_head<R: BufRead>(r: &mut R) -> Result<(u16, bool, Option<usize>), String> {
     let mut line = String::new();
     r.read_line(&mut line).map_err(|e| e.to_string())?;
-    let code = line.split_whitespace().nth(1).and_then(|c| c.parse().ok()).ok_or("响应格式无效")?;
+    let code = line.split_whitespace().nth(1).and_then(|c| c.parse().ok()).ok_or(t("响应格式无效"))?;
     let (mut chunked, mut len) = (false, None);
     loop {
         line.clear();
@@ -321,7 +322,7 @@ pub fn ensure_running() -> Result<(), String> {
     if alive() {
         return Ok(());
     }
-    let bin = velumd_path().ok_or("找不到 velumd（可设置环境变量 VELUMD 指定路径）")?;
+    let bin = velumd_path().ok_or(t("找不到 velumd（可设置环境变量 VELUMD 指定路径）"))?;
     #[cfg(windows)]
     {
         if crate::system::service_status().map(|s| s["installed"].as_bool() == Some(true)).unwrap_or(false) {
@@ -347,7 +348,7 @@ pub fn ensure_running() -> Result<(), String> {
         const CREATE_NEW_PROCESS_GROUP: u32 = 0x200;
         cmd.creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP);
     }
-    cmd.spawn().map_err(|e| format!("启动 velumd 失败：{e}"))?;
+    cmd.spawn().map_err(|e| tf("启动 velumd 失败：{0}", &[&e]))?;
     wait_ready()
 }
 
@@ -359,7 +360,7 @@ fn wait_ready() -> Result<(), String> {
         }
         std::thread::sleep(Duration::from_millis(150));
     }
-    Err("velumd 未能在 10 秒内就绪，查看 logs/velumd.log".into())
+    Err(t("velumd 未能在 10 秒内就绪，查看 logs/velumd.log").into())
 }
 
 #[cfg(test)]

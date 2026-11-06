@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="vpn_not_authorized">Velum is not authorized to set up a VPN; turn on TUN in the app</string>
+    <string name="vpn_refused">The system refused to set up the VPN (it may not be authorized)</string>
+    <string name="channel_name">Velum status</string>
+    <string name="notification_title">Velum is protecting</string>
+    <string name="notification_text">All apps\' traffic is routed by Velum</string>
+</resources>

@@ -1,5 +1,6 @@
 import type { SubInfo } from "../api";
 import { cx } from "./ui";
+import { t } from "../i18n";
 
 export function fmtBytes(n: number): string {
   const units = ["B", "KB", "MB", "GB", "TB", "PB"];
@@ -19,9 +20,9 @@ export function usageOf(info?: SubInfo) {
   const expire = info.expire ? new Date(info.expire) : undefined;
   const days = expire ? Math.floor((expire.getTime() - Date.now()) / 86400000) : undefined;
   const parts: string[] = [];
-  if (pct !== undefined) parts.push(`已用 ${fmtBytes(used)} / ${fmtBytes(info.total)} · 剩余 ${fmtBytes(Math.max(0, info.total - used))}`);
+  if (pct !== undefined) parts.push(t("已用 {0} / {1} · 剩余 {2}", fmtBytes(used), fmtBytes(info.total), fmtBytes(Math.max(0, info.total - used))));
   if (expire && days !== undefined)
-    parts.push(days < 0 ? `已于 ${expire.toLocaleDateString()} 到期` : `${expire.toLocaleDateString()} 到期（${days} 天后）`);
+    parts.push(days < 0 ? t("已于 {0} 到期", expire.toLocaleDateString()) : t("{0} 到期（{1} 天后）", expire.toLocaleDateString(), days));
   if (!parts.length) return undefined;
   const tone = (pct ?? 0) >= 95 || (days !== undefined && days < 3) ? "err" : (pct ?? 0) >= 80 || (days !== undefined && days < 7) ? "warn" : "ok";
   return { pct, text: parts.join(" · "), tone } as const;

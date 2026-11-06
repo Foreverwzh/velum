@@ -170,7 +170,7 @@ fn format(menu: &NSMenu, top: bool) {
         if let Some(sub) = item.submenu() {
             format(&sub, false);
         }
-        if item.view().is_none() && item.title().to_string() == crate::tray::TEST_TITLE {
+        if item.view().is_none() && item.title().to_string() == crate::tray::test_title() {
             keep_open(&item);
         }
         // 图标把标题往右推：制表位从标题起点算，带图标的行要相应前移

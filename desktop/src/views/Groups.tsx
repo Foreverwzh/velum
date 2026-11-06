@@ -4,6 +4,7 @@ import { api, type GroupStatus, type Status } from "../api";
 import { delayOf, leafOf, pathOf, useAction } from "../hooks";
 import type { Refresh } from "../App";
 import { Button, Chain, Empty, IconButton, Latency, Notice, SearchInput, Tag, cx } from "../components/ui";
+import { t } from "../i18n";
 
 /** 策略组：左侧组列表（可搜索组名与节点名），右侧当前组的成员与延迟。 */
 export default function Groups({ status, refresh, focus }: { status: Status; refresh: Refresh; focus?: string }) {
@@ -38,16 +39,16 @@ export default function Groups({ status, refresh, focus }: { status: Status; ref
   );
   const current = groups.find((g) => g.tag === sel) ?? visible[0];
 
-  if (!groups.length) return <Empty icon={Layers} title="订阅中没有策略组" hint="订阅只提供了节点时，所有流量按规则走默认出站" />;
+  if (!groups.length) return <Empty icon={Layers} title={t("订阅中没有策略组")} hint={t("订阅只提供了节点时，所有流量按规则走默认出站")} />;
 
   return (
     <div className="flex min-h-0 flex-1">
       <div className="flex w-[264px] shrink-0 flex-col border-r border-line">
         <div className="px-3 pt-1 pb-2">
-          <SearchInput ref={search} value={q} onChange={(e) => setQ(e.target.value)} placeholder="搜索策略组或节点" shortcut={`${/Mac/.test(navigator.userAgent) ? "⌘" : "Ctrl+"}F`} />
+          <SearchInput ref={search} value={q} onChange={(e) => setQ(e.target.value)} placeholder={t("搜索策略组或节点")} shortcut={`${/Mac/.test(navigator.userAgent) ? "⌘" : "Ctrl+"}F`} />
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto px-1.5 pb-3">
-          {!visible.length && <div className="px-3 py-6 text-center text-[12px] text-fg-3">没有匹配「{q}」的策略组或节点</div>}
+          {!visible.length && <div className="px-3 py-6 text-center text-[12px] text-fg-3">{t("没有匹配「")}{q}{t("」的策略组或节点")}</div>}
           {visible.map((g) => {
             const on = current?.tag === g.tag;
             const leaf = leafOf(groups, g.tag);
@@ -56,7 +57,7 @@ export default function Groups({ status, refresh, focus }: { status: Status; ref
                 className={cx("flex w-full flex-col gap-0.5 rounded-md px-2.5 py-1.5 text-left transition-colors", on ? "bg-active" : "hover:bg-hover")}>
                 <span className="flex w-full items-center gap-2">
                   <span className={cx("min-w-0 flex-1 truncate", on && "font-medium")}>{g.tag}</span>
-                  {g.type !== "select" && <Tag>自动</Tag>}
+                  {g.type !== "select" && <Tag>{t("自动")}</Tag>}
                 </span>
                 <span className="flex w-full items-center gap-2 text-[11.5px] text-fg-3">
                   <span className="min-w-0 flex-1 truncate">{leaf}</span>
@@ -110,23 +111,23 @@ function GroupDetail({ group: g, groups, filter, byDelay, setByDelay, busy, erro
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             <h1 className="truncate text-[15px] font-semibold tracking-[-0.01em]">{g.tag}</h1>
-            <Tag tone={manual ? "neutral" : "info"}>{manual ? "手动选择" : "自动选择"}</Tag>
+            <Tag tone={manual ? "neutral" : "info"}>{manual ? t("手动选择") : t("自动选择")}</Tag>
           </div>
           <div className="mt-1.5 flex items-center gap-2 text-[12px] text-fg-3">
-            <span className="shrink-0">当前</span>
+            <span className="shrink-0">{t("当前")}</span>
             <Chain size="sm" steps={path.slice(1).map((p, i, a) => ({ label: p, kind: p === "DIRECT" ? "direct" : i === a.length - 1 ? "node" : "group" }))} />
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-1">
-          <IconButton icon={byDelay ? ArrowDownWideNarrow : ListOrdered} label={byDelay ? "按延迟排序（点击恢复订阅顺序）" : "订阅顺序（点击按延迟排序）"}
+          <IconButton icon={byDelay ? ArrowDownWideNarrow : ListOrdered} label={byDelay ? t("按延迟排序（点击恢复订阅顺序）") : t("订阅顺序（点击按延迟排序）")}
             onClick={() => setByDelay(!byDelay)} className={byDelay ? "text-accent" : undefined} />
-          <Button icon={Gauge} loading={busy === "test"} onClick={onTest}>测速</Button>
+          <Button icon={Gauge} loading={busy === "test"} onClick={onTest}>{t("测速")}</Button>
         </div>
       </header>
       {error && <div className="px-6 pt-3"><Notice tone="err">{error}</Notice></div>}
       <div className="min-h-0 flex-1 overflow-y-auto px-3 py-2">
-        {!manual && <div className="px-3 pb-2 text-[12px] text-fg-3">自动选择延迟最低的成员，不能手动切换。</div>}
-        {!members.length && <div className="px-3 py-6 text-center text-[12px] text-fg-3">这个策略组里没有匹配的节点</div>}
+        {!manual && <div className="px-3 pb-2 text-[12px] text-fg-3">{t("自动选择延迟最低的成员，不能手动切换。")}</div>}
+        {!members.length && <div className="px-3 py-6 text-center text-[12px] text-fg-3">{t("这个策略组里没有匹配的节点")}</div>}
         {members.map(({ m, leaf, nested, delay }) => {
           const on = m === g.selected;
           return (
@@ -147,7 +148,7 @@ function GroupDetail({ group: g, groups, filter, byDelay, setByDelay, busy, erro
         })}
       </div>
       <footer className="border-t border-line px-6 py-2 text-[11.5px] text-fg-3 tnum">
-        {g.members.length} 个成员 · {tested} 个有测速结果{filter && ` · 已按搜索过滤`}
+        {g.members.length}{" "}{t("个成员 ·")}{" "}{tested}{" "}{t("个有测速结果")}{filter && t(" · 已按搜索过滤")}
       </footer>
     </div>
   );

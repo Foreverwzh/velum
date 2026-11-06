@@ -4,8 +4,8 @@ package ipc
 
 import (
 	"context"
-	"errors"
 	"fmt"
+	"github.com/Foreverwzh/velum/core/pkg/i18n"
 	"net"
 	"strings"
 
@@ -19,7 +19,7 @@ func listenLocal(addr string, opts ListenOptions) (net.Listener, error) {
 	if len(sids) == 0 {
 		u, err := windows.GetCurrentProcessToken().GetTokenUser()
 		if err != nil {
-			return nil, fmt.Errorf("读取当前用户：%w", err)
+			return nil, i18n.Errorf("读取当前用户：%w", err)
 		}
 		sids = []string{u.User.Sid.String()}
 	}
@@ -48,20 +48,20 @@ func dialLocal(ctx context.Context, addr string) (net.Conn, error) {
 func verifyServer(c net.Conn) error {
 	f, ok := c.(interface{ Fd() uintptr })
 	if !ok {
-		return errors.New("无法检查 Pipe 的所有者")
+		return i18n.New("无法检查 Pipe 的所有者")
 	}
 	sd, err := windows.GetSecurityInfo(windows.Handle(f.Fd()), windows.SE_KERNEL_OBJECT, windows.OWNER_SECURITY_INFORMATION)
 	if err != nil {
-		return fmt.Errorf("读取 Pipe 所有者：%w", err)
+		return i18n.Errorf("读取 Pipe 所有者：%w", err)
 	}
 	owner, _, err := sd.Owner()
 	if err != nil {
-		return fmt.Errorf("读取 Pipe 所有者：%w", err)
+		return i18n.Errorf("读取 Pipe 所有者：%w", err)
 	}
 	if TrustedOwner(owner) {
 		return nil
 	}
-	return fmt.Errorf("Pipe 的所有者 %s 不可信（可能被其他程序冒充）", owner)
+	return i18n.Errorf("Pipe 的所有者 %s 不可信（可能被其他程序冒充）", owner)
 }
 
 // TrustedOwner 判断 sid 是否为 SYSTEM、Administrators 或当前用户。
@@ -79,7 +79,7 @@ func PipeSDDL(sids []string) (string, error) {
 	b.WriteString("D:P(A;;GA;;;SY)(A;;GA;;;BA)")
 	for _, s := range sids {
 		if _, err := windows.StringToSid(s); err != nil {
-			return "", fmt.Errorf("无效的 SID %q：%w", s, err)
+			return "", i18n.Errorf("无效的 SID %q：%w", s, err)
 		}
 		fmt.Fprintf(&b, "(A;;GA;;;%s)", s)
 	}

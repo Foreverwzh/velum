@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"github.com/Foreverwzh/velum/core/pkg/i18n"
 
 	"github.com/sagernet/netlink"
 	"github.com/sagernet/nftables"
@@ -45,20 +46,20 @@ func cleanupNet() error {
 	if err != nil {
 		errs = append(errs, fmt.Errorf("nftables：%w", err))
 	} else if tables, err := nft.ListTablesOfFamily(nftables.TableFamilyINet); err != nil {
-		errs = append(errs, fmt.Errorf("列出 nftables 表：%w", err))
+		errs = append(errs, i18n.Errorf("列出 nftables 表：%w", err))
 	} else {
 		for _, t := range tables {
 			if t.Name == nftTable || t.Name == guardTable {
 				nft.DelTable(t)
 				if err := nft.Flush(); err != nil {
-					errs = append(errs, fmt.Errorf("删除 nftables 表 %s：%w", t.Name, err))
+					errs = append(errs, i18n.Errorf("删除 nftables 表 %s：%w", t.Name, err))
 				}
 			}
 		}
 	}
 	rules, err := netlink.RuleList(netlink.FAMILY_ALL)
 	if err != nil {
-		return errors.Join(append(errs, fmt.Errorf("列出 ip rule：%w", err))...)
+		return errors.Join(append(errs, i18n.Errorf("列出 ip rule：%w", err))...)
 	}
 	for i := range rules {
 		r := rules[i]
@@ -76,7 +77,7 @@ func cleanupNet() error {
 		del := netlink.NewRule()
 		del.Family, del.Priority = r.Family, r.Priority
 		if err := netlink.RuleDel(del); err != nil && !errors.Is(err, unix.ENOENT) {
-			errs = append(errs, fmt.Errorf("删除 ip rule %d：%w", r.Priority, err))
+			errs = append(errs, i18n.Errorf("删除 ip rule %d：%w", r.Priority, err))
 		}
 	}
 	return errors.Join(errs...)

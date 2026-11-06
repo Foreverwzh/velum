@@ -1,7 +1,7 @@
 package explain
 
 import (
-	"fmt"
+	"github.com/Foreverwzh/velum/core/pkg/i18n"
 	"net"
 	"net/netip"
 	"net/url"
@@ -47,7 +47,7 @@ func ParseTarget(s string) (Target, error) {
 	}
 	host = strings.Trim(strings.ToLower(host), "[]")
 	if host == "" {
-		return t, fmt.Errorf("无法解析目标 %q", s)
+		return t, i18n.Errorf("无法解析目标 %q", s)
 	}
 	if ip, err := netip.ParseAddr(host); err == nil {
 		t.IP = ip
@@ -57,7 +57,7 @@ func ParseTarget(s string) (Target, error) {
 	if port != "" {
 		n, err := strconv.Atoi(port)
 		if err != nil || n <= 0 || n > 65535 {
-			return t, fmt.Errorf("端口无效：%s", port)
+			return t, i18n.Errorf("端口无效：%s", port)
 		}
 		t.Port = uint16(n)
 	} else {
@@ -138,9 +138,9 @@ func WhyWith(p *compiler.Plan, t Target, loaded map[string][]ir.Cond) Report {
 	}
 	if r.SysProxy.Bypassed {
 		if p.SysProxy.Enabled {
-			r.Notes = append(r.Notes, "命中系统代理豁免：遵守系统代理的应用会直接连接（使用系统 DNS），请求不会经过 Velum；以下为经过 Velum 时的推演")
+			r.Notes = append(r.Notes, i18n.T("命中系统代理豁免：遵守系统代理的应用会直接连接（使用系统 DNS），请求不会经过 Velum；以下为经过 Velum 时的推演"))
 		} else {
-			r.Notes = append(r.Notes, "当前未接管系统代理；若接管，该目标会被豁免")
+			r.Notes = append(r.Notes, i18n.T("当前未接管系统代理；若接管，该目标会被豁免"))
 		}
 	}
 
@@ -196,11 +196,11 @@ func WhyWith(p *compiler.Plan, t Target, loaded map[string][]ir.Cond) Report {
 			if m.Domain != "" && !m.IP.IsValid() {
 				if len(t.ResolvedIPs) > 0 {
 					m.ResolvedIPs = t.ResolvedIPs
-					tr.Reason = "解析域名（使用提供的地址 " + joinAddrs(t.ResolvedIPs) + "）"
+					tr.Reason = i18n.T("解析域名（使用提供的地址 ") + joinAddrs(t.ResolvedIPs) + "）"
 				} else {
 					m.Unresolved = true
-					tr.Reason = "此处解析域名；未提供解析结果，后续 IP 条件标为未知（可用 --resolve 指定）"
-					r.Notes = append(r.Notes, "推演经过 resolve：后续 IP 规则需要解析结果才能准确判断")
+					tr.Reason = i18n.T("此处解析域名；未提供解析结果，后续 IP 条件标为未知（可用 --resolve 指定）")
+					r.Notes = append(r.Notes, i18n.T("推演经过 resolve：后续 IP 规则需要解析结果才能准确判断"))
 				}
 				tr.Matched = true
 				r.Rules = append(r.Rules, tr)
@@ -221,13 +221,13 @@ func WhyWith(p *compiler.Plan, t Target, loaded map[string][]ir.Cond) Report {
 		}
 	}
 	r.Decision = Decision{RuleIndex: -1, Action: p.IR.Final.Kind, Outbound: p.IR.Final.Outbound,
-		Source: ir.Source{Kind: ir.SourceVelum, Text: "route.final（订阅的 MATCH）"}, Uncertain: uncertain}
+		Source: ir.Source{Kind: ir.SourceVelum, Text: i18n.T("route.final（订阅的 MATCH）")}, Uncertain: uncertain}
 	return finish(r)
 }
 
 func finish(r Report) Report {
 	if r.Decision.Uncertain {
-		r.Notes = append(r.Notes, "此前有规则无法静态判定（规则集未加载或缺少解析结果），实际结果以 vlu why --live 为准")
+		r.Notes = append(r.Notes, i18n.T("此前有规则无法静态判定（规则集未加载或缺少解析结果），实际结果以 vlu why --live 为准"))
 	}
 	return r
 }

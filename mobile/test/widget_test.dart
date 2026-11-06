@@ -1,7 +1,9 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:velum/health.dart';
+import 'package:velum/i18n.dart';
 
 void main() {
+  setLanguage('zh');
   test('health', () {
     expect(health(null).tone, Tone.red);
     expect(health({'running': true, 'subscription': {'source': ''}}).title, '还没有订阅');

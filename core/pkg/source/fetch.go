@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/Foreverwzh/velum/core/pkg/i18n"
 	"io"
 	"net"
 	"net/http"
@@ -113,7 +114,7 @@ func (f *Fetcher) Get(kind, rawURL string, ttl time.Duration) ([]byte, Result, e
 		via.CloseIdleConnections()
 		if err != nil && !errors.As(err, new(statusError)) {
 			if data, hdr, err = f.fetch(f.Client, rawURL); err == nil && f.Log != nil {
-				f.Log("经 Velum 拉取 %s 失败，已直连拉取", kind)
+				f.Log(i18n.T("经 Velum 拉取 %s 失败，已直连拉取"), kind)
 			}
 		}
 	} else {
@@ -125,9 +126,9 @@ func (f *Fetcher) Get(kind, rawURL string, ttl time.Duration) ([]byte, Result, e
 			host = u.Host
 		}
 		if err != nil {
-			f.Log("拉取 %s（%s）失败，用时 %.1fs：%v", kind, host, took.Seconds(), redactErr(err, rawURL, host))
+			f.Log(i18n.T("拉取 %s（%s）失败，用时 %.1fs：%v"), kind, host, took.Seconds(), redactErr(err, rawURL, host))
 		} else {
-			f.Log("拉取 %s（%s）较慢，用时 %.1fs", kind, host, took.Seconds())
+			f.Log(i18n.T("拉取 %s（%s）较慢，用时 %.1fs"), kind, host, took.Seconds())
 		}
 	}
 	if err == nil {
@@ -270,13 +271,13 @@ func (f *Fetcher) ResolveRemoteRuleSets(cfg *ir.Config, ttl time.Duration) []ir.
 		res, err := results[i].res, results[i].err
 		if err != nil {
 			ws = append(ws, ir.Warning{Category: "ruleset", Kind: rs.Tag, Level: ir.Unsupported,
-				Reason: "下载失败且无缓存，规则集暂按空集处理（相关规则不会命中）：" + err.Error(), Subject: rs.URL, Source: rs.Source})
+				Reason: i18n.T("下载失败且无缓存，规则集暂按空集处理（相关规则不会命中）：") + err.Error(), Subject: rs.URL, Source: rs.Source})
 			rs.Kind, rs.Rules = ir.RuleSetInline, nil
 			continue
 		}
 		if res.Err != "" {
 			ws = append(ws, ir.Warning{Category: "ruleset", Kind: rs.Tag, Level: ir.Degraded,
-				Reason: "下载失败，使用 " + res.FetchedAt.Format("01-02 15:04") + " 的缓存：" + res.Err, Subject: rs.URL, Source: rs.Source})
+				Reason: i18n.T("下载失败，使用 ") + res.FetchedAt.Format("01-02 15:04") + i18n.T(" 的缓存：") + res.Err, Subject: rs.URL, Source: rs.Source})
 		}
 		rs.Kind, rs.Path = ir.RuleSetFile, f.CachePath("rulesets", rs.URL)
 		if rs.Format == "" {

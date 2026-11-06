@@ -3,6 +3,7 @@ package daemon_test
 import (
 	"context"
 	"encoding/json"
+	"github.com/Foreverwzh/velum/core/pkg/i18n"
 	"io"
 	"log"
 	"net/http"
@@ -85,7 +86,7 @@ func setupEngine(t *testing.T, eng *fakeEngine) (config.Paths, *fakeEngine, *rpc
 	if err := config.Ensure(paths); err != nil {
 		t.Fatal(err)
 	}
-	cfg := strings.Replace(config.Template, `  file: ""`, `  file: '`+filepath.Join(td, "coverage/config.yaml")+`'`, 1)
+	cfg := strings.Replace(config.Template(), `  file: ""`, `  file: '`+filepath.Join(td, "coverage/config.yaml")+`'`, 1)
 	cfg = strings.Replace(cfg, "listen: 127.0.0.1:7899", "listen: 127.0.0.1:17999", 1)
 	cfg = strings.Replace(cfg, "prefer_local_providers: false", "prefer_local_providers: true", 1)           // 测试不出网
 	cfg = strings.Replace(cfg, subscription.DefaultGeoRuleSetURL, "http://127.0.0.1:9/{kind}-{code}.srs", 1) // 规则集下载立即失败，走降级
@@ -379,7 +380,7 @@ func TestDaemonTUNMode(t *testing.T) {
 	defer os.RemoveAll(home)
 	paths := testPaths(home)
 	_ = config.Ensure(paths)
-	cfg := strings.Replace(config.Template, "route_include: []", "route_include: [223.6.6.6/32]", 1)
+	cfg := strings.Replace(config.Template(), "route_include: []", "route_include: [223.6.6.6/32]", 1)
 	_ = os.WriteFile(paths.Config, []byte(cfg), 0o600)
 	eng := &fakeEngine{}
 	d := daemon.New(paths, eng, log.New(io.Discard, "", 0))
@@ -412,7 +413,7 @@ func TestDaemonTUNMode(t *testing.T) {
 		t.Fatal("渲染结果缺少 tun 入站")
 	}
 	// 只改路由：内核配置（JSON）不变，但路由由平台层设置，仍需重启引擎重新打开 TUN
-	cfg = strings.Replace(config.Template, "route_include: []", "route_include: [223.5.5.5/32]", 1)
+	cfg = strings.Replace(config.Template(), "route_include: []", "route_include: [223.5.5.5/32]", 1)
 	_ = os.WriteFile(paths.Config, []byte(cfg), 0o600)
 	if _, err := c.Reload(); err != nil {
 		t.Fatal(err)
@@ -454,7 +455,7 @@ func TestDaemonNetworkSense(t *testing.T) {
 	defer os.RemoveAll(home)
 	paths := testPaths(home)
 	_ = config.Ensure(paths)
-	cfg := strings.Replace(config.Template, "tun:\n  enabled: false", "tun:\n  enabled: true", 1)
+	cfg := strings.Replace(config.Template(), "tun:\n  enabled: false", "tun:\n  enabled: true", 1)
 	cfg = strings.Replace(cfg, "route_include: []", "route_include: [198.51.100.0/24]", 1)
 	cfg = strings.Replace(cfg, "interval: 5s", "interval: 30ms", 1)
 	_ = os.WriteFile(paths.Config, []byte(cfg), 0o600)
@@ -623,7 +624,7 @@ func TestDaemonTUNSystemDNS(t *testing.T) {
 	defer os.RemoveAll(home)
 	paths := testPaths(home)
 	_ = config.Ensure(paths)
-	cfg := strings.Replace(config.Template, "tun:\n  enabled: false", "tun:\n  enabled: true", 1)
+	cfg := strings.Replace(config.Template(), "tun:\n  enabled: false", "tun:\n  enabled: true", 1)
 	cfg = strings.Replace(cfg, "route_include: []", "route_include: [198.51.100.0/24]", 1)
 	_ = os.WriteFile(paths.Config, []byte(cfg), 0o600)
 	eng := &fakeEngine{}
@@ -682,7 +683,7 @@ func TestDaemonWhyLoadsRuleSetsAndResolves(t *testing.T) {
 	_ = config.Ensure(paths)
 	subFile := filepath.Join(home, "sub.yaml")
 	_ = os.WriteFile(subFile, []byte("proxies:\n  - {name: Proxy, type: socks5, server: 192.0.2.1, port: 1080}\nrules:\n  - GEOIP,CN,DIRECT\n  - MATCH,Proxy\n"), 0o600)
-	cfg := strings.Replace(config.Template, `  file: ""`, `  file: '`+subFile+`'`, 1)
+	cfg := strings.Replace(config.Template(), `  file: ""`, `  file: '`+subFile+`'`, 1)
 	cfg = strings.Replace(cfg, subscription.DefaultGeoRuleSetURL, srv.URL+"/{kind}-{code}.srs", 1)
 	_ = os.WriteFile(paths.Config, []byte(cfg), 0o600)
 
@@ -800,7 +801,7 @@ func TestSwitchesIndependent(t *testing.T) {
 	defer os.RemoveAll(home)
 	paths := testPaths(home)
 	_ = config.Ensure(paths)
-	cfg := strings.Replace(config.Template, "route_include: []", "route_include: [198.51.100.0/24]", 1)
+	cfg := strings.Replace(config.Template(), "route_include: []", "route_include: [198.51.100.0/24]", 1)
 	cfg = strings.Replace(cfg, "interval: 5s", "interval: 30ms", 1)
 	_ = os.WriteFile(paths.Config, []byte("mode: sysproxy\n"+cfg), 0o600) // 旧写法
 	var mu sync.Mutex
@@ -983,7 +984,7 @@ rules:
   - IP-CIDR,1.1.1.1/32,Proxy,no-resolve
   - MATCH,DIRECT
 `), 0o600)
-	cfg := strings.Replace(config.Template, `  file: ""`, `  file: '`+sub+`'`, 1)
+	cfg := strings.Replace(config.Template(), `  file: ""`, `  file: '`+sub+`'`, 1)
 	cfg = strings.Replace(cfg, "listen: 127.0.0.1:7899", "listen: 127.0.0.1:17998", 1)
 	_ = os.WriteFile(paths.Config, []byte(cfg), 0o600)
 	eng := &fakeEngine{}
@@ -1184,4 +1185,16 @@ func TestUpdateDoesNotBlockReload(t *testing.T) {
 		t.Fatalf("重新加载被后台更新挡住了 %v", took)
 	}
 	close(gate)
+}
+
+// 界面设置语言后，核心返回的错误跟随语言；重复设置不应触发重新加载。
+func TestSetLanguage(t *testing.T) {
+	defer i18n.SetLocale(i18n.Zh)
+	if got := i18n.Normalize("en-US"); got != i18n.En {
+		t.Fatal(got)
+	}
+	i18n.SetLocale(i18n.En)
+	if got := i18n.New("引擎未运行").Error(); got != "The engine is not running" {
+		t.Fatalf("got %q", got)
+	}
 }

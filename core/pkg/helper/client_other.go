@@ -2,10 +2,12 @@
 
 package helper
 
-import "errors"
+import (
+	"github.com/Foreverwzh/velum/core/pkg/i18n"
+)
 
 // Windows 上没有 velum-helper：velumd 以服务运行，sing-box 自行创建 wintun 并配置路由。
-var errUnsupported = errors.New("velum-helper 仅用于 macOS")
+var errUnsupported = i18n.Static("velum-helper 仅用于 macOS")
 
 type Client struct{}
 

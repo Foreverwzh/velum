@@ -255,6 +255,13 @@ func (e *Engine) Stop() error {
 	return e.closeLocked()
 }
 
+// Pause 关闭内核，之后还能 Restart（iOS：隧道开启时内核转到扩展里运行，App 内的内核暂停）。
+func (e *Engine) Pause() error {
+	e.lmu.Lock()
+	defer e.lmu.Unlock()
+	return e.closeLocked()
+}
+
 func (e *Engine) Running() bool {
 	e.lmu.Lock()
 	defer e.lmu.Unlock()

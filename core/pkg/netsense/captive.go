@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/Foreverwzh/velum/core/pkg/i18n"
 	"io"
 	"net"
 	"net/http"
@@ -86,7 +87,7 @@ func (p PhysicalPath) dialContext() func(ctx context.Context, network, addr stri
 			return nil, err
 		}
 		if len(ips) == 0 {
-			return nil, fmt.Errorf("解析 %s 无结果", host)
+			return nil, i18n.Errorf("解析 %s 无结果", host)
 		}
 		// 依次尝试各个地址（IPv4 优先）：只试第一个时，它不通（如所在网络的 IPv6 不可用）就会误判为离线
 		sort.SliceStable(ips, func(i, j int) bool { return ips[i].IP.To4() != nil && ips[j].IP.To4() == nil })
@@ -141,9 +142,9 @@ func CheckCaptive(ctx context.Context, probes []Probe, path PhysicalPath) (Capti
 		return Captive, captive
 	}
 	if len(errs) == 0 {
-		return Offline, "全部探测失败"
+		return Offline, i18n.T("全部探测失败")
 	}
-	return Offline, "全部探测失败：" + strings.Join(errs, "；")
+	return Offline, i18n.T("全部探测失败：") + strings.Join(errs, "；")
 }
 
 // probeErr 把探测错误写成简短的一句（去掉 url.Error 中重复的方法与地址）。

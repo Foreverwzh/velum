@@ -53,6 +53,7 @@ object Core : Host {
         if (running || !starting.compareAndSet(false, true)) return
         thread(name = "velum-core") {
             try {
+                Mobilebind.setLocale(java.util.Locale.getDefault().toLanguageTag())
                 Mobilebind.start(home, this)
                 running = true
                 startError = null

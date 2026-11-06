@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"github.com/Foreverwzh/velum/core/pkg/i18n"
 	"os"
 	"strings"
 
@@ -68,7 +69,7 @@ func SaveProfiles(path string, ps []Profile) error {
 	if err != nil {
 		return err
 	}
-	return userfs.WriteFileAtomic(path, append([]byte(profilesHeader), data...), 0o600)
+	return userfs.WriteFileAtomic(path, append([]byte(i18n.T(profilesHeader)), data...), 0o600)
 }
 
 // FindProfile 返回 id 对应的下标，没有时为 -1。

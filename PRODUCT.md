@@ -36,7 +36,7 @@ Velum is the explainable client. Every connection carries the rule that matched 
 - Local overlay: YAML editor (dev direct, hosts override, system-proxy bypass); saved with validation and automatic rollback.
 - Warnings: grouped by category, levels "degraded" and "unsupported", each with source location.
 - System components: TUN component install/update/uninstall, `vlu` CLI install, login item.
-- Copy is Chinese (zh-CN). No outbound "mode" (rule/global/direct) switch exists in the core.
+- Copy is Chinese (zh-CN) as the source language, with English on every client; the source strings are the lookup keys. No outbound "mode" (rule/global/direct) switch exists in the core.
 
 ## Brand Commitments
 

@@ -4,6 +4,7 @@ import { api, errText, type Connection, type OverlayEntry, type OverlayItems, ty
 import type { Refresh } from "../App";
 import { Button, Empty, IconButton, Notice, PageHeader, Panel, Section, Tag, cx, type Tone } from "../components/ui";
 import { RuleDialog, parseDomain } from "../components/RuleDialog";
+import { t } from "../i18n";
 
 type Mode = "list" | "text";
 
@@ -22,19 +23,19 @@ export default function Overlay({ status, refresh }: { status: Status; refresh: 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <PageHeader
-        title="本地覆盖"
-        description={<>优先于订阅，更新订阅不会覆盖。<span className="selectable ml-1 font-mono">{items?.path}</span></>}
+        title={t("本地覆盖")}
+        description={<>{t("优先于订阅，更新订阅不会覆盖。")}<span className="selectable ml-1 font-mono">{items?.path}</span></>}
         actions={
           <>
             <div className="inline-flex rounded-md border border-line p-0.5">
-              {([["list", List, "列表"], ["text", FileCode2, "文本"]] as const).map(([id, Icon, label]) => (
+              {([["list", List, t("列表")], ["text", FileCode2, t("文本")]] as const).map(([id, Icon, label]) => (
                 <button key={id} onClick={() => setMode(id)}
                   className={cx("inline-flex h-6 items-center gap-1.5 rounded px-2 text-[12px] transition-colors", mode === id ? "bg-active font-medium text-fg" : "text-fg-2 hover:text-fg")}>
                   <Icon className="size-3.5" strokeWidth={1.8} />{label}
                 </button>
               ))}
             </div>
-            {mode === "list" && <Button variant="primary" icon={Plus} onClick={() => setAdding(true)}>添加规则</Button>}
+            {mode === "list" && <Button variant="primary" icon={Plus} onClick={() => setAdding(true)}>{t("添加规则")}</Button>}
           </>
         }
       />
@@ -85,11 +86,11 @@ function RuleList({ items, status, refresh, reload, onAdd }: { items: OverlayIte
   return (
     <>
       {err && <Notice tone="err">{err}</Notice>}
-      <Section title={<>我的规则 <span className="font-normal text-fg-3 tnum">{items.entries.length}</span></>}>
+      <Section title={<>{t("我的规则")}{" "}<span className="font-normal text-fg-3 tnum">{items.entries.length}</span></>}>
         {!items.entries.length ? (
           <Panel>
-            <Empty icon={List} title="还没有本地规则" hint="在「连接」或「诊断」里遇到走错的地址时，点「加入本地规则」即可；也可以在这里直接添加公司域名、内网网段"
-              action={<Button icon={Plus} onClick={onAdd}>添加规则</Button>} />
+            <Empty icon={List} title={t("还没有本地规则")} hint={t("在「连接」或「诊断」里遇到走错的地址时，点「加入本地规则」即可；也可以在这里直接添加公司域名、内网网段")}
+              action={<Button icon={Plus} onClick={onAdd}>{t("添加规则")}</Button>} />
           </Panel>
         ) : (
           <Panel>
@@ -101,27 +102,27 @@ function RuleList({ items, status, refresh, reload, onAdd }: { items: OverlayIte
         )}
       </Section>
 
-      <Section title="自动识别" actions={<span className="text-[11.5px] text-fg-3">无需配置，随网络变化自动更新</span>}>
+      <Section title={t("自动识别")} actions={<span className="text-[11.5px] text-fg-3">{t("无需配置，随网络变化自动更新")}</span>}>
         <Panel>
           {vpns.map((v) => (
-            <AutoRow key={v.iface} icon={Network} title={<>企业 VPN <span className="font-mono">{v.iface}</span></>}
+            <AutoRow key={v.iface} icon={Network} title={<>{t("企业 VPN")}{" "}<span className="font-mono">{v.iface}</span></>}
               detail={[...(v.routes ?? []), ...(v.domains ?? [])].join("、") || "—"}
-              action={<Tag tone="accent">经 {v.iface} 直连</Tag>} hits={hits.get(`vpn:${v.iface}`) ?? 0} />
+              action={<Tag tone="accent">{t("经")}{" "}{v.iface}{" "}{t("直连")}</Tag>} hits={hits.get(`vpn:${v.iface}`) ?? 0} />
           ))}
           {!!split.length && (
-            <AutoRow icon={Globe2} title="系统 DNS 分流" detail={split.join("、")} action={<Tag>DNS 交给系统</Tag>} />
+            <AutoRow icon={Globe2} title={t("系统 DNS 分流")} detail={split.join("、")} action={<Tag>{t("DNS 交给系统")}</Tag>} />
           )}
           {items.system_hosts_off ? (
-            <AutoRow icon={MapPin} title="系统 hosts 文件" detail="订阅设置了 use-system-hosts: false，不读取" action={<Tag>未启用</Tag>} />
+            <AutoRow icon={MapPin} title={t("系统 hosts 文件")} detail={t("订阅设置了 use-system-hosts: false，不读取")} action={<Tag>{t("未启用")}</Tag>} />
           ) : items.system_hosts.map((h) => (
-            <AutoRow key={h.name} icon={MapPin} title={<span className="font-mono">{h.name}</span>} detail="系统 hosts 文件"
+            <AutoRow key={h.name} icon={MapPin} title={<span className="font-mono">{h.name}</span>} detail={t("系统 hosts 文件")}
               action={<Tag>→ {h.addrs.join(", ")}</Tag>} />
           ))}
           {items.system_hosts_total > items.system_hosts.length && (
-            <div className="px-3.5 py-2 text-[11.5px] text-fg-3">另有 {items.system_hosts_total - items.system_hosts.length} 条 hosts 条目未列出</div>
+            <div className="px-3.5 py-2 text-[11.5px] text-fg-3">{t("另有")}{" "}{items.system_hosts_total - items.system_hosts.length}{" "}{t("条 hosts 条目未列出")}</div>
           )}
           {!vpns.length && !split.length && !items.system_hosts.length && !items.system_hosts_off && (
-            <div className="px-3.5 py-5 text-center text-[12.5px] text-fg-3">当前没有识别到企业 VPN、DNS 分流或 hosts 条目</div>
+            <div className="px-3.5 py-5 text-center text-[12.5px] text-fg-3">{t("当前没有识别到企业 VPN、DNS 分流或 hosts 条目")}</div>
           )}
         </Panel>
       </Section>
@@ -141,13 +142,13 @@ function countHits(cs: Connection[]) {
 }
 
 const kindMeta: Record<OverlayEntry["kind"], { icon: typeof Globe2; action: string; tone: Tone }> = {
-  domain: { icon: Globe2, action: "直连", tone: "accent" },
-  cidr: { icon: Network, action: "直连", tone: "accent" },
+  domain: { icon: Globe2, action: t("直连"), tone: "accent" },
+  cidr: { icon: Network, action: t("直连"), tone: "accent" },
   host: { icon: MapPin, action: "", tone: "info" },
-  process: { icon: Cpu, action: "直连", tone: "accent" },
-  bypass: { icon: ArrowRightLeft, action: "不经系统代理", tone: "neutral" },
+  process: { icon: Cpu, action: t("直连"), tone: "accent" },
+  bypass: { icon: ArrowRightLeft, action: t("不经系统代理"), tone: "neutral" },
 };
-const scopeText = { suffix: "含子域", exact: "仅此域名", sub: "仅子域" };
+const scopeText = { suffix: t("含子域"), exact: t("仅此域名"), sub: t("仅子域") };
 
 function EntryRow({ entry: e, hits, warnings, busy, onRemove }: { entry: OverlayEntry; hits?: number; warnings: Warning[]; busy: boolean; onRemove: () => void }) {
   const [confirm, setConfirm] = useState(false);
@@ -165,17 +166,17 @@ function EntryRow({ entry: e, hits, warnings, busy, onRemove }: { entry: Overlay
         <div className="min-w-0 flex-1">
           <span className="selectable font-mono text-[12.5px]">{d ? d.name : e.value}</span>
           {d && <span className="ml-2 text-[11.5px] text-fg-3">{scopeText[d.scope]}</span>}
-          {e.kind === "process" && <span className="ml-2 text-[11.5px] text-fg-3">进程</span>}
+          {e.kind === "process" && <span className="ml-2 text-[11.5px] text-fg-3">{t("进程")}</span>}
         </div>
         <Tag tone={meta.tone}>{e.kind === "host" ? `→ ${e.ip}` : meta.action}</Tag>
-        <span className="w-[72px] text-right font-mono text-[11.5px] text-fg-3 tnum" title={hits === undefined ? "豁免的请求不经过 Velum，无法统计" : "最近 500 条连接中命中的次数"}>
-          {hits === undefined ? "—" : hits ? `${hits} 次` : "未命中"}
+        <span className="min-min-w-[72px] whitespace-nowrap whitespace-nowrap text-right font-mono text-[11.5px] text-fg-3 tnum" title={hits === undefined ? t("豁免的请求不经过 Velum，无法统计") : t("最近 500 条连接中命中的次数")}>
+          {hits === undefined ? "—" : hits ? t("{0} 次", hits) : t("未命中")}
         </span>
         <span className="w-[52px] text-right font-mono text-[11px] text-fg-3 tnum">{e.line ? `L${e.line}` : ""}</span>
         {confirm ? (
-          <Button size="sm" variant="danger" loading={busy} onClick={onRemove}>确认删除</Button>
+          <Button size="sm" variant="danger" loading={busy} onClick={onRemove}>{t("确认删除")}</Button>
         ) : (
-          <IconButton icon={Trash2} label="删除" onClick={() => setConfirm(true)} className="opacity-60 group-hover:opacity-100" />
+          <IconButton icon={Trash2} label={t("删除")} onClick={() => setConfirm(true)} className="opacity-60 group-hover:opacity-100" />
         )}
       </div>
       {warnings.map((w) => (
@@ -196,7 +197,7 @@ function AutoRow({ icon: Icon, title, detail, action, hits }: { icon: typeof Glo
         <div className="selectable truncate font-mono text-[11.5px] text-fg-3" title={detail}>{detail}</div>
       </div>
       {action}
-      <span className="w-[72px] text-right font-mono text-[11.5px] text-fg-3 tnum">{hits === undefined ? "" : hits ? `${hits} 次` : "未命中"}</span>
+      <span className="min-w-[72px] whitespace-nowrap text-right font-mono text-[11.5px] text-fg-3 tnum">{hits === undefined ? "" : hits ? t("{0} 次", hits) : t("未命中")}</span>
       <span className="w-[52px]" />
       <span className="w-7" />
     </div>
@@ -220,7 +221,7 @@ function TextEditor({ refresh }: { refresh: Refresh }) {
     setBusy(true);
     try {
       await api.saveOverlay(text);
-      setMsg({ ok: true, text: "已保存并生效" });
+      setMsg({ ok: true, text: t("已保存并生效") });
       setDoc((d) => d && { ...d, content: text });
       await refresh();
     } catch (e) {
@@ -234,11 +235,11 @@ function TextEditor({ refresh }: { refresh: Refresh }) {
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex items-center gap-2 border-b border-line px-6 py-2">
         <span className={cx("flex-1 text-[12px]", msg ? (msg.ok ? "text-accent" : "text-err") : "text-fg-3")}>
-          {msg?.text ?? `${lines} 行 · 保存前会先校验，生效失败自动改回`}
+          {msg?.text ?? t("{0} 行 · 保存前会先校验，生效失败自动改回", lines)}
         </span>
-        {dirty && <Tag tone="warn">未保存</Tag>}
-        <Button size="sm" variant="ghost" disabled={!dirty || busy} onClick={() => doc && setText(doc.content)}>撤销修改</Button>
-        <Button size="sm" variant="primary" loading={busy} disabled={!dirty} onClick={save}>保存并应用</Button>
+        {dirty && <Tag tone="warn">{t("未保存")}</Tag>}
+        <Button size="sm" variant="ghost" disabled={!dirty || busy} onClick={() => doc && setText(doc.content)}>{t("撤销修改")}</Button>
+        <Button size="sm" variant="primary" loading={busy} disabled={!dirty} onClick={save}>{t("保存并应用")}</Button>
       </div>
       <textarea
         value={text}

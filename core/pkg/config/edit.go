@@ -3,6 +3,7 @@ package config
 import (
 	"bytes"
 	"fmt"
+	"github.com/Foreverwzh/velum/core/pkg/i18n"
 	"slices"
 	"strings"
 
@@ -44,14 +45,14 @@ func setFields(data []byte, section string, fields map[string]value, order []str
 	var doc yaml.Node
 	if len(bytes.TrimSpace(data)) > 0 {
 		if err := yaml.Unmarshal(data, &doc); err != nil {
-			return nil, fmt.Errorf("解析 config.yaml：%w", err)
+			return nil, i18n.Errorf("解析 config.yaml：%w", err)
 		}
 	}
 	var root *yaml.Node
 	if doc.Kind == yaml.DocumentNode && len(doc.Content) > 0 {
 		root = doc.Content[0]
 		if root.Kind != yaml.MappingNode {
-			return nil, fmt.Errorf("config.yaml 顶层不是映射")
+			return nil, i18n.Errorf("config.yaml 顶层不是映射")
 		}
 	}
 	lines := strings.Split(string(data), "\n")
@@ -73,7 +74,7 @@ func setFields(data []byte, section string, fields map[string]value, order []str
 		return []byte(strings.Join(lines, "\n") + "\n"), nil
 	}
 	if sec.Kind != yaml.MappingNode && !(sec.Kind == yaml.ScalarNode && sec.Tag == "!!null") {
-		return nil, fmt.Errorf("config.yaml 中 %s 不是映射", section)
+		return nil, i18n.Errorf("config.yaml 中 %s 不是映射", section)
 	}
 
 	indent := secKey.Column - 1 + 2
@@ -98,13 +99,13 @@ func setFields(data []byte, section string, fields map[string]value, order []str
 		case v.list && vn.Kind == yaml.SequenceNode && flatScalars(vn):
 			if vn.Style&yaml.FlowStyle != 0 {
 				if n := len(vn.Content); n > 0 && vn.Content[n-1].Line != kn.Line {
-					return nil, fmt.Errorf("config.yaml 中 %s.%s 跨多行书写，请手动编辑", section, k)
+					return nil, i18n.Errorf("config.yaml 中 %s.%s 跨多行书写，请手动编辑", section, k)
 				}
 			} else if n := len(vn.Content); n > 0 {
 				last = vn.Content[n-1].Line
 			}
 		default:
-			return nil, fmt.Errorf("config.yaml 中 %s.%s 的写法无法自动修改，请手动编辑", section, k)
+			return nil, i18n.Errorf("config.yaml 中 %s.%s 的写法无法自动修改，请手动编辑", section, k)
 		}
 		indent = kn.Column - 1
 		line := strings.Repeat(" ", kn.Column-1) + k + ": " + v.text
@@ -121,7 +122,7 @@ func setFields(data []byte, section string, fields map[string]value, order []str
 		at := secKey.Line // 节标题的下一行
 		if sec.Kind != yaml.MappingNode || sec.Style&yaml.FlowStyle != 0 {
 			if len(sec.Content) > 0 {
-				return nil, fmt.Errorf("config.yaml 中 %s 使用了单行写法，请手动编辑", section)
+				return nil, i18n.Errorf("config.yaml 中 %s 使用了单行写法，请手动编辑", section)
 			}
 			// `section:` / `section: {}` / `section: null`：改写标题行（保留行尾注释）
 			head := strings.Repeat(" ", secKey.Column-1) + section + ":"

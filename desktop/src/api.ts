@@ -1,3 +1,4 @@
+import { t } from "./i18n";
 // velumd 本地接口的类型与客户端。与 core/pkg/rpc 保持一致。
 // Tauri 中经 Rust 命令访问 Unix socket；浏览器开发模式下经 Vite 代理（/api）。
 
@@ -92,6 +93,8 @@ export const api = {
   status: () => call<Status>("GET", "/v1/status"),
   helper: () => call<HelperStatus>("GET", "/v1/helper"),
   reload: () => call<Status>("POST", "/v1/reload"),
+  /** 核心返回的错误、告警跟随界面语言。 */
+  setLanguage: (language: string) => call<Status>("PUT", "/v1/language", { language }),
   update: () => call<Status>("POST", "/v1/update"),
   /** 运行时切换开关（不写入 config.yaml）：on / off / config（回到配置文件的设置）。两个开关相互独立。 */
   setSwitch: (which: "system_proxy" | "tun", value: "on" | "off" | "config") => call<Status>("POST", "/v1/switches", { [which]: value }),
@@ -166,7 +169,7 @@ export function human(n: number): string {
 }
 
 async function nativeCall<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
-  if (!inTauri) throw new Error("浏览器预览中不可用，请在 Velum App 中操作（或在终端执行 sudo velum-helper）");
+  if (!inTauri) throw new Error(t("浏览器预览中不可用，请在 Velum App 中操作（或在终端执行 sudo velum-helper）"));
   const { invoke } = await import("@tauri-apps/api/core");
   return invoke<T>(cmd, args);
 }
@@ -178,6 +181,8 @@ export interface NetextStatus { bundled: boolean; enabled: boolean }
 /** 只在 App 中可用的系统操作（由 Rust 壳实现）。 */
 export const native = {
   available: inTauri,
+  /** 托盘和系统提示跟随界面语言。 */
+  setLanguage: (language: string) => nativeCall<void>("set_language", { language }),
   /** 安装 / 更新 TUN 组件（会请求管理员权限）。 */
   helperInstall: () => nativeCall<void>("helper_install"),
   helperUninstall: () => nativeCall<void>("helper_uninstall"),
@@ -229,22 +234,22 @@ export async function componentStatus(): Promise<HelperStatus> {
 /** TUN 组件的说明文案（按平台）。 */
 export const componentText = isWindows
   ? {
-      name: "Velum 服务",
-      brief: "Velum 服务：以系统权限运行 Velum 核心，负责虚拟网卡与路由；只接受当前用户的请求",
-      detail: "Velum 服务以系统权限运行 Velum 核心，负责创建虚拟网卡和设置路由，并且只接受你这个用户的请求。安装时 Windows 会请求一次管理员授权。",
+      name: t("Velum 服务"),
+      brief: t("Velum 服务：以系统权限运行 Velum 核心，负责虚拟网卡与路由；只接受当前用户的请求"),
+      detail: t("Velum 服务以系统权限运行 Velum 核心，负责创建虚拟网卡和设置路由，并且只接受你这个用户的请求。安装时 Windows 会请求一次管理员授权。"),
       log: "%ProgramData%\\Velum\\logs\\velumd.log",
     }
   : {
       name: "velum-helper",
-      brief: "velum-helper：以管理员身份运行，负责虚拟网卡、路由与 DNS；只接受当前用户的请求",
-      detail: "velum-helper 以管理员身份在后台运行，只负责创建虚拟网卡、设置路由和 DNS，并且只接受你这个用户的请求。安装时 macOS 会要求输入一次管理员密码。",
+      brief: t("velum-helper：以管理员身份运行，负责虚拟网卡、路由与 DNS；只接受当前用户的请求"),
+      detail: t("velum-helper 以管理员身份在后台运行，只负责创建虚拟网卡、设置路由和 DNS，并且只接受你这个用户的请求。安装时 macOS 会要求输入一次管理员密码。"),
       log: "/Library/Logs/velum-helper.log",
     };
 
 export const errText = (e: unknown) => {
-  const t = typeof e === "string" ? e : String((e as Error)?.message ?? e);
+  const msg = typeof e === "string" ? e : String((e as Error)?.message ?? e);
   // 旧版本的后台服务没有新功能的接口（如 Windows 服务没有随 App 更新）
-  return t === "HTTP 404" ? "后台服务版本过旧，不支持这个功能：请先更新后台服务（概览页的提示，或设置 → 系统组件）" : t;
+  return msg === "HTTP 404" ? t("后台服务版本过旧，不支持这个功能：请先更新后台服务（概览页的提示，或设置 → 系统组件）") : msg;
 };
 
 /** App 自身的版本（Tauri 中可用）；用于发现仍在运行的旧版本后台服务。 */

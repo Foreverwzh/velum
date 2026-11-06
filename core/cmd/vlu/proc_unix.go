@@ -3,7 +3,7 @@
 package main
 
 import (
-	"fmt"
+	"github.com/Foreverwzh/velum/core/pkg/i18n"
 	"os"
 	"os/exec"
 	"runtime"
@@ -31,7 +31,7 @@ func startService(string) (bool, error) {
 		return false, nil
 	}
 	if out, err := exec.Command("systemctl", "start", "velum").CombinedOutput(); err != nil {
-		return true, fmt.Errorf("启动 velum 服务失败（可能需要 sudo systemctl start velum）：%v\n%s", err, strings.TrimSpace(string(out)))
+		return true, i18n.Errorf("启动 velum 服务失败（可能需要 sudo systemctl start velum）：%v\n%s", err, strings.TrimSpace(string(out)))
 	}
 	return true, nil
 }

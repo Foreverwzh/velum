@@ -1,6 +1,9 @@
 //! Velum 桌面壳：界面 + 托盘 + velumd 进程管理。业务逻辑全部在 velumd（Go 核心）中。
 
+use crate::i18n::{t, tf};
 #[cfg(target_os = "macos")]
+mod i18n;
+mod i18n_en;
 mod menu_tabs;
 #[cfg(target_os = "macos")]
 mod netext;
@@ -17,6 +20,13 @@ use tauri::image::Image;
 use tauri::{tray::TrayIconBuilder, AppHandle, Emitter, Manager, WindowEvent};
 
 /// 前端统一入口：转发到 velumd 本地接口。
+#[tauri::command]
+fn set_language(app: AppHandle, language: String) {
+    if i18n::set(&language) {
+        tray::rebuild(&app);
+    }
+}
+
 #[tauri::command]
 async fn velum_call(method: String, path: String, body: Option<String>) -> Result<serde_json::Value, String> {
     tauri::async_runtime::spawn_blocking(move || velum::call(&method, &path, body.as_deref()))
@@ -74,7 +84,7 @@ async fn netext_set(on: bool) -> Result<(), String> {
     #[cfg(not(target_os = "macos"))]
     {
         let _ = on;
-        Err("只有 macOS 支持网络扩展".into())
+        Err(t("只有 macOS 支持网络扩展").into())
     }
 }
 
@@ -117,7 +127,7 @@ fn autostart_set(on: bool) -> Result<(), String> {
 #[tauri::command]
 fn open_release(url: String) -> Result<(), String> {
     if !url.starts_with("https://github.com/Foreverwzh/velum/") {
-        return Err(format!("不是 Velum 的发布链接：{url}"));
+        return Err(tf("不是 Velum 的发布链接：{0}", &[&url]));
     }
     #[cfg(target_os = "macos")]
     let cmd = std::process::Command::new("/usr/bin/open").arg(&url).status();
@@ -144,24 +154,24 @@ fn update_progress() -> Option<update::Progress> {
 pub(crate) fn summary(s: &serde_json::Value) -> String {
     let on = |k: &str| s[k].as_bool().unwrap_or(false);
     if on("starting") {
-        return "正在启动…".into();
+        return t("正在启动…").into();
     }
     if let Some(e) = s["last_error"].as_str() {
-        return format!("配置有问题：{e}");
+        return tf("配置有问题：{0}", &[&e]);
     }
     let mut parts = vec![];
     if on("system_proxy_on") {
-        parts.push("系统代理");
+        parts.push(t("系统代理"));
     }
     if on("tun_on") {
         parts.push("TUN");
     }
     let paused = s["network"]["paused"].as_str().filter(|_| (on("want_system_proxy") && !on("system_proxy_on")) || (on("want_tun") && !on("tun_on")));
     match (parts.is_empty(), paused) {
-        (_, Some(p)) if parts.is_empty() => format!("已暂停：{p}"),
-        (false, Some(_)) => format!("正在保护（{}，部分已暂停）", parts.join(" + ")),
-        (false, None) => format!("正在保护（{}）", parts.join(" + ")),
-        (true, None) => "仅本地端口".into(),
+        (_, Some(p)) if parts.is_empty() => tf("已暂停：{0}", &[&p]),
+        (false, Some(_)) => tf("正在保护（{0}，部分已暂停）", &[&parts.join(" + ")]),
+        (false, None) => tf("正在保护（{0}）", &[&parts.join(" + ")]),
+        (true, None) => t("仅本地端口").into(),
         _ => unreachable!(),
     }
 }
@@ -199,9 +209,10 @@ pub fn run() {
             netext::tunnel_cli(start);
         }
     }
+    i18n::init();
     tauri::Builder::default()
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .invoke_handler(tauri::generate_handler![velum_call, helper_install, helper_uninstall, helper_status, cli_status, cli_install, cli_uninstall, netext_status, netext_set, notice_take, autostart_get, autostart_set, open_release, install_update, update_progress])
+        .invoke_handler(tauri::generate_handler![set_language, velum_call, helper_install, helper_uninstall, helper_status, cli_status, cli_install, cli_uninstall, netext_status, netext_set, notice_take, autostart_get, autostart_set, open_release, install_update, update_progress])
         .setup(|app| {
             let handle = app.handle().clone();
             // 开机启动（--hidden）时只在托盘运行，不弹出窗口
@@ -218,7 +229,7 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             let icon = Image::from_bytes(include_bytes!("../tray-template.png"))?;
             #[cfg(not(target_os = "macos"))]
-            let icon = app.default_window_icon().cloned().ok_or("缺少应用图标")?;
+            let icon = app.default_window_icon().cloned().ok_or(t("缺少应用图标"))?;
             TrayIconBuilder::with_id("main")
                 .icon(icon)
                 .icon_as_template(true)
@@ -273,7 +284,7 @@ pub fn run() {
                                 Err(_) if !ever_connected && opened.elapsed() < Duration::from_secs(20) => {}
                                 Err(_) => {
                                     connected = false;
-                                    tray::refresh(&app, None, "未运行");
+                                    tray::refresh(&app, None, t("未运行"));
                                     #[cfg(target_os = "macos")]
                                     {
                                         let now = std::time::Instant::now();
@@ -286,7 +297,7 @@ pub fn run() {
                                                 Ok(false) => {}
                                                 Err(e) => {
                                                     eprintln!("[netext] 重连失败（{}s 后重试）：{e}", backoff.as_secs() / 2);
-                                                    tray::refresh(&app, None, &format!("网络扩展重连失败：{e}"));
+                                                    tray::refresh(&app, None, &tf("网络扩展重连失败：{0}", &[&e]));
                                                 }
                                             }
                                         }

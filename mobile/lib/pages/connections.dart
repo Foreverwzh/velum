@@ -1,5 +1,6 @@
 // 连接（专业模式）：最近的连接，可按域名 / 应用过滤，点开查看命中规则、出站链与来源。
 
+import '../i18n.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -58,14 +59,14 @@ class _ConnectionsPageState extends State<ConnectionsPage> {
       Padding(
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
         child: TextField(
-          decoration: const InputDecoration(prefixIcon: Icon(Icons.search), hintText: '按域名、应用、出站过滤', isDense: true, border: OutlineInputBorder()),
+          decoration: InputDecoration(prefixIcon: Icon(Icons.search), hintText: t('按域名、应用、出站过滤'), isDense: true, border: OutlineInputBorder()),
           onChanged: (v) => setState(() => _filter = v.trim()),
         ),
       ),
       if (_err != null) Padding(padding: const EdgeInsets.all(16), child: Text(_err!)),
       Expanded(
         child: list.isEmpty
-            ? Center(child: Text(_conns.isEmpty ? '还没有连接记录' : '没有匹配的连接', style: TextStyle(color: Theme.of(context).colorScheme.outline)))
+            ? Center(child: Text(_conns.isEmpty ? t('还没有连接记录') : t('没有匹配的连接'), style: TextStyle(color: Theme.of(context).colorScheme.outline)))
             : ListView.separated(
                 itemCount: list.length,
                 separatorBuilder: (_, _) => const Divider(height: 1),
@@ -111,18 +112,18 @@ class _ConnTile extends StatelessWidget {
             SelectableText((c['domain'] as String?)?.isNotEmpty == true ? c['domain'] as String : c['destination'] as String,
                 style: Theme.of(ctx).textTheme.titleMedium),
             const SizedBox(height: 8),
-            KV('目标', SelectableText(c['destination'] as String)),
-            if ((c['resolved'] as List?)?.isNotEmpty == true) KV('解析为', SelectableText((c['resolved'] as List).join(', '))),
-            if (process != null && process.isNotEmpty) KV('应用', SelectableText(process)),
-            KV('协议', Text('${c['network']}${(c['sniffed'] as String?)?.isNotEmpty == true ? ' / ${c['sniffed']}' : ''}')),
-            KV('入站', Text(c['inbound'] as String)),
-            KV('命中规则', SelectableText(c['rule'] as String)),
-            KV('规则来源', SelectableText(srcText((c['provenance'] as Map?)?.cast<String, dynamic>()))),
-            KV('出站链', SelectableText(chain)),
-            KV('流量', Text('↑${human(c['upload'] as num)}  ↓${human(c['download'] as num)}')),
-            KV('首字节', Text((c['first_byte_ms'] as num) < 0 ? '无下行数据' : '${c['first_byte_ms']}ms')),
-            KV('时长', Text(live ? '进行中' : '${c['duration_ms']}ms')),
-            for (final e in errs) KV('错误', SelectableText(e as String, style: TextStyle(color: Theme.of(ctx).colorScheme.error))),
+            KV(t('目标'), SelectableText(c['destination'] as String)),
+            if ((c['resolved'] as List?)?.isNotEmpty == true) KV(t('解析为'), SelectableText((c['resolved'] as List).join(', '))),
+            if (process != null && process.isNotEmpty) KV(t('应用'), SelectableText(process)),
+            KV(t('协议'), Text('${c['network']}${(c['sniffed'] as String?)?.isNotEmpty == true ? ' / ${c['sniffed']}' : ''}')),
+            KV(t('入站'), Text(c['inbound'] as String)),
+            KV(t('命中规则'), SelectableText(c['rule'] as String)),
+            KV(t('规则来源'), SelectableText(srcText((c['provenance'] as Map?)?.cast<String, dynamic>()))),
+            KV(t('出站链'), SelectableText(chain)),
+            KV(t('流量'), Text('↑${human(c['upload'] as num)}  ↓${human(c['download'] as num)}')),
+            KV(t('首字节'), Text((c['first_byte_ms'] as num) < 0 ? t('无下行数据') : '${c['first_byte_ms']}ms')),
+            KV(t('时长'), Text(live ? t('进行中') : '${c['duration_ms']}ms')),
+            for (final e in errs) KV(t('错误'), SelectableText(e as String, style: TextStyle(color: Theme.of(ctx).colorScheme.error))),
           ]),
         ),
       ),

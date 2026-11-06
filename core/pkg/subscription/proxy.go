@@ -2,6 +2,7 @@ package subscription
 
 import (
 	"fmt"
+	"github.com/Foreverwzh/velum/core/pkg/i18n"
 	"net/netip"
 	"regexp"
 	"strconv"
@@ -55,7 +56,7 @@ func (c *converter) convertProxy(p obj, src ir.Source) (main ir.Node, extra []ir
 	src.Text = "proxy " + name + " (" + typ + ")"
 	known, supported := proxyFields[typ]
 	if !supported {
-		c.warn("node", typ, ir.Unsupported, "协议无对应", name, src)
+		c.warn("node", typ, ir.Unsupported, i18n.T("协议无对应"), name, src)
 		return main, nil, false
 	}
 	allowed := map[string]bool{}
@@ -83,7 +84,7 @@ func (c *converter) convertProxy(p obj, src ir.Source) (main ir.Node, extra []ir
 		if s, ok := ipVersionStrategy[v]; ok {
 			n.Dial.DomainStrategy = s
 		} else {
-			reasons = append(reasons, "ip-version="+v+" 无对应")
+			reasons = append(reasons, "ip-version="+v+i18n.T(" 无对应"))
 		}
 	}
 	udpOff := false
@@ -141,12 +142,12 @@ func (c *converter) convertProxy(p obj, src ir.Source) (main ir.Node, extra []ir
 				n.Server, n.Port = "", 0
 				fpUsed = true
 			default:
-				c.warn("node", "ss+"+pl, ir.Unsupported, "ss 插件 "+pl+" 无对应", name, src)
+				c.warn("node", "ss+"+pl, ir.Unsupported, i18n.T("ss 插件 ")+pl+i18n.T(" 无对应"), name, src)
 				return main, nil, false
 			}
 		}
 		if str(p, "client-fingerprint") != "" && !fpUsed {
-			reasons = append(reasons, "ss 的 client-fingerprint 仅对 shadow-tls 生效，已忽略")
+			reasons = append(reasons, i18n.T("ss 的 client-fingerprint 仅对 shadow-tls 生效，已忽略"))
 		}
 	case "vmess":
 		n.Options["uuid"] = str(p, "uuid")
@@ -175,7 +176,7 @@ func (c *converter) convertProxy(p obj, src ir.Source) (main ir.Node, extra []ir
 			n.Options["packet_encoding"] = v
 		}
 		if e := str(p, "encryption"); e != "" && e != "none" {
-			c.warn("node", "vless+encryption", ir.Unsupported, "vless encryption="+e+" 无对应", name, src)
+			c.warn("node", "vless+encryption", ir.Unsupported, "vless encryption="+e+i18n.T(" 无对应"), name, src)
 			return main, nil, false
 		}
 		tcpOnly()
@@ -194,7 +195,7 @@ func (c *converter) convertProxy(p obj, src ir.Source) (main ir.Node, extra []ir
 			n.Options["min_idle_session"] = v
 		}
 		if udpOff {
-			reasons = append(reasons, "udp:false 无对应（anytls 不能关闭 UDP）")
+			reasons = append(reasons, i18n.T("udp:false 无对应（anytls 不能关闭 UDP）"))
 		}
 	case "hysteria2":
 		n.Options["password"] = str(p, "password")
@@ -227,7 +228,7 @@ func (c *converter) convertProxy(p obj, src ir.Source) (main ir.Node, extra []ir
 			n.Options["obfs"] = v
 		}
 		if pr := str(p, "protocol"); pr != "" && pr != "udp" {
-			reasons = append(reasons, "protocol="+pr+"（faketcp / wechat-video）无对应")
+			reasons = append(reasons, "protocol="+pr+i18n.T("（faketcp / wechat-video）无对应"))
 		}
 		if ports := str(p, "ports"); ports != "" {
 			n.Ports = portRanges(ports)
@@ -257,7 +258,7 @@ func (c *converter) convertProxy(p obj, src ir.Source) (main ir.Node, extra []ir
 	case "snell":
 		ver, _ := intv(p, "version")
 		if ver != 4 && ver != 6 {
-			c.warn("node", fmt.Sprintf("snell v%d", ver), ir.Unsupported, "仅支持 snell v4 / v6", name, src)
+			c.warn("node", fmt.Sprintf("snell v%d", ver), ir.Unsupported, i18n.T("仅支持 snell v4 / v6"), name, src)
 			return main, nil, false
 		}
 		n.Options["version"] = ver
@@ -306,7 +307,7 @@ func (c *converter) convertProxy(p obj, src ir.Source) (main ir.Node, extra []ir
 		n.Transport = t
 	}
 	for _, k := range unmapped {
-		reasons = append(reasons, "字段 "+k+" 未映射")
+		reasons = append(reasons, i18n.T("字段 ")+k+i18n.T(" 未映射"))
 	}
 	for _, r := range reasons {
 		c.warn("node", typ, ir.Degraded, r, name, src)
@@ -333,7 +334,7 @@ func convertTLS(p obj) (*ir.TLS, []string) {
 		t.Reality = &ir.Reality{PublicKey: str(r, "public-key"), ShortID: str(r, "short-id")}
 		if t.Fingerprint == "" {
 			t.Fingerprint = "chrome" // reality 必须启用 uTLS
-			reasons = append(reasons, "reality 未指定指纹，默认 chrome")
+			reasons = append(reasons, i18n.T("reality 未指定指纹，默认 chrome"))
 		}
 	}
 	return t, reasons
@@ -368,9 +369,9 @@ func convertTransport(p obj) (*ir.Transport, []string) {
 		if ps := strList(o["path"]); len(ps) > 0 {
 			t.Path = ps[0]
 		}
-		return t, []string{"http-opts 仅映射首个 path"}
+		return t, []string{i18n.T("http-opts 仅映射首个 path")}
 	default:
-		return nil, []string{"network=" + n + " 无对应"}
+		return nil, []string{"network=" + n + i18n.T(" 无对应")}
 	}
 }
 

@@ -5,6 +5,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/Foreverwzh/velum/core/pkg/i18n"
 	"os/exec"
 	"strings"
 	"syscall"
@@ -34,9 +35,9 @@ func startService(bin string) (bool, error) {
 		return false, nil
 	}
 	if out, err := exec.Command(bin, "service", "start").CombinedOutput(); err != nil {
-		return true, fmt.Errorf("启动 Velum 服务：%s", strings.TrimSpace(string(out)))
+		return true, i18n.Errorf("启动 Velum 服务：%s", strings.TrimSpace(string(out)))
 	}
-	fmt.Println("已启动 Velum 服务")
+	fmt.Println(i18n.T("已启动 Velum 服务"))
 	return true, nil
 }
 

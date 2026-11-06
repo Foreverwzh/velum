@@ -8,7 +8,7 @@ package race
 import (
 	"context"
 	"errors"
-	"fmt"
+	"github.com/Foreverwzh/velum/core/pkg/i18n"
 
 	"github.com/sagernet/sing-box/adapter"
 	"github.com/sagernet/sing-box/dns"
@@ -42,7 +42,7 @@ var _ adapter.DNSTransport = (*Transport)(nil)
 
 func New(ctx context.Context, _ log.ContextLogger, tag string, options Options) (adapter.DNSTransport, error) {
 	if len(options.Servers) == 0 {
-		return nil, errors.New("race: 缺少上游 servers")
+		return nil, i18n.New("race: 缺少上游 servers")
 	}
 	// 上游作为依赖：先于本传输启动
 	return &Transport{TransportAdapter: dns.NewTransportAdapter(Type, tag, options.Servers), ctx: ctx, tags: options.Servers}, nil
@@ -54,12 +54,12 @@ func (t *Transport) Start(stage adapter.StartStage, _ *adapter.Scope) error {
 	}
 	manager := service.FromContext[adapter.DNSTransportManager](t.ctx)
 	if manager == nil {
-		return errors.New("race: 缺少 DNS 传输管理器")
+		return i18n.New("race: 缺少 DNS 传输管理器")
 	}
 	for _, tag := range t.tags {
 		m, ok := manager.Transport(tag)
 		if !ok {
-			return fmt.Errorf("race: 上游 DNS 服务器 %q 不存在", tag)
+			return i18n.Errorf("race: 上游 DNS 服务器 %q 不存在", tag)
 		}
 		t.members = append(t.members, m)
 	}

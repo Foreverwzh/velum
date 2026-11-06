@@ -1,6 +1,7 @@
 //! macOS 系统扩展（docs/MN-PLAN.md）：安装 / 替换 Velum.app 内的 packet tunnel 扩展，启停隧道（核心在扩展里运行）。
 //! 扩展只在 Developer ID 签名、带描述文件的构建里存在（desktop/extension/build.sh + tauri.ne.conf.json）。
 
+use crate::i18n::{t, tf};
 use std::io::Read;
 use std::path::Path;
 use std::sync::{mpsc, Mutex};
@@ -33,11 +34,11 @@ pub enum Event {
 impl std::fmt::Display for Event {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Event::Replacing { from, to } => write!(f, "替换已安装的扩展 {from} → {to}"),
-            Event::NeedsApproval => write!(f, "需要批准：系统设置 → 通用 → 登录项与扩展 → 网络扩展"),
-            Event::Activated => write!(f, "扩展已激活"),
-            Event::NeedsReboot => write!(f, "扩展将在重启后生效"),
-            Event::Failed(e) => write!(f, "激活失败：{e}"),
+            Event::Replacing { from, to } => write!(f, "{}", tf("替换已安装的扩展 {0} → {1}", &[from, to])),
+            Event::NeedsApproval => write!(f, "{}", t("需要批准：系统设置 → 通用 → 登录项与扩展 → 网络扩展")),
+            Event::Activated => write!(f, "{}", t("扩展已激活")),
+            Event::NeedsReboot => write!(f, "{}", t("扩展将在重启后生效")),
+            Event::Failed(e) => write!(f, "{}", tf("激活失败：{0}", &[e])),
         }
     }
 }
@@ -170,7 +171,7 @@ fn load_manager(create: bool) -> Result<Option<Retained<NETunnelProviderManager>
         let _ = tx.send(ns_err(e).map_or(Ok(found), Err));
     });
     unsafe { NETunnelProviderManager::loadAllFromPreferencesWithCompletionHandler(&block) };
-    let found = wait(&rx, Duration::from_secs(10)).ok_or("读取 VPN 配置超时")??;
+    let found = wait(&rx, Duration::from_secs(10)).ok_or(t("读取 VPN 配置超时"))??;
     if found.is_some() || !create {
         return Ok(found);
     }
@@ -189,8 +190,8 @@ fn load_manager(create: bool) -> Result<Option<Retained<NETunnelProviderManager>
     });
     unsafe { m.saveToPreferencesWithCompletionHandler(Some(&block)) };
     // 首次保存会弹出「添加 VPN 配置」的系统对话框，等待用户操作
-    if let Some(e) = wait(&rx, Duration::from_secs(600)).ok_or("保存 VPN 配置超时（未在 10 分钟内批准）")? {
-        return Err(format!("保存 VPN 配置：{e}"));
+    if let Some(e) = wait(&rx, Duration::from_secs(600)).ok_or(t("保存 VPN 配置超时（未在 10 分钟内批准）"))? {
+        return Err(tf("保存 VPN 配置：{0}", &[&e]));
     }
     // 保存后要重新读取，连接对象才可用
     let (tx, rx) = mpsc::channel();
@@ -198,18 +199,18 @@ fn load_manager(create: bool) -> Result<Option<Retained<NETunnelProviderManager>
         let _ = tx.send(ns_err(e));
     });
     unsafe { m.loadFromPreferencesWithCompletionHandler(&block) };
-    wait(&rx, Duration::from_secs(10)).ok_or("读取 VPN 配置超时")?;
+    wait(&rx, Duration::from_secs(10)).ok_or(t("读取 VPN 配置超时"))?;
     Ok(Some(m))
 }
 
 fn status_name(s: NEVPNStatus) -> &'static str {
     match s {
-        NEVPNStatus::Disconnected => "已断开",
-        NEVPNStatus::Connecting => "正在连接",
-        NEVPNStatus::Connected => "已连接",
-        NEVPNStatus::Reasserting => "正在重连",
-        NEVPNStatus::Disconnecting => "正在断开",
-        _ => "无效",
+        NEVPNStatus::Disconnected => t("已断开"),
+        NEVPNStatus::Connecting => t("正在连接"),
+        NEVPNStatus::Connected => t("已连接"),
+        NEVPNStatus::Reasserting => t("正在重连"),
+        NEVPNStatus::Disconnecting => t("正在断开"),
+        _ => t("无效"),
     }
 }
 
@@ -225,10 +226,10 @@ fn wait_status(m: &NETunnelProviderManager, want: NEVPNStatus, timeout: Duration
             return Ok(());
         }
         if want == NEVPNStatus::Connected && s == NEVPNStatus::Disconnected && started.elapsed() > Duration::from_secs(1) {
-            return Err("隧道启动失败（已断开），详见系统日志 subsystem dev.velum.desktop.tunnel".into());
+            return Err(t("隧道启动失败（已断开），详见系统日志 subsystem dev.velum.desktop.tunnel").into());
         }
         if Instant::now() >= deadline {
-            return Err(format!("等待隧道{}超时（当前：{}）", status_name(want), status_name(s)));
+            return Err(tf("等待隧道{0}超时（当前：{1}）", &[&status_name(want), &status_name(s)]));
         }
         wait(&never, Duration::from_millis(100));
         let _ = &never_tx;
@@ -271,7 +272,7 @@ fn seed_files(home: &Path) -> Vec<(String, Vec<u8>)> {
 /// 再把地址与首次迁移的文件放进启动参数。reset 时扩展先清空自己的数据目录（重新迁移）。
 pub fn start_tunnel(reset: bool) -> Result<(), String> {
     use std::os::unix::fs::OpenOptionsExt;
-    let m = load_manager(true)?.ok_or("没有 VPN 配置")?;
+    let m = load_manager(true)?.ok_or(t("没有 VPN 配置"))?;
     let port = std::net::TcpListener::bind("127.0.0.1:0").and_then(|l| l.local_addr()).map_err(|e| e.to_string())?.port();
     let addr = format!("tcp://127.0.0.1:{port}?token={}", token()?);
     let home = crate::velum::home();
@@ -284,7 +285,7 @@ pub fn start_tunnel(reset: bool) -> Result<(), String> {
         .mode(0o600)
         .open(&path)
         .and_then(|mut f| std::io::Write::write_all(&mut f, addr.as_bytes()))
-        .map_err(|e| format!("写入 {}：{e}", path.display()))?;
+        .map_err(|e| tf("写入 {0}：{1}", &[&path.display(), &e]))?;
 
     let mut keys: Vec<Retained<NSString>> = vec![NSString::from_str("socket")];
     let mut vals: Vec<Retained<NSObject>> = vec![Retained::into_super(NSString::from_str(&addr))];
@@ -299,7 +300,7 @@ pub fn start_tunnel(reset: bool) -> Result<(), String> {
     let key_refs: Vec<&NSString> = keys.iter().map(|k| &**k).collect();
     let opts = NSDictionary::from_retained_objects(&key_refs, &vals);
     unsafe { m.connection().startVPNTunnelWithOptions_andReturnError(Some(&opts)) }
-        .map_err(|e| format!("启动隧道：{}", e.localizedDescription()))?;
+        .map_err(|e| tf("启动隧道：{0}", &[&e.localizedDescription()]))?;
     wait_status(&m, NEVPNStatus::Connected, Duration::from_secs(30))
 }
 
@@ -406,11 +407,11 @@ pub fn enable() -> Result<(), String> {
     let deadline = Instant::now() + Duration::from_secs(600);
     loop {
         match a.events.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
-            Ok(Event::Failed(e)) => return Err(format!("激活网络扩展失败：{e}")),
-            Ok(Event::NeedsReboot) => return Err("网络扩展将在重启后生效".into()),
+            Ok(Event::Failed(e)) => return Err(tf("激活网络扩展失败：{0}", &[&e])),
+            Ok(Event::NeedsReboot) => return Err(t("网络扩展将在重启后生效").into()),
             Ok(Event::Activated) => break,
             Ok(_) => {}
-            Err(_) => return Err("激活网络扩展超时（未在 10 分钟内批准）".into()),
+            Err(_) => return Err(t("激活网络扩展超时（未在 10 分钟内批准）").into()),
         }
     }
     let home = crate::velum::home();
@@ -420,7 +421,7 @@ pub fn enable() -> Result<(), String> {
         let deadline = Instant::now() + Duration::from_secs(15);
         while crate::velum::alive() {
             if Instant::now() > deadline {
-                return Err("velumd 未按时停止".into());
+                return Err(t("velumd 未按时停止").into());
             }
             std::thread::sleep(Duration::from_millis(200));
         }
@@ -428,8 +429,8 @@ pub fn enable() -> Result<(), String> {
     // 隧道起不来（拒绝添加 VPN 配置、扩展被禁用等）：velumd 已停，退回 velumd，不留下什么都没在运行的状态
     if let Err(e) = start_tunnel(true) {
         let _ = stop_tunnel();
-        let back = crate::velum::ensure_running().err().map(|b| format!("；启动 velumd 也失败：{b}")).unwrap_or_default();
-        return Err(format!("网络扩展未能启动，已退回 TUN 组件（{e}）{back}"));
+        let back = crate::velum::ensure_running().err().map(|b| tf("；启动 velumd 也失败：{0}", &[&b])).unwrap_or_default();
+        return Err(tf("网络扩展未能启动，已退回 TUN 组件（{0}）{1}", &[&e, &back]));
     }
     std::fs::write(home.join("extension.enabled"), b"").map_err(|e| e.to_string())
 }
@@ -461,8 +462,8 @@ fn fall_back_inner(reason: &str) -> String {
     let _ = std::fs::remove_file(home.join("extension.addr"));
     wait_listen_port(&home);
     match crate::velum::ensure_running() {
-        Ok(()) => format!("网络扩展未能启动，已退回 TUN 组件：{reason}"),
-        Err(e) => format!("网络扩展未能启动（{reason}），启动 velumd 也失败：{e}"),
+        Ok(()) => tf("网络扩展未能启动，已退回 TUN 组件：{0}", &[&reason]),
+        Err(e) => tf("网络扩展未能启动（{0}），启动 velumd 也失败：{1}", &[&reason, &e]),
     }
 }
 

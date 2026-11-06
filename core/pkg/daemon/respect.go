@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"fmt"
+	"github.com/Foreverwzh/velum/core/pkg/i18n"
 	"net"
 	"net/netip"
 	"strings"
@@ -59,7 +60,7 @@ func (d *Daemon) applyRespectRules(st *state) {
 		switch {
 		case dec.Action == ir.ActionReject || dec.Action == ir.ActionDrop:
 			st.plan.Warnings = append(st.plan.Warnings, ir.Warning{Category: "dns", Kind: "respect-rules", Level: ir.Degraded,
-				Reason: "该 DNS 服务器命中拦截规则，保持直连（拦截会让 DNS 解析失效）", Subject: sv.Address, Source: dec.Source})
+				Reason: i18n.T("该 DNS 服务器命中拦截规则，保持直连（拦截会让 DNS 解析失效）"), Subject: sv.Address, Source: dec.Source})
 		case dec.Action != ir.ActionRoute || dec.Outbound == "" || dec.Outbound == ir.OutboundDirect:
 			// 直连：保持默认
 		default:

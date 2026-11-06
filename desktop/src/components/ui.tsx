@@ -1,5 +1,6 @@
 import { forwardRef, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode } from "react";
 import { ChevronRight, Loader2, Search, type LucideIcon } from "lucide-react";
+import { t } from "../i18n";
 
 export function cx(...xs: (string | false | null | undefined)[]) {
   return xs.filter(Boolean).join(" ");
@@ -131,7 +132,7 @@ export function Latency({ ms, className }: { ms?: number; className?: string }) 
   return (
     <span className={cx("inline-flex items-center gap-1.5 font-mono text-[11.5px] tnum whitespace-nowrap", text, className)}>
       <span className={cx("size-1.5 rounded-full", dot)} />
-      {ms < 0 ? "超时" : `${ms} ms`}
+      {ms < 0 ? t("超时") : `${ms} ms`}
     </span>
   );
 }
@@ -190,7 +191,7 @@ export function chainSteps(chain: string[], rule?: { label: string; title?: stri
   chain.forEach((c, i) => {
     const last = i === chain.length - 1;
     const kind: ChainStep["kind"] = c === "DIRECT" ? "direct" : c === "REJECT" || c.startsWith("reject") ? "reject" : last ? "node" : "group";
-    steps.push({ label: c === "REJECT" || c.startsWith("reject") ? "拦截" : c, kind });
+    steps.push({ label: c === "REJECT" || c.startsWith("reject") ? t("拦截") : c, kind });
   });
   return steps;
 }

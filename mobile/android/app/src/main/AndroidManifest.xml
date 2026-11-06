@@ -9,6 +9,7 @@
 
     <application
         android:label="Velum"
+        android:localeConfig="@xml/locales_config"
         android:name=".VelumApp"
         android:icon="@mipmap/ic_launcher">
         <activity

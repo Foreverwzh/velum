@@ -4,8 +4,7 @@ package winuser
 
 import (
 	"bytes"
-	"errors"
-	"fmt"
+	"github.com/Foreverwzh/velum/core/pkg/i18n"
 	"io"
 	"os"
 	"runtime"
@@ -19,7 +18,7 @@ import (
 )
 
 // ErrNoUser 表示没有已登录的、允许的用户。
-var ErrNoUser = errors.New("没有已登录的 Velum 用户")
+var ErrNoUser = i18n.Static("没有已登录的 Velum 用户")
 
 // Token 找到要代为操作的用户会话的令牌：优先活动控制台会话，其次其他活动会话（如远程桌面），且用户须在 allow 中
 // （allow 为空时只接受控制台会话的用户）。调用方负责关闭。
@@ -68,7 +67,7 @@ func Impersonate(allow []string, fn func() error) error {
 	var imp windows.Token
 	if err := windows.DuplicateTokenEx(tok, windows.TOKEN_IMPERSONATE|windows.TOKEN_QUERY, nil,
 		windows.SecurityImpersonation, windows.TokenImpersonation, &imp); err != nil {
-		return fmt.Errorf("复制用户令牌：%w", err)
+		return i18n.Errorf("复制用户令牌：%w", err)
 	}
 	defer imp.Close()
 	done := make(chan error, 1)
@@ -76,7 +75,7 @@ func Impersonate(allow []string, fn func() error) error {
 		runtime.LockOSThread()
 		if err := windows.SetThreadToken(nil, imp); err != nil {
 			runtime.UnlockOSThread()
-			done <- fmt.Errorf("模拟用户：%w", err)
+			done <- i18n.Errorf("模拟用户：%w", err)
 			return
 		}
 		err := fn()
@@ -98,7 +97,7 @@ func Run(allow []string, exe string, args []string, stdin []byte, timeout time.D
 	defer tok.Close()
 	var env *uint16
 	if err := windows.CreateEnvironmentBlock(&env, tok, false); err != nil {
-		return nil, fmt.Errorf("读取用户环境：%w", err)
+		return nil, i18n.Errorf("读取用户环境：%w", err)
 	}
 	defer windows.DestroyEnvironmentBlock(env)
 
@@ -151,7 +150,7 @@ func Run(allow []string, exe string, args []string, stdin []byte, timeout time.D
 		inW.Close()
 		outR.Close()
 		errR.Close()
-		return nil, fmt.Errorf("在用户会话中启动 %s：%w", exe, err)
+		return nil, i18n.Errorf("在用户会话中启动 %s：%w", exe, err)
 	}
 	defer windows.CloseHandle(pi.Process)
 	windows.CloseHandle(pi.Thread)
@@ -169,14 +168,14 @@ func Run(allow []string, exe string, args []string, stdin []byte, timeout time.D
 		_ = windows.TerminateProcess(pi.Process, 1)
 		<-copied
 		<-copied
-		return nil, fmt.Errorf("%s 超时未结束", exe)
+		return nil, i18n.Errorf("%s 超时未结束", exe)
 	}
 	<-copied
 	<-copied
 	var code uint32
 	_ = windows.GetExitCodeProcess(pi.Process, &code)
 	if code != 0 {
-		return nil, fmt.Errorf("%s 失败（退出码 %d）：%s", exe, code, strings.TrimSpace(stderr.String()))
+		return nil, i18n.Errorf("%s 失败（退出码 %d）：%s", exe, code, strings.TrimSpace(stderr.String()))
 	}
 	return stdout.Bytes(), nil
 }

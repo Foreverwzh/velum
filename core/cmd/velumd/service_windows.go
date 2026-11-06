@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"flag"
-	"fmt"
+	"github.com/Foreverwzh/velum/core/pkg/i18n"
 	"io"
 	"os"
 	"path/filepath"
@@ -42,11 +42,11 @@ func installedExe() (string, error) {
 
 func serviceCommand(args []string) (err error) {
 	if len(args) == 0 {
-		return errors.New("用法：velumd service install --home <目录> --allow-sid <SID> | uninstall | start | stop | status")
+		return i18n.New("用法：velumd service install --home <目录> --allow-sid <SID> | uninstall | start | stop | status")
 	}
 	fs := flag.NewFlagSet("service "+args[0], flag.ContinueOnError)
-	home := fs.String("home", "", "Velum 目录（安装用户的 %APPDATA%\\Velum）")
-	sid := fs.String("allow-sid", "", "安装用户的 SID")
+	home := fs.String("home", "", i18n.T("Velum 目录（安装用户的 %APPDATA%\\Velum）"))
+	sid := fs.String("allow-sid", "", i18n.T("安装用户的 SID"))
 	if err := fs.Parse(args[1:]); err != nil {
 		return err
 	}
@@ -78,19 +78,19 @@ func serviceCommand(args []string) (err error) {
 		st := serviceStatus()
 		return json.NewEncoder(os.Stdout).Encode(st)
 	}
-	return fmt.Errorf("未知操作：%s", args[0])
+	return i18n.Errorf("未知操作：%s", args[0])
 }
 
 func installService(home, sid string) error {
 	if home == "" || !filepath.IsAbs(home) {
-		return errors.New("需要 --home（绝对路径）：服务以 SYSTEM 运行，需要知道安装用户的 Velum 目录")
+		return i18n.New("需要 --home（绝对路径）：服务以 SYSTEM 运行，需要知道安装用户的 Velum 目录")
 	}
 	if _, err := windows.StringToSid(sid); err != nil {
-		return fmt.Errorf("需要有效的 --allow-sid：%w", err)
+		return i18n.Errorf("需要有效的 --allow-sid：%w", err)
 	}
 	m, err := mgr.Connect()
 	if err != nil {
-		return fmt.Errorf("连接服务管理器（需要管理员权限）：%w", err)
+		return i18n.Errorf("连接服务管理器（需要管理员权限）：%w", err)
 	}
 	defer m.Disconnect()
 	// 释放程序文件与 Named Pipe：停止已有服务与以用户身份运行的 velumd（它们退出时会还原系统代理）
@@ -119,14 +119,14 @@ func installService(home, sid string) error {
 		return err
 	}
 	if err := copySelf(exe); err != nil {
-		return fmt.Errorf("复制 velumd 到 %s：%w", exe, err)
+		return i18n.Errorf("复制 velumd 到 %s：%w", exe, err)
 	}
 	args := []string{"--home", home, "--allow-sid", sid}
 	s, err := m.OpenService(serviceName)
 	if err != nil {
 		s, err = m.CreateService(serviceName, exe, mgr.Config{DisplayName: "Velum", StartType: mgr.StartManual}, args...)
 		if err != nil {
-			return fmt.Errorf("创建服务：%w", err)
+			return i18n.Errorf("创建服务：%w", err)
 		}
 	} else {
 		cfg, err := s.Config()
@@ -138,26 +138,26 @@ func installService(home, sid string) error {
 		cfg.StartType = mgr.StartManual
 		if err := s.UpdateConfig(cfg); err != nil {
 			s.Close()
-			return fmt.Errorf("更新服务：%w", err)
+			return i18n.Errorf("更新服务：%w", err)
 		}
 	}
 	defer s.Close()
 	cfg, _ := s.Config()
-	cfg.Description = "Velum 网络核心：TUN 与系统代理（由 Velum App 启动与停止）"
+	cfg.Description = i18n.T("Velum 网络核心：TUN 与系统代理（由 Velum App 启动与停止）")
 	_ = s.UpdateConfig(cfg)
 	if err := s.SetRecoveryActions([]mgr.RecoveryAction{
 		{Type: mgr.ServiceRestart, Delay: time.Second},
 		{Type: mgr.ServiceRestart, Delay: 5 * time.Second},
 		{Type: mgr.ServiceRestart, Delay: 30 * time.Second},
 	}, 24*60*60); err != nil {
-		return fmt.Errorf("设置失败重启：%w", err)
+		return i18n.Errorf("设置失败重启：%w", err)
 	}
 	// 服务以非 0 退出码报告停止（如启动失败）也按失败处理并重启，而不只是进程崩溃
 	if err := s.SetRecoveryActionsOnNonCrashFailures(true); err != nil {
-		return fmt.Errorf("设置失败重启：%w", err)
+		return i18n.Errorf("设置失败重启：%w", err)
 	}
 	if err := setServiceDACL(s.Handle, sid); err != nil {
-		return fmt.Errorf("设置服务权限：%w", err)
+		return i18n.Errorf("设置服务权限：%w", err)
 	}
 	return startAndWait(s)
 }
@@ -165,7 +165,7 @@ func installService(home, sid string) error {
 func uninstallService() error {
 	m, err := mgr.Connect()
 	if err != nil {
-		return fmt.Errorf("连接服务管理器（需要管理员权限）：%w", err)
+		return i18n.Errorf("连接服务管理器（需要管理员权限）：%w", err)
 	}
 	defer m.Disconnect()
 	s, err := m.OpenService(serviceName)
@@ -177,7 +177,7 @@ func uninstallService() error {
 		err = s.Delete()
 		s.Close()
 		if err != nil {
-			return fmt.Errorf("删除服务：%w", err)
+			return i18n.Errorf("删除服务：%w", err)
 		}
 	}
 	exe, err := installedExe()
@@ -191,7 +191,7 @@ func uninstallService() error {
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-	return fmt.Errorf("删除 %s：%w", exe, err)
+	return i18n.Errorf("删除 %s：%w", exe, err)
 }
 
 // openService 以最小权限打开服务（安装用户经服务 DACL 获得启动 / 停止权限，不需要管理员）。
@@ -220,7 +220,7 @@ func controlService(start bool) error {
 	s, closeFn, err := openService(access)
 	if err != nil {
 		if errors.Is(err, windows.ERROR_SERVICE_DOES_NOT_EXIST) {
-			return errors.New("Velum 服务未安装")
+			return i18n.New("Velum 服务未安装")
 		}
 		return err
 	}
@@ -233,7 +233,7 @@ func controlService(start bool) error {
 
 func startAndWait(s *mgr.Service) error {
 	if err := s.Start(); err != nil && !errors.Is(err, windows.ERROR_SERVICE_ALREADY_RUNNING) {
-		return fmt.Errorf("启动服务：%w", err)
+		return i18n.Errorf("启动服务：%w", err)
 	}
 	return waitState(s, svc.Running, 15*time.Second)
 }
@@ -241,7 +241,7 @@ func startAndWait(s *mgr.Service) error {
 func stopAndWait(s *mgr.Service) error {
 	if _, err := s.Control(svc.Stop); err != nil &&
 		!errors.Is(err, windows.ERROR_SERVICE_NOT_ACTIVE) && !errors.Is(err, windows.ERROR_SERVICE_CANNOT_ACCEPT_CTRL) {
-		return fmt.Errorf("停止服务：%w", err)
+		return i18n.Errorf("停止服务：%w", err)
 	}
 	return waitState(s, svc.Stopped, 15*time.Second)
 }
@@ -257,10 +257,10 @@ func waitState(s *mgr.Service, want svc.State, timeout time.Duration) error {
 			return nil
 		}
 		if want == svc.Running && q.State == svc.Stopped {
-			return errors.New("服务启动后立即退出，查看 Velum 目录下的 logs\\velumd.log")
+			return i18n.New("服务启动后立即退出，查看 Velum 目录下的 logs\\velumd.log")
 		}
 		if time.Now().After(deadline) {
-			return fmt.Errorf("等待服务状态超时（当前 %d）", q.State)
+			return i18n.Errorf("等待服务状态超时（当前 %d）", q.State)
 		}
 		time.Sleep(100 * time.Millisecond)
 	}

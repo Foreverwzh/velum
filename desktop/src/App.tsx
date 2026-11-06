@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { language } from "./i18n";
 import { ArrowLeftRight, CircleGauge, FileCode2, Search, Settings as SettingsIcon, TriangleAlert, Waypoints, ScanSearch, X, type LucideIcon } from "lucide-react";
 import { api, native, type Status } from "./api";
 import { health } from "./health";
@@ -11,6 +12,7 @@ import Diagnose from "./views/Diagnose";
 import Overlay from "./views/Overlay";
 import Warnings from "./views/Warnings";
 import Settings from "./views/Settings";
+import { t } from "./i18n";
 
 export type Refresh = () => Promise<void>;
 export type Page = "overview" | "groups" | "connections" | "diagnose" | "overlay" | "warnings" | "settings";
@@ -18,13 +20,13 @@ export type Page = "overview" | "groups" | "connections" | "diagnose" | "overlay
 export type Go = (page: Page, arg?: string) => void;
 
 const nav: { id: Page; label: string; icon: LucideIcon }[] = [
-  { id: "overview", label: "概览", icon: CircleGauge },
-  { id: "groups", label: "策略组", icon: Waypoints },
-  { id: "connections", label: "连接", icon: ArrowLeftRight },
-  { id: "diagnose", label: "诊断", icon: ScanSearch },
-  { id: "overlay", label: "本地覆盖", icon: FileCode2 },
-  { id: "warnings", label: "告警", icon: TriangleAlert },
-  { id: "settings", label: "设置", icon: SettingsIcon },
+  { id: "overview", label: t("概览"), icon: CircleGauge },
+  { id: "groups", label: t("策略组"), icon: Waypoints },
+  { id: "connections", label: t("连接"), icon: ArrowLeftRight },
+  { id: "diagnose", label: t("诊断"), icon: ScanSearch },
+  { id: "overlay", label: t("本地覆盖"), icon: FileCode2 },
+  { id: "warnings", label: t("告警"), icon: TriangleAlert },
+  { id: "settings", label: t("设置"), icon: SettingsIcon },
 ];
 
 // App 打开后这段时间内连不上 velumd 视为仍在启动（App 正在拉起它），不显示错误
@@ -33,6 +35,10 @@ const openedAt = Date.now();
 
 export default function App() {
   const [status, setStatus] = useState<Status | null>(null);
+  const languageSent = useRef(false);
+  useEffect(() => {
+    if (native.available) native.setLanguage(language).catch(() => undefined);
+  }, []);
   const [error, setError] = useState<string>();
   const params = new URLSearchParams(location.search);
   // ?page=groups&arg=Proxy 便于开发预览
@@ -52,7 +58,13 @@ export default function App() {
   const connected = useRef(false);
   const refresh = useCallback(async () => {
     try {
-      setStatus(await api.status());
+      const st = await api.status();
+      setStatus(st);
+      // 核心连上后告诉它语言（旧版本的后台服务没有这个接口：忽略）
+      if (!languageSent.current) {
+        languageSent.current = true;
+        api.setLanguage(language).catch(() => undefined);
+      }
       setError(undefined);
       connected.current = true;
     } catch (e) {
@@ -120,7 +132,7 @@ export default function App() {
           className="mb-3 flex h-7 items-center gap-2 rounded-md border border-line bg-panel px-2 text-[12px] text-fg-3 shadow-raise transition-colors hover:border-line-strong hover:text-fg-2"
         >
           <Search className="size-3.5 shrink-0" strokeWidth={2} />
-          <span className="min-w-0 flex-1 truncate whitespace-nowrap text-left">切换节点、执行操作</span>
+          <span className="min-w-0 flex-1 truncate whitespace-nowrap text-left">{t("切换节点、执行操作")}</span>
           <Kbd>{isMac ? "⌘K" : "Ctrl K"}</Kbd>
         </button>
         <nav className="flex flex-col gap-px">
@@ -139,7 +151,7 @@ export default function App() {
                 <n.icon className={cx("size-[15px]", on ? "text-fg" : "text-fg-3")} strokeWidth={1.8} />
                 <span className="flex-1">{n.label}</span>
                 {n.id === "warnings" && !!status?.warnings && <span className="font-mono text-[11px] text-fg-3 tnum">{status.warnings}</span>}
-                {n.id === "settings" && status?.update?.available && <span title="有新版本" className="size-1.5 rounded-full bg-accent" />}
+                {n.id === "settings" && status?.update?.available && <span title={t("有新版本")} className="size-1.5 rounded-full bg-accent" />}
               </button>
             );
           })}
@@ -153,7 +165,7 @@ export default function App() {
       <main className={cx("flex min-w-0 flex-1 flex-col", titlebarOverlay ? "pt-7" : "pt-3")}>
         {notice && (
           <div className="px-6 pb-2">
-            <Notice tone="warn" icon={TriangleAlert} action={<IconButton icon={X} label="关闭" onClick={() => setNotice(undefined)} />}>{notice}</Notice>
+            <Notice tone="warn" icon={TriangleAlert} action={<IconButton icon={X} label={t("关闭")} onClick={() => setNotice(undefined)} />}>{notice}</Notice>
           </div>
         )}
         {!ready ? (

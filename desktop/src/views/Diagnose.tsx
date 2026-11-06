@@ -4,6 +4,7 @@ import { api, errText, human, srcText, type Connection, type Source, type WhyRes
 import type { Refresh } from "../App";
 import { RuleDialog } from "../components/RuleDialog";
 import { Button, Chain, Empty, Notice, Panel, Section, Tag, chainSteps, cx } from "../components/ui";
+import { t } from "../i18n";
 
 const examples = ["https://www.google.com/", "claude.ai", "github.com"];
 
@@ -46,17 +47,17 @@ export default function Diagnose({ initialTarget, refresh }: { initialTarget?: s
         <label className="flex h-8 flex-1 items-center gap-2 rounded-md border border-line-strong bg-panel px-2.5 transition-colors focus-within:border-accent">
           <ScanSearch className="size-4 text-fg-3" strokeWidth={1.8} />
           <input value={target} onChange={(e) => setTarget(e.target.value)} autoFocus={!initialTarget} spellCheck={false}
-            placeholder="输入网址、域名或 IP，看它会走哪条规则、哪个节点"
+            placeholder={t("输入网址、域名或 IP，看它会走哪条规则、哪个节点")}
             className="min-w-0 flex-1 bg-transparent text-[13px] outline-none placeholder:text-fg-3" />
         </label>
-        <Button type="submit" variant="primary" loading={busy} disabled={!target.trim()}>推演</Button>
+        <Button type="submit" variant="primary" loading={busy} disabled={!target.trim()}>{t("推演")}</Button>
       </form>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto max-w-[780px] px-6 py-5">
           {err && <Notice tone="err">{err}</Notice>}
           {!r && !err && (
-            <Empty icon={Route} title="这个地址会怎么走？" hint="Velum 会逐步推演系统代理豁免、DNS、规则匹配，给出最终出站，并标明每一步来自订阅或本地覆盖的哪一行。"
+            <Empty icon={Route} title={t("这个地址会怎么走？")} hint={t("Velum 会逐步推演系统代理豁免、DNS、规则匹配，给出最终出站，并标明每一步来自订阅或本地覆盖的哪一行。")}
               action={<div className="flex flex-wrap justify-center gap-2">{examples.map((x) => <Button key={x} size="sm" onClick={() => void run(x)}>{x}</Button>)}</div>} />
           )}
           {r && res && (
@@ -64,44 +65,44 @@ export default function Diagnose({ initialTarget, refresh }: { initialTarget?: s
               <header>
                 <div className="flex items-center gap-2">
                   <h1 className="selectable truncate text-[18px] font-semibold tracking-[-0.015em]">{r.target.domain ?? r.target.ip}<span className="text-fg-3">:{r.target.port}</span></h1>
-                  {r.decision.uncertain ? <Tag tone="warn">结论不确定</Tag> : <Tag tone="accent">结论确定</Tag>}
-                  <Button size="sm" className="ml-auto" icon={ListPlus} onClick={() => setRule(true)}>加入本地规则</Button>
+                  {r.decision.uncertain ? <Tag tone="warn">{t("结论不确定")}</Tag> : <Tag tone="accent">{t("结论确定")}</Tag>}
+                  <Button size="sm" className="ml-auto" icon={ListPlus} onClick={() => setRule(true)}>{t("加入本地规则")}</Button>
                 </div>
                 <div className="mt-2">
-                  <Chain steps={r.decision.action === "reject" ? [{ label: ruleText(r.decision.rule_index), kind: "rule" }, { label: "拦截", kind: "reject" }]
+                  <Chain steps={r.decision.action === "reject" ? [{ label: ruleText(r.decision.rule_index), kind: "rule" }, { label: t("拦截"), kind: "reject" }]
                     : chainSteps(res.chain?.length ? res.chain : [r.decision.outbound ?? "?"], { label: ruleText(r.decision.rule_index) })} />
                 </div>
               </header>
 
               <ol className="relative flex flex-col">
-                <Step icon={ArrowRightLeft} title="系统代理">
-                  {r.sys_proxy.bypassed ? <>命中豁免 <code className="font-mono">{r.sys_proxy.pattern}</code>，不经过 Velum <Src s={r.sys_proxy.source} /></>
-                    : r.sys_proxy.enabled ? "未命中豁免，请求进入 Velum" : "未接管系统代理；经 Velum 端口或 TUN 访问时如下"}
+                <Step icon={ArrowRightLeft} title={t("系统代理")}>
+                  {r.sys_proxy.bypassed ? <>{t("命中豁免")}{" "}<code className="font-mono">{r.sys_proxy.pattern}</code>{t("，不经过 Velum")}{" "}<Src s={r.sys_proxy.source} /></>
+                    : r.sys_proxy.enabled ? t("未命中豁免，请求进入 Velum") : t("未接管系统代理；经 Velum 端口或 TUN 访问时如下")}
                 </Step>
                 <Step icon={Globe2} title="DNS">
-                  {!r.dns.applicable ? "目标是 IP，无需解析" : r.dns.answer?.length ? <>hosts 覆盖为 <code className="font-mono">{r.dns.answer.join(", ")}</code> <Src s={r.dns.source} /></> : <>由 <code className="font-mono">{r.dns.server}</code> 解析 <Src s={r.dns.source} /></>}
-                  {!!res.resolved?.length && <div className="mt-1 text-fg-3">结果 <span className="selectable font-mono">{res.resolved.join(", ")}</span>（{res.resolved_by === "engine" ? "引擎按 DNS 规则解析" : "手动指定"}）</div>}
-                  {res.resolve_error && <div className="mt-1 text-warn">解析失败：{res.resolve_error}</div>}
+                  {!r.dns.applicable ? t("目标是 IP，无需解析") : r.dns.answer?.length ? <>{t("hosts 覆盖为")}{" "}<code className="font-mono">{r.dns.answer.join(", ")}</code> <Src s={r.dns.source} /></> : <>{t("由")}{" "}<code className="font-mono">{r.dns.server}</code>{" "}{t("解析")}{" "}<Src s={r.dns.source} /></>}
+                  {!!res.resolved?.length && <div className="mt-1 text-fg-3">{t("结果")}{" "}<span className="selectable font-mono">{res.resolved.join(", ")}</span>（{res.resolved_by === "engine" ? t("引擎按 DNS 规则解析") : t("手动指定")}）</div>}
+                  {res.resolve_error && <div className="mt-1 text-warn">{t("解析失败：")}{res.resolve_error}</div>}
                 </Step>
-                <Step icon={ListTree} title="规则">
+                <Step icon={ListTree} title={t("规则")}>
                   <RuleTrace res={res} />
                 </Step>
-                <Step icon={Server} title="出站" last>
-                  <span className="font-medium">{res.chain?.length ? res.chain.join(" → ") : r.decision.action === "reject" ? "拦截" : r.decision.outbound}</span>
-                  {r.decision.override_address && <span className="ml-2 text-fg-3">目标改写为 <code className="font-mono">{r.decision.override_address}</code>（hosts 覆盖）</span>}
+                <Step icon={Server} title={t("出站")} last>
+                  <span className="font-medium">{res.chain?.length ? res.chain.join(" → ") : r.decision.action === "reject" ? t("拦截") : r.decision.outbound}</span>
+                  {r.decision.override_address && <span className="ml-2 text-fg-3">{t("目标改写为")}{" "}<code className="font-mono">{r.decision.override_address}</code>{t("（hosts 覆盖）")}</span>}
                 </Step>
               </ol>
 
               {r.notes?.map((n) => <Notice key={n} tone="warn">{n}</Notice>)}
 
-              <Section title="实际连接（最近 5 条）">
+              <Section title={t("实际连接（最近 5 条）")}>
                 <Panel>
-                  {!live.length && <div className="px-3.5 py-5 text-center text-[12.5px] text-fg-3">还没有访问过这个目标；访问一次后再推演，可以对照实际走向</div>}
+                  {!live.length && <div className="px-3.5 py-5 text-center text-[12.5px] text-fg-3">{t("还没有访问过这个目标；访问一次后再推演，可以对照实际走向")}</div>}
                   {live.map((c) => (
                     <div key={c.id} className="flex items-center gap-3 border-b border-line px-3.5 py-2.5 last:border-0">
                       <span className="w-[64px] shrink-0 font-mono text-[11.5px] text-fg-3 tnum">{new Date(c.start).toLocaleTimeString([], { hour12: false })}</span>
                       <Chain size="sm" className="flex-1" steps={chainSteps(c.chain, { label: ruleText(c.rule_index), title: srcText(c.provenance) })} />
-                      {c.rule_index !== r.decision.rule_index && <Tag tone="warn">与推演不一致</Tag>}
+                      {c.rule_index !== r.decision.rule_index && <Tag tone="warn">{t("与推演不一致")}</Tag>}
                       <span className="shrink-0 font-mono text-[11.5px] text-fg-3 tnum">↓ {human(c.download)}</span>
                     </div>
                   ))}
@@ -167,7 +168,7 @@ function RuleTrace({ res }: { res: WhyResponse }) {
         )}
       </div>
       <button className="mt-1.5 text-[12px] text-accent hover:underline" onClick={() => setAll(!all)}>
-        {all ? "只看命中与未知" : `显示全部 ${r.rules.length} 条规则（含未命中原因）`}
+        {all ? t("只看命中与未知") : t("显示全部 {0} 条规则（含未命中原因）", r.rules.length)}
       </button>
     </div>
   );

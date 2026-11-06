@@ -10,7 +10,7 @@ import (
 )
 
 func TestSetFieldsKeepsComments(t *testing.T) {
-	out, err := config.SetFields([]byte(config.Template), "subscription",
+	out, err := config.SetFields([]byte(config.Template()), "subscription",
 		map[string]string{"url": "https://sub.example.com/x?token=abc", "file": ""}, []string{"url", "file"})
 	if err != nil {
 		t.Fatal(err)
@@ -22,7 +22,7 @@ func TestSetFieldsKeepsComments(t *testing.T) {
 		}
 	}
 	// 除被修改的行外逐字节保留
-	if a, b := strings.Split(config.Template, "\n"), strings.Split(s, "\n"); len(a) != len(b) {
+	if a, b := strings.Split(config.Template(), "\n"), strings.Split(s, "\n"); len(a) != len(b) {
 		t.Fatalf("行数变化：%d → %d", len(a), len(b))
 	} else {
 		diff := 0
@@ -80,11 +80,11 @@ func TestSetLists(t *testing.T) {
 	}
 	const want = `exclude_apps: [com.bank.app, a b]`
 	// 模板（单行 []，带上方注释）：只改这一行
-	s := apply(config.Template)
+	s := apply(config.Template())
 	if !strings.Contains(s, "  "+want+"\n") || !strings.Contains(s, "# Android：不经 TUN 的应用") {
 		t.Fatalf("模板：\n%s", s)
 	}
-	if a, b := strings.Count(config.Template, "\n"), strings.Count(s, "\n"); a != b {
+	if a, b := strings.Count(config.Template(), "\n"), strings.Count(s, "\n"); a != b {
 		t.Fatalf("行数变化：%d → %d", a, b)
 	}
 	// 多行写法改为单行，其余行保留
@@ -105,7 +105,7 @@ func TestSetLists(t *testing.T) {
 			ExcludeApps []string `yaml:"exclude_apps"`
 		} `yaml:"tun"`
 	}
-	if err := yaml.Unmarshal([]byte(apply(config.Template)), &c); err != nil || len(c.TUN.ExcludeApps) != 2 || c.TUN.ExcludeApps[1] != "a b" {
+	if err := yaml.Unmarshal([]byte(apply(config.Template())), &c); err != nil || len(c.TUN.ExcludeApps) != 2 || c.TUN.ExcludeApps[1] != "a b" {
 		t.Fatalf("%v %+v", err, c)
 	}
 	// 嵌套结构无法自动改写

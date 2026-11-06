@@ -2,8 +2,7 @@ package singbox
 
 import (
 	"context"
-	"errors"
-	"fmt"
+	"github.com/Foreverwzh/velum/core/pkg/i18n"
 	C "github.com/sagernet/sing-box/constant"
 	"sync"
 	"time"
@@ -17,7 +16,7 @@ func (e *Engine) runtime() (adapter.OutboundManager, context.Context, error) {
 	e.lmu.Lock()
 	defer e.lmu.Unlock()
 	if e.instance == nil {
-		return nil, nil, errors.New("引擎未运行")
+		return nil, nil, i18n.New("引擎未运行")
 	}
 	return e.instance.Outbound(), e.bctx, nil
 }
@@ -30,14 +29,14 @@ func (e *Engine) SelectMember(group, member string) error {
 	}
 	ob, ok := om.Outbound(group)
 	if !ok {
-		return fmt.Errorf("策略组 %q 不存在", group)
+		return i18n.Errorf("策略组 %q 不存在", group)
 	}
 	sel, ok := ob.(interface{ SelectOutbound(string) bool })
 	if !ok {
-		return fmt.Errorf("策略组 %q 不可手动选择（自动测速组）", group)
+		return i18n.Errorf("策略组 %q 不可手动选择（自动测速组）", group)
 	}
 	if !sel.SelectOutbound(member) {
-		return fmt.Errorf("%q 不是策略组 %q 的成员", member, group)
+		return i18n.Errorf("%q 不是策略组 %q 的成员", member, group)
 	}
 	return nil
 }
@@ -65,11 +64,11 @@ func (e *Engine) TestGroup(ctx context.Context, group string) (map[string]int, e
 	} else {
 		ob, ok := om.Outbound(group)
 		if !ok {
-			return nil, fmt.Errorf("策略组 %q 不存在", group)
+			return nil, i18n.Errorf("策略组 %q 不存在", group)
 		}
 		g, ok := ob.(adapter.OutboundGroup)
 		if !ok {
-			return nil, fmt.Errorf("%q 不是策略组", group)
+			return nil, i18n.Errorf("%q 不是策略组", group)
 		}
 		if ut, ok := ob.(adapter.URLTestGroup); ok {
 			// 组内正在周期测速时 URLTest 会直接返回空结果，此时退回逐个成员测速

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"fmt"
+	"github.com/Foreverwzh/velum/core/pkg/i18n"
 	"regexp"
 	"strings"
 
@@ -324,13 +325,13 @@ func (n *RuleNode) ToMatch() (ir.Match, []string, error) {
 	if n.Leaf != nil {
 		r := ConvertEntries([]Entry{*n.Leaf})
 		if len(r.Conds) != 1 || len(r.Unsupported) > 0 {
-			return ir.Match{}, nil, fmt.Errorf("规则类型 %s 无对应", n.Leaf.Type)
+			return ir.Match{}, nil, i18n.Errorf("规则类型 %s 无对应", n.Leaf.Type)
 		}
 		c := r.Conds[0]
 		c.NoResolve = n.Leaf.NoResolve || !c.HasIP()
 		var notes []string
 		if r.Degraded[n.Leaf.Type] > 0 {
-			notes = append(notes, "通配符转正则")
+			notes = append(notes, i18n.T("通配符转正则"))
 		}
 		return ir.Leaf(c), notes, nil
 	}

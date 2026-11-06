@@ -33,7 +33,7 @@ class VelumVpnService : VpnService() {
         /** 建立 VPN，返回 TUN 的 FD（所有权交给调用方）。在核心的线程上调用。 */
         fun open(ctx: Context, req: JSONObject): Int {
             if (prepare(ctx) != null) {
-                throw IllegalStateException("尚未授权 Velum 建立 VPN，请在 App 中开启 TUN")
+                throw IllegalStateException(ctx.getString(R.string.vpn_not_authorized))
             }
             val svc = instance ?: run {
                 val pending = created.get()
@@ -98,7 +98,7 @@ class VelumVpnService : VpnService() {
             strings(req, "exclude_apps").forEach { app -> ignoreMissing { b.addDisallowedApplication(app) } }
         }
         b.setMetered(false)
-        val pfd = b.establish() ?: throw IllegalStateException("系统拒绝建立 VPN（可能未授权）")
+        val pfd = b.establish() ?: throw IllegalStateException(getString(R.string.vpn_refused))
         return pfd.detachFd()
     }
 
@@ -109,14 +109,14 @@ class VelumVpnService : VpnService() {
 
     private fun startForeground() {
         val nm = getSystemService(NotificationManager::class.java)
-        nm.createNotificationChannel(NotificationChannel(CHANNEL, "Velum 运行状态", NotificationManager.IMPORTANCE_LOW))
+        nm.createNotificationChannel(NotificationChannel(CHANNEL, getString(R.string.channel_name), NotificationManager.IMPORTANCE_LOW))
         val open = PendingIntent.getActivity(
             this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
         val n = Notification.Builder(this, CHANNEL)
             .setSmallIcon(R.drawable.ic_stat_velum)
-            .setContentTitle("Velum 正在保护")
-            .setContentText("所有应用的流量经 Velum 分流")
+            .setContentTitle(getString(R.string.notification_title))
+            .setContentText(getString(R.string.notification_text))
             .setContentIntent(open)
             .setOngoing(true)
             .build()

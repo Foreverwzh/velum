@@ -5,7 +5,7 @@ import (
 	"context"
 	"crypto/subtle"
 	"errors"
-	"fmt"
+	"github.com/Foreverwzh/velum/core/pkg/i18n"
 	"net"
 	"net/netip"
 	"net/url"
@@ -34,15 +34,15 @@ func parseTCP(addr string) (t tcpAddr, ok bool, err error) {
 	}
 	u, err := url.Parse(addr)
 	if err != nil {
-		return t, true, fmt.Errorf("本地接口地址无效：%w", err)
+		return t, true, i18n.Errorf("本地接口地址无效：%w", err)
 	}
 	ap, err := netip.ParseAddrPort(u.Host)
 	if err != nil || !ap.Addr().IsLoopback() {
-		return t, true, fmt.Errorf("本地接口只能监听回环地址：%s", u.Host)
+		return t, true, i18n.Errorf("本地接口只能监听回环地址：%s", u.Host)
 	}
 	t = tcpAddr{hostport: u.Host, token: u.Query().Get("token")}
 	if t.token == "" {
-		return t, true, errors.New("本地接口地址缺少令牌")
+		return t, true, i18n.New("本地接口地址缺少令牌")
 	}
 	return t, true, nil
 }

@@ -3,11 +3,12 @@ import { ArrowRightLeft, Check, Cpu, MapPin, Route, X } from "lucide-react";
 import { api, errText, type OverlayEntry, type WhyResponse } from "../api";
 import type { Refresh } from "../App";
 import { Button, Chain, IconButton, Notice, TextInput, chainSteps, cx } from "./ui";
+import { t } from "../i18n";
 
 export type Scope = "suffix" | "exact" | "sub";
 export type RuleAction = "direct" | "host" | "bypass" | "process";
 
-const scopeLabel: Record<Scope, string> = { suffix: "含子域", exact: "仅此域名", sub: "仅子域" };
+const scopeLabel: Record<Scope, string> = { suffix: t("含子域"), exact: t("仅此域名"), sub: t("仅子域") };
 
 /** 把 URL、host:port 等输入整理为主机名或网段。 */
 export function cleanTarget(raw: string): string {
@@ -113,53 +114,53 @@ export function RuleDialog({ initial = "", process, refresh, onClose, onSaved }:
   };
 
   const actions: { id: RuleAction; icon: typeof Route; title: string; hint: string; show: boolean }[] = [
-    { id: "direct", icon: Route, title: "直连", hint: "不经代理节点直接连接，并加入系统代理豁免；DNS 交给系统解析。适合公司内网、本地开发服务", show: true },
-    { id: "host", icon: MapPin, title: "固定解析到", hint: "无论 DNS 返回什么，都连到指定 IP 并直连（不修改 /etc/hosts）", show: !net },
-    { id: "bypass", icon: ArrowRightLeft, title: "不经系统代理", hint: "浏览器等遵守系统代理的应用直接连接，请求不进入 Velum（规则与 hosts 覆盖对它们不再生效）", show: true },
-    { id: "process", icon: Cpu, title: "这个进程直连", hint: `${process?.split(/[\\/]/).pop()} 的所有连接都直连`, show: !!process },
+    { id: "direct", icon: Route, title: t("直连"), hint: t("不经代理节点直接连接，并加入系统代理豁免；DNS 交给系统解析。适合公司内网、本地开发服务"), show: true },
+    { id: "host", icon: MapPin, title: t("固定解析到"), hint: t("无论 DNS 返回什么，都连到指定 IP 并直连（不修改 /etc/hosts）"), show: !net },
+    { id: "bypass", icon: ArrowRightLeft, title: t("不经系统代理"), hint: t("浏览器等遵守系统代理的应用直接连接，请求不进入 Velum（规则与 hosts 覆盖对它们不再生效）"), show: true },
+    { id: "process", icon: Cpu, title: t("这个进程直连"), hint: t("{0} 的所有连接都直连", process?.split(/[\\/]/).pop()), show: !!process },
   ];
 
   return (
     <div className="fixed inset-0 z-50 flex justify-center bg-black/25 pt-[10vh] backdrop-blur-[2px] animate-[fade_120ms_ease-out]" onMouseDown={onClose}>
-      <div onMouseDown={(e) => e.stopPropagation()} role="dialog" aria-label="加入本地规则"
+      <div onMouseDown={(e) => e.stopPropagation()} role="dialog" aria-label={t("加入本地规则")}
         className="flex h-fit max-h-[80vh] w-[min(520px,calc(100vw-48px))] flex-col overflow-hidden rounded-xl border border-line-strong bg-raised shadow-pop">
         <div className="flex items-center gap-2 border-b border-line px-4 py-3">
           <div className="flex-1">
-            <div className="text-[14px] font-semibold">加入本地规则</div>
-            <div className="text-[11.5px] text-fg-3">写入 overlay.yaml，优先于订阅，更新订阅不会覆盖</div>
+            <div className="text-[14px] font-semibold">{t("加入本地规则")}</div>
+            <div className="text-[11.5px] text-fg-3">{t("写入 overlay.yaml，优先于订阅，更新订阅不会覆盖")}</div>
           </div>
-          <IconButton icon={X} label="关闭" onClick={onClose} />
+          <IconButton icon={X} label={t("关闭")} onClick={onClose} />
         </div>
 
         {done ? (
           <div className="flex flex-col gap-4 overflow-y-auto px-4 py-4">
-            <Notice tone="accent" icon={Check}>已加入并生效</Notice>
-            <Field label="写入的条目">
+            <Notice tone="accent" icon={Check}>{t("已加入并生效")}</Notice>
+            <Field label={t("写入的条目")}>
               <div className="flex flex-col gap-1">
                 {done.entries.map((e) => <code key={e.kind + e.value} className="selectable font-mono text-[12px] text-fg-2">{entryText(e)}</code>)}
               </div>
             </Field>
             {done.why && (
-              <Field label={`现在 ${done.why.report.target.domain ?? done.why.report.target.ip} 会这样走`}>
-                {done.why.report.sys_proxy.bypassed && <div className="mb-1.5 text-[12px] text-fg-2">遵守系统代理的应用：直接连接，不经 Velum</div>}
-                <Chain className="flex-wrap" steps={done.why.report.decision.action === "reject" ? [{ label: "拦截", kind: "reject" }]
+              <Field label={t("现在 {0} 会这样走", done.why.report.target.domain ?? done.why.report.target.ip)}>
+                {done.why.report.sys_proxy.bypassed && <div className="mb-1.5 text-[12px] text-fg-2">{t("遵守系统代理的应用：直接连接，不经 Velum")}</div>}
+                <Chain className="flex-wrap" steps={done.why.report.decision.action === "reject" ? [{ label: t("拦截"), kind: "reject" }]
                   : chainSteps(done.why.chain?.length ? done.why.chain : [done.why.report.decision.outbound ?? "?"],
                     { label: done.why.report.decision.rule_index >= 0 ? `#${done.why.report.decision.rule_index}` : "final" })} />
-                {done.why.report.decision.override_address && <div className="mt-1.5 text-[12px] text-fg-3">目标改写为 <code className="font-mono">{done.why.report.decision.override_address}</code></div>}
+                {done.why.report.decision.override_address && <div className="mt-1.5 text-[12px] text-fg-3">{t("目标改写为")}{" "}<code className="font-mono">{done.why.report.decision.override_address}</code></div>}
               </Field>
             )}
-            <div className="flex justify-end"><Button variant="primary" onClick={onClose} autoFocus>完成</Button></div>
+            <div className="flex justify-end"><Button variant="primary" onClick={onClose} autoFocus>{t("完成")}</Button></div>
           </div>
         ) : (
           <form className="flex flex-col gap-4 overflow-y-auto px-4 py-4" onSubmit={(e) => { e.preventDefault(); void save(); }}>
-            <Field label="目标">
+            <Field label={t("目标")}>
               <TextInput value={raw} onChange={(e) => setRaw(e.target.value)} autoFocus={!initial}
-                placeholder="域名、网址、IP 或网段，如 corp.example.com、10.0.0.0/8" invalid={!!target && !domainOK} />
-              {!!target && !domainOK && <div className="mt-1 text-[11.5px] text-err">请输入完整域名（如 example.com）、IP 或网段</div>}
+                placeholder={t("域名、网址、IP 或网段，如 corp.example.com、10.0.0.0/8")} invalid={!!target && !domainOK} />
+              {!!target && !domainOK && <div className="mt-1 text-[11.5px] text-err">{t("请输入完整域名（如 example.com）、IP 或网段")}</div>}
             </Field>
 
             {bases.length > 0 && action !== "host" && action !== "process" && (
-              <Field label="范围">
+              <Field label={t("范围")}>
                 <div className="flex flex-wrap gap-1.5">
                   {bases.map((b) => (
                     <Chip key={b} on={base === b} onClick={() => setBase(b)}><span className="font-mono">{b}</span></Chip>
@@ -177,7 +178,7 @@ export function RuleDialog({ initial = "", process, refresh, onClose, onSaved }:
               </Field>
             )}
 
-            <Field label="动作">
+            <Field label={t("动作")}>
               <div className="flex flex-col gap-1.5">
                 {actions.filter((a) => a.show).map((a) => (
                   <label key={a.id}
@@ -189,7 +190,7 @@ export function RuleDialog({ initial = "", process, refresh, onClose, onSaved }:
                       <span className="block text-[12.5px] font-medium">{a.title}</span>
                       <span className="block text-[11.5px] text-fg-3">{a.hint}</span>
                       {a.id === "host" && action === "host" && (
-                        <TextInput className="mt-2" value={ip} onChange={(e) => setIp(e.target.value)} placeholder="IP 地址，如 127.0.0.1" autoFocus />
+                        <TextInput className="mt-2" value={ip} onChange={(e) => setIp(e.target.value)} placeholder={t("IP 地址，如 127.0.0.1")} autoFocus />
                       )}
                     </span>
                   </label>
@@ -199,8 +200,8 @@ export function RuleDialog({ initial = "", process, refresh, onClose, onSaved }:
 
             {err && <Notice tone="err">{err}</Notice>}
             <div className="flex justify-end gap-2">
-              <Button type="button" variant="ghost" onClick={onClose}>取消</Button>
-              <Button type="submit" variant="primary" loading={busy} disabled={!valid}>加入并生效</Button>
+              <Button type="button" variant="ghost" onClick={onClose}>{t("取消")}</Button>
+              <Button type="submit" variant="primary" loading={busy} disabled={!valid}>{t("加入并生效")}</Button>
             </div>
           </form>
         )}
@@ -211,18 +212,18 @@ export function RuleDialog({ initial = "", process, refresh, onClose, onSaved }:
 
 function scopeHint(base: string, scope: Scope) {
   if (!base) return "";
-  return scope === "suffix" ? `${base} 以及 a.${base}、b.a.${base} 等所有子域`
-    : scope === "exact" ? `只有 ${base}，不含子域` : `a.${base} 等子域，不含 ${base} 本身`;
+  return scope === "suffix" ? t("{0} 以及 a.{1}、b.a.{2} 等所有子域", base, base, base)
+    : scope === "exact" ? t("只有 {0}，不含子域", base) : t("a.{0} 等子域，不含 {1} 本身", base, base);
 }
 
 /** 条目的可读形式（用于结果展示）。 */
 export function entryText(e: OverlayEntry): string {
   switch (e.kind) {
-    case "domain": { const d = parseDomain(e.value); return `直连  ${d.name}（${scopeLabel[d.scope]}）`; }
-    case "cidr": return `直连  ${e.value}`;
+    case "domain": { const d = parseDomain(e.value); return t("直连  {0}（{1}）", d.name, scopeLabel[d.scope]); }
+    case "cidr": return t("直连  {0}", e.value);
     case "host": return `${e.value} → ${e.ip}`;
-    case "process": return `直连  进程 ${e.value}`;
-    default: return `不经系统代理  ${e.value}`;
+    case "process": return t("直连  进程 {0}", e.value);
+    default: return t("不经系统代理  {0}", e.value);
   }
 }
 

@@ -1,5 +1,6 @@
 // 首页（极简视图）：普通用户也能看懂的状态、总开关、分流选择、一键修复。与桌面端 Simple 视图口径一致。
 
+import '../i18n.dart';
 import 'package:flutter/material.dart';
 
 import '../api.dart';
@@ -34,7 +35,7 @@ class _HomePageState extends State<HomePage> {
   Future<void> _toggle(bool on) => _do('tun', () async {
         final api = Velum.read(context).api;
         if (on) {
-          if (!await Native.prepareVpn()) throw ApiError('需要允许 Velum 建立 VPN 才能接管流量');
+          if (!await Native.prepareVpn()) throw ApiError(t('需要允许 Velum 建立 VPN 才能接管流量'));
           await Native.requestNotifications();
         }
         await api.setSwitch('tun', on ? 'on' : 'off');
@@ -56,9 +57,9 @@ class _HomePageState extends State<HomePage> {
         children: [
           if (s != null && !hasSub)
             Section(
-              title: '欢迎使用 Velum',
+              title: t('欢迎使用 Velum'),
               child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                Text('填写订阅地址即可开始使用。订阅地址由提供订阅的人给你。', style: TextStyle(color: Theme.of(context).colorScheme.outline)),
+                Text(t('填写订阅地址即可开始使用。订阅地址由提供订阅的人给你。'), style: TextStyle(color: Theme.of(context).colorScheme.outline)),
                 const SizedBox(height: 8),
                 SubscriptionForm(onSaved: v.refresh),
               ]),
@@ -67,7 +68,7 @@ class _HomePageState extends State<HomePage> {
           if (s?['network'] case final Json n) _NetworkCard(n),
           if (selectable.isNotEmpty)
             Section(
-              title: '分流',
+              title: t('分流'),
               trailing: TextButton(
                 onPressed: _busy != null
                     ? null
@@ -76,7 +77,7 @@ class _HomePageState extends State<HomePage> {
                           final delays = (r['delays'] as Map?)?.cast<String, dynamic>() ?? {};
                           setState(() => _failed = {for (final e in delays.entries) if ((e.value as num) < 0) e.key: true});
                         }),
-                child: Text(_busy == 'test' ? '测速中…' : '测速'),
+                child: Text(_busy == 'test' ? t('测速中…') : t('测速')),
               ),
               padding: const EdgeInsets.fromLTRB(16, 4, 8, 8),
               child: GroupList(groups: groups, selectable: selectable, failed: _failed, enabled: _busy == null,
@@ -94,7 +95,7 @@ class _HomePageState extends State<HomePage> {
                             final r = await v.api.repair();
                             setState(() => _steps = ((r['steps'] as List?) ?? []).cast<Json>());
                           }),
-                  label: Text(_busy == 'repair' ? '修复中…' : '一键修复'),
+                  label: Text(_busy == 'repair' ? t('修复中…') : t('一键修复')),
                 ),
               ),
               const SizedBox(width: 12),
@@ -102,14 +103,14 @@ class _HomePageState extends State<HomePage> {
                 child: OutlinedButton.icon(
                   icon: const Icon(Icons.refresh),
                   onPressed: s == null || !hasSub || _busy != null ? null : () => _do('update', v.api.update),
-                  label: Text(_busy == 'update' ? '更新中…' : '更新订阅'),
+                  label: Text(_busy == 'update' ? t('更新中…') : t('更新订阅')),
                 ),
               ),
             ]),
           ),
           if (_steps case final steps?)
             Section(
-              title: '修复结果',
+              title: t('修复结果'),
               child: Column(children: [
                 for (final st in steps)
                   ListTile(
@@ -140,7 +141,7 @@ class _StatusCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final color = toneColor(context, h.tone);
     final want = status?['want_tun'] == true;
-    final t = Theme.of(context).textTheme;
+    final theme = Theme.of(context).textTheme;
     return Section(
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         Row(children: [
@@ -153,8 +154,8 @@ class _StatusCard extends StatelessWidget {
           const SizedBox(width: 16),
           Expanded(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(h.title, style: t.titleLarge),
-              Text(h.detail, style: t.bodyMedium?.copyWith(color: Theme.of(context).colorScheme.outline)),
+              Text(h.title, style: theme.titleLarge),
+              Text(h.detail, style: theme.bodyMedium?.copyWith(color: Theme.of(context).colorScheme.outline)),
             ]),
           ),
         ]),
@@ -162,8 +163,8 @@ class _StatusCard extends StatelessWidget {
         SizedBox(
           height: 52,
           child: want
-              ? OutlinedButton(onPressed: onToggle == null ? null : () => onToggle!(false), child: Text(busy ? '正在断开…' : '断开'))
-              : FilledButton(onPressed: onToggle == null ? null : () => onToggle!(true), child: Text(busy ? '正在连接…' : '连接')),
+              ? OutlinedButton(onPressed: onToggle == null ? null : () => onToggle!(false), child: Text(busy ? t('正在断开…') : t('断开')))
+              : FilledButton(onPressed: onToggle == null ? null : () => onToggle!(true), child: Text(busy ? t('正在连接…') : t('连接'))),
         ),
       ]),
     );
@@ -178,12 +179,12 @@ class _NetworkCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final captive = n['captive'] as String?;
     return Section(
-      title: '网络环境',
+      title: t('网络环境'),
       child: Column(children: [
-        KV('当前网络', Text((n['primary_interface'] as String?)?.isNotEmpty == true ? n['primary_interface'] as String : '—')),
+        KV(t('当前网络'), Text((n['primary_interface'] as String?)?.isNotEmpty == true ? n['primary_interface'] as String : '—')),
         KV(
-          '连通性',
-          Text(switch (captive) { 'online' => '正常', 'captive' => '需要网页认证', 'offline' => '离线', _ => '检测中…' },
+          t('连通性'),
+          Text(switch (captive) { 'online' => t('正常'), 'captive' => t('需要网页认证'), 'offline' => t('离线'), _ => t('检测中…') },
               style: TextStyle(color: switch (captive) { 'online' => Colors.green, 'captive' => Colors.orange, 'offline' => Theme.of(context).colorScheme.error, _ => null })),
         ),
       ]),

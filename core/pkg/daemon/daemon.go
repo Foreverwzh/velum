@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/Foreverwzh/velum/core/pkg/i18n"
 	"io"
 	"io/fs"
 	"log"
@@ -203,7 +204,7 @@ func (d *Daemon) build(mode fetchMode) (*state, error) {
 	case cfg.Subscription.File != "":
 		data, err = userfs.ReadFile(cfg.Subscription.File)
 		if err != nil {
-			return nil, fmt.Errorf("读取订阅文件：%w", err)
+			return nil, i18n.Errorf("读取订阅文件：%w", err)
 		}
 		st.sub = rpc.SubscriptionStatus{Source: cfg.Subscription.File, Origin: "file", FetchedAt: modTime(cfg.Subscription.File)}
 		baseDirs = append(baseDirs, filepath.Dir(cfg.Subscription.File))
@@ -211,7 +212,7 @@ func (d *Daemon) build(mode fetchMode) (*state, error) {
 		var res source.Result
 		data, res, err = f.Get("subscription", cfg.Subscription.URL, subTTL)
 		if err != nil {
-			return nil, fmt.Errorf("拉取订阅：%w", err)
+			return nil, i18n.Errorf("拉取订阅：%w", err)
 		}
 		st.sub = rpc.SubscriptionStatus{Source: redact(cfg.Subscription.URL), Origin: res.Origin, FetchedAt: res.FetchedAt, FetchErr: res.Err,
 			Info: f.Info("subscription", cfg.Subscription.URL)}
@@ -225,7 +226,7 @@ func (d *Daemon) build(mode fetchMode) (*state, error) {
 		sub, err = subscription.Parse(data, subscription.Options{File: filepath.Base(st.sub.Source), BaseDirs: baseDirs,
 			ReadFile: f.ProviderReader(), GeoRuleSetURL: cfg.Subscription.GeoRuleSetURL})
 		if err != nil {
-			return nil, fmt.Errorf("解析订阅：%w", err)
+			return nil, i18n.Errorf("解析订阅：%w", err)
 		}
 	}
 	var rsWarnings []ir.Warning
@@ -242,7 +243,7 @@ func (d *Daemon) build(mode fetchMode) (*state, error) {
 		return nil, err
 	}
 	if d.LoopbackListenOnly && !cfg.ListenAddr().Addr().IsLoopback() {
-		return nil, fmt.Errorf("拒绝 listen %s：该入口没有认证，对外监听就是开放代理；改回 127.0.0.1，对外提供请用带用户名和密码的 listen_public", cfg.Listen)
+		return nil, i18n.Errorf("拒绝 listen %s：该入口没有认证，对外监听就是开放代理；改回 127.0.0.1，对外提供请用带用户名和密码的 listen_public", cfg.Listen)
 	}
 	opts := compiler.Options{Mode: compiler.ModeProxy, Listen: cfg.ListenAddr(), Platform: runtime.GOOS}
 	if a, ok := cfg.PublicListenAddr(); ok {
@@ -271,7 +272,7 @@ func (d *Daemon) build(mode fetchMode) (*state, error) {
 	switch {
 	case ns.Enabled && ns.CaptivePortal && captive == netsense.Captive && (st.sysOn || st.tunOn):
 		st.sysOn, st.tunOn = false, false
-		st.paused = "连接的网络需要网页认证（Captive Portal），已暂停接管；认证完成后自动恢复"
+		st.paused = i18n.T("连接的网络需要网页认证（Captive Portal），已暂停接管；认证完成后自动恢复")
 	case st.tunOn && d.TUNUnavailable != "":
 		st.tunOn = false
 		st.paused = d.TUNUnavailable
@@ -281,7 +282,7 @@ func (d *Daemon) build(mode fetchMode) (*state, error) {
 		st.paused = helperProblem
 	case ns.Enabled && ns.YieldToFullVPN && st.tunOn && env.FullTunnel() != nil:
 		st.tunOn = false // 系统代理不受影响：遵守系统代理的应用仍经 Velum
-		st.paused = fmt.Sprintf("检测到 %s 全局接管（其他 VPN 或代理工具的 TUN），已暂停 TUN 让路；退出该工具后自动恢复", env.FullTunnel().Iface)
+		st.paused = i18n.T("检测到 %s 全局接管（其他 VPN 或代理工具的 TUN），已暂停 TUN 让路；退出该工具后自动恢复", env.FullTunnel().Iface)
 	}
 	if ns.Enabled {
 		e := &compiler.Environment{}
@@ -301,8 +302,8 @@ func (d *Daemon) build(mode fetchMode) (*state, error) {
 		e.PhysicalDNS = d.physDNS
 		d.mu.RUnlock()
 		opts.Env = e
-	} else if runtime.GOOS == "android" {
-		// Android 没有 /etc/resolv.conf，系统 DNS 只能用平台层报告的当前网络 DNS（见 netMonitor）
+	} else if runtime.GOOS == "android" || runtime.GOOS == "ios" {
+		// 移动端没有 /etc/resolv.conf，系统 DNS 只能用平台层报告的当前网络 DNS（见 netMonitor）
 		d.mu.RLock()
 		opts.Env = &compiler.Environment{PhysicalDNS: d.physDNS}
 		d.mu.RUnlock()
@@ -364,9 +365,9 @@ func checkHelper(sock string) string {
 		_ = c.Close()
 		return ""
 	case errors.Is(err, helper.ErrVersionMismatch):
-		return "TUN 组件需要更新（Velum 已更新，组件还是旧版本），已暂停 TUN；在 TUN 开关或「系统组件」中更新即可"
+		return i18n.T("TUN 组件需要更新（Velum 已更新，组件还是旧版本），已暂停 TUN；在 TUN 开关或「系统组件」中更新即可")
 	default:
-		return fmt.Sprintf("TUN 组件不可用（%v），已暂停 TUN；在「系统组件」中重新安装", err)
+		return i18n.T("TUN 组件不可用（%v），已暂停 TUN；在「系统组件」中重新安装", err)
 	}
 }
 
@@ -541,7 +542,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 		return err
 	}
 	if ipc.Alive(d.Paths.Socket) {
-		return fmt.Errorf("velumd 已在运行（%s）", d.Paths.Socket)
+		return i18n.Errorf("velumd 已在运行（%s）", d.Paths.Socket)
 	}
 	ln, err := ipc.Listen(d.Paths.Socket, ipc.ListenOptions{AllowSIDs: d.AllowSIDs, SocketMode: d.SocketMode})
 	if err != nil {
@@ -659,7 +660,7 @@ func (d *Daemon) netMonitor(ctx context.Context) {
 		switch {
 		case st != nil && ns.Enabled:
 			d.senseOnce(ctx, ns, &tracker)
-		case st != nil && runtime.GOOS == "android":
+		case st != nil && (runtime.GOOS == "android" || runtime.GOOS == "ios"):
 			// 关闭了 NetworkSense 仍需跟踪当前网络的 DNS（没有 resolv.conf），但不做 Captive 探测等其他感知
 			d.senseOnce(ctx, config.NetworkSense{}, &tracker)
 		}
@@ -731,7 +732,7 @@ func (d *Daemon) senseOnce(ctx context.Context, ns config.NetworkSense, tr *prob
 		rx := d.lastRx
 		d.trMu.Unlock()
 		if captive == netsense.Offline && time.Since(rx) < 30*time.Second {
-			captive, detail = netsense.Online, "探测未通过，但仍在正常收发数据（"+detail+"）"
+			captive, detail = netsense.Online, i18n.T("探测未通过，但仍在正常收发数据（")+detail+"）"
 		}
 	}
 	if a.Key() == prevKey && captive == prevCaptive && !physChanged {
@@ -909,7 +910,7 @@ func (d *Daemon) setChannel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.Channel != "" && req.Channel != update.Stable && req.Channel != update.Beta {
-		writeErr(w, http.StatusBadRequest, fmt.Errorf("更新通道无效：%q（可选 stable / beta）", req.Channel))
+		writeErr(w, http.StatusBadRequest, i18n.Errorf("更新通道无效：%q（可选 stable / beta）", req.Channel))
 		return
 	}
 	d.mu.Lock()
@@ -934,7 +935,7 @@ func (d *Daemon) syncSysProxy(st *state) {
 	defer d.invalidateEffective()
 	if d.SysProxy == nil {
 		if st.plan.SysProxy.Enabled {
-			d.setErr(errors.New("当前平台不支持接管系统代理"))
+			d.setErr(i18n.New("当前平台不支持接管系统代理"))
 		}
 		return
 	}
@@ -944,7 +945,7 @@ func (d *Daemon) syncSysProxy(st *state) {
 		}
 		if err := d.SysProxy.Apply(st.plan.SysProxy); err != nil {
 			d.setSysApplied(nil)
-			d.setErr(fmt.Errorf("接管系统代理：%w", err))
+			d.setErr(i18n.Errorf("接管系统代理：%w", err))
 			return
 		}
 		d.setSysApplied(&st.plan.SysProxy)
@@ -954,7 +955,7 @@ func (d *Daemon) syncSysProxy(st *state) {
 	d.setSysApplied(nil)
 	if d.SysProxy.HasSnapshot() {
 		if err := d.SysProxy.Restore(); err != nil {
-			d.setErr(fmt.Errorf("还原系统代理：%w", err))
+			d.setErr(i18n.Errorf("还原系统代理：%w", err))
 			return
 		}
 		d.Logger.Printf("系统代理已还原")
@@ -1081,6 +1082,7 @@ func (d *Daemon) handler() (h http.Handler) {
 	})
 	mux.HandleFunc("POST /v1/repair", d.repair)
 	mux.HandleFunc("POST /v1/switches", d.setSwitches)
+	mux.HandleFunc("PUT /v1/language", d.setLanguage)
 	mux.HandleFunc("GET /v1/connections", func(w http.ResponseWriter, r *http.Request) {
 		limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 		if limit <= 0 {
@@ -1237,7 +1239,7 @@ func (d *Daemon) why(w http.ResponseWriter, r *http.Request) {
 	for _, s := range req.Resolved {
 		a, err := netip.ParseAddr(strings.TrimSpace(s))
 		if err != nil {
-			writeErr(w, http.StatusBadRequest, fmt.Errorf("--resolve 地址无效：%s", s))
+			writeErr(w, http.StatusBadRequest, i18n.Errorf("--resolve 地址无效：%s", s))
 			return
 		}
 		t.ResolvedIPs = append(t.ResolvedIPs, a)
@@ -1247,7 +1249,7 @@ func (d *Daemon) why(w http.ResponseWriter, r *http.Request) {
 	st := d.st
 	d.mu.RUnlock()
 	if st == nil {
-		writeErr(w, http.StatusServiceUnavailable, errors.New("配置尚未成功加载，见 vlu status"))
+		writeErr(w, http.StatusServiceUnavailable, i18n.New("配置尚未成功加载，见 vlu status"))
 		return
 	}
 	var resp rpc.WhyResponse
@@ -1386,7 +1388,7 @@ func (d *Daemon) putSubscription(w http.ResponseWriter, r *http.Request) {
 	if err := d.Reload(r.Context()); err != nil {
 		_ = userfs.WriteFileAtomic(d.Paths.Config, old, 0o600)
 		_ = d.Reload(r.Context())
-		writeErr(w, http.StatusUnprocessableEntity, fmt.Errorf("应用失败，已改回原配置：%w", err))
+		writeErr(w, http.StatusUnprocessableEntity, i18n.Errorf("应用失败，已改回原配置：%w", err))
 		return
 	}
 	writeJSON(w, d.status())
@@ -1427,7 +1429,7 @@ func (d *Daemon) putTUNApps(w http.ResponseWriter, r *http.Request) {
 	if err := d.Reload(r.Context()); err != nil {
 		_ = userfs.WriteFileAtomic(d.Paths.Config, old, 0o600)
 		_ = d.Reload(r.Context())
-		writeErr(w, http.StatusUnprocessableEntity, fmt.Errorf("应用失败，已改回原配置：%w", err))
+		writeErr(w, http.StatusUnprocessableEntity, i18n.Errorf("应用失败，已改回原配置：%w", err))
 		return
 	}
 	writeJSON(w, d.status())
@@ -1455,6 +1457,23 @@ func modeName(sys, tun bool) string {
 }
 
 // setSwitches 切换系统代理 / TUN：保存到 state.json（重启后保持），不改 config.yaml；失败时恢复原状态。
+// setLanguage 由界面在启动时调用：核心返回的错误、告警跟随界面的语言。语言变化时重新加载，告警才会重新生成。
+func (d *Daemon) setLanguage(w http.ResponseWriter, r *http.Request) {
+	var req rpc.LanguageRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	lang := i18n.Normalize(req.Language)
+	if lang != i18n.Locale() {
+		i18n.SetLocale(lang)
+		if err := d.Reload(r.Context()); err != nil {
+			d.Logger.Printf("切换语言后重新加载失败：%v", err)
+		}
+	}
+	writeJSON(w, d.status())
+}
+
 func (d *Daemon) setSwitches(w http.ResponseWriter, r *http.Request) {
 	var req rpc.SwitchRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -1471,7 +1490,7 @@ func (d *Daemon) setSwitches(w http.ResponseWriter, r *http.Request) {
 			b := v == "on"
 			return &b, nil
 		}
-		return nil, fmt.Errorf("开关取值无效：%q（可选 on / off / config）", v)
+		return nil, i18n.Errorf("开关取值无效：%q（可选 on / off / config）", v)
 	}
 	d.mu.Lock()
 	prevSys, prevTUN, prevTrial := d.sysOverride, d.tunOverride, d.trial
@@ -1519,21 +1538,21 @@ func (d *Daemon) nextTrial(req rpc.SwitchRequest) (*tunTrial, string, error) {
 		return d.trial, "", nil
 	case "try":
 		if !d.TUNTrials {
-			return nil, "", errors.New("这个平台不支持试运行 TUN")
+			return nil, "", i18n.New("这个平台不支持试运行 TUN")
 		}
 		if d.trial != nil {
-			return nil, "", errors.New("TUN 已在试运行")
+			return nil, "", i18n.New("TUN 已在试运行")
 		}
 		if d.st != nil && d.st.tunOn {
-			return nil, "", errors.New("TUN 已开启，不需要试运行")
+			return nil, "", i18n.New("TUN 已开启，不需要试运行")
 		}
 		return &tunTrial{deadline: req.TrialDeadline, session: req.TrialSession}, "", nil
 	case "confirm":
 		if d.trial == nil {
-			return nil, "", errors.New("没有进行中的试运行（可能已超时回退）")
+			return nil, "", i18n.New("没有进行中的试运行（可能已超时回退）")
 		}
 		if d.trial.session != "" && d.trial.session == req.TrialSession && !req.TrialForce {
-			return nil, "", errors.New("请从新开的 SSH 连接确认：只有这样才能证明新的入站连接可用（--force 可跳过）")
+			return nil, "", i18n.New("请从新开的 SSH 连接确认：只有这样才能证明新的入站连接可用（--force 可跳过）")
 		}
 		return nil, "on", nil
 	}
@@ -1552,14 +1571,14 @@ func (d *Daemon) selectMember(w http.ResponseWriter, r *http.Request) {
 	st := d.st
 	d.mu.RUnlock()
 	if st == nil {
-		writeErr(w, http.StatusServiceUnavailable, errors.New("配置尚未成功加载"))
+		writeErr(w, http.StatusServiceUnavailable, i18n.New("配置尚未成功加载"))
 		return
 	}
 	valid := false
 	for _, g := range st.plan.IR.Groups {
 		if g.Tag == req.Group {
 			if g.Type != ir.GroupSelect {
-				writeErr(w, http.StatusBadRequest, fmt.Errorf("策略组 %q 为自动测速组，不能手动选择", req.Group))
+				writeErr(w, http.StatusBadRequest, i18n.Errorf("策略组 %q 为自动测速组，不能手动选择", req.Group))
 				return
 			}
 			for _, m := range g.Members {
@@ -1568,7 +1587,7 @@ func (d *Daemon) selectMember(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if !valid {
-		writeErr(w, http.StatusBadRequest, fmt.Errorf("%q 不是策略组 %q 的成员", req.Member, req.Group))
+		writeErr(w, http.StatusBadRequest, i18n.Errorf("%q 不是策略组 %q 的成员", req.Member, req.Group))
 		return
 	}
 	if sel, ok := d.Engine.(interface{ SelectMember(string, string) error }); ok && d.Engine.Running() {
@@ -1597,7 +1616,7 @@ func (d *Daemon) testGroup(w http.ResponseWriter, r *http.Request) {
 		TestGroup(context.Context, string) (map[string]int, error)
 	})
 	if !ok || !d.Engine.Running() {
-		writeErr(w, http.StatusServiceUnavailable, errors.New("引擎未运行"))
+		writeErr(w, http.StatusServiceUnavailable, i18n.New("引擎未运行"))
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
@@ -1689,7 +1708,7 @@ func (d *Daemon) putOverlay(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if _, err := overlay.Parse([]byte(doc.Content)); err != nil {
-		writeErr(w, http.StatusUnprocessableEntity, fmt.Errorf("overlay 校验失败：%w", err))
+		writeErr(w, http.StatusUnprocessableEntity, i18n.Errorf("overlay 校验失败：%w", err))
 		return
 	}
 	path, err := d.overlayPath()
@@ -1713,7 +1732,7 @@ func (d *Daemon) applyOverlay(ctx context.Context, path string, old, data []byte
 	if err := d.Reload(ctx); err != nil {
 		_ = userfs.WriteFileAtomic(path, old, 0o600)
 		_ = d.Reload(ctx)
-		return http.StatusUnprocessableEntity, fmt.Errorf("应用失败，已改回原内容：%w", err)
+		return http.StatusUnprocessableEntity, i18n.Errorf("应用失败，已改回原内容：%w", err)
 	}
 	return 0, nil
 }
@@ -1768,7 +1787,7 @@ func (d *Daemon) editOverlayItem(w http.ResponseWriter, r *http.Request) {
 	case "remove":
 		data, err = overlay.Remove(old, e)
 	default:
-		err = fmt.Errorf("未知操作 %q", req.Op)
+		err = i18n.Errorf("未知操作 %q", req.Op)
 	}
 	if err == nil {
 		_, err = overlay.Parse(data)
@@ -1854,7 +1873,7 @@ func (d *Daemon) repair(w http.ResponseWriter, r *http.Request) {
 		steps = append(steps, s)
 	}
 	if FlushDNSCache != nil {
-		step("清空系统 DNS 缓存", FlushDNSCache(), "")
+		step(i18n.T("清空系统 DNS 缓存"), FlushDNSCache(), "")
 	}
 	d.mu.RLock()
 	st := d.st
@@ -1862,17 +1881,17 @@ func (d *Daemon) repair(w http.ResponseWriter, r *http.Request) {
 	if d.NetSnapshot != nil && st != nil && st.cfg.NetworkSense.Enabled {
 		d.senseOnce(ctx, st.cfg.NetworkSense, &probeTracker{}) // 全新 tracker：强制重新探测
 		d.mu.RLock()
-		detail := fmt.Sprintf("主接口 %s，外部 VPN %d 个，连通性 %s", d.env.PrimaryInterface, len(d.env.VPNs), d.captive)
+		detail := i18n.T("主接口 %s，外部 VPN %d 个，连通性 %s", d.env.PrimaryInterface, len(d.env.VPNs), d.captive)
 		stale := d.env.StaleDNS
 		d.mu.RUnlock()
-		step("重新检测网络环境", nil, detail)
+		step(i18n.T("重新检测网络环境"), nil, detail)
 		if reset := d.resetDNS(st); len(stale) > 0 && reset != nil {
 			svcs, err := reset(stale)
-			detail := fmt.Sprintf("%s 的 DNS 已改回自动获取（原为 %s）", strings.Join(svcs, "、"), strings.Join(stale, "、"))
+			detail := i18n.T("%s 的 DNS 已改回自动获取（原为 %s）", strings.Join(svcs, "、"), strings.Join(stale, "、"))
 			if len(svcs) == 0 {
-				detail = fmt.Sprintf("没有网络服务的 DNS 设为 %s（可能来自 VPN 或描述文件）", strings.Join(stale, "、"))
+				detail = i18n.T("没有网络服务的 DNS 设为 %s（可能来自 VPN 或描述文件）", strings.Join(stale, "、"))
 			}
-			step("还原系统 DNS", err, detail)
+			step(i18n.T("还原系统 DNS"), err, detail)
 			if err == nil && len(svcs) > 0 {
 				d.awaitDNSCleared(ctx, st, stale)
 			}
@@ -1883,12 +1902,12 @@ func (d *Daemon) repair(w http.ResponseWriter, r *http.Request) {
 		steps = append(steps, conflictStep(env))
 	}
 	err := d.Update(ctx)
-	step("重新拉取订阅并加载", err, "规则集在后台更新")
+	step(i18n.T("重新拉取订阅并加载"), err, i18n.T("规则集在后台更新"))
 	d.mu.RLock()
 	st = d.st
 	d.mu.RUnlock()
 	if st != nil && st.plan.SysProxy.Enabled && d.SysProxy != nil {
-		step("校正系统代理", d.SysProxy.Apply(st.plan.SysProxy), "")
+		step(i18n.T("校正系统代理"), d.SysProxy.Apply(st.plan.SysProxy), "")
 	}
 	if t, ok := d.Engine.(interface {
 		TestGroup(context.Context, string) (map[string]int, error)
@@ -1908,7 +1927,7 @@ func (d *Daemon) repair(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
-		step("节点测速", nil, fmt.Sprintf("%d / %d 个节点可用", ok, total))
+		step(i18n.T("节点测速"), nil, i18n.T("%d / %d 个节点可用", ok, total))
 	}
 	writeJSON(w, rpc.RepairResponse{Steps: steps})
 }
@@ -1940,7 +1959,7 @@ func (d *Daemon) resetDNS(st *state) func([]string) ([]string, error) {
 	return func(servers []string) ([]string, error) {
 		c, err := helper.Dial(orDefault(st.cfg.TUN.HelperSocket, helper.DefaultSocket))
 		if err != nil {
-			return nil, fmt.Errorf("需要 TUN 组件（在「系统组件」中安装或更新）：%w", err)
+			return nil, i18n.Errorf("需要 TUN 组件（在「系统组件」中安装或更新）：%w", err)
 		}
 		defer c.Close()
 		return c.ResetDNS(servers...)
@@ -1950,13 +1969,13 @@ func (d *Daemon) resetDNS(st *state) func([]string) ([]string, error) {
 // conflictStep 检查其他代理 / VPN 工具的影响：仍在全局接管的隧道（常见为未退出干净的代理工具 TUN），
 // 以及工具退出后没有还原的系统 DNS。两者都需要用户处理，Velum 不替其他工具做决定。
 func conflictStep(env netsense.Assessment) rpc.RepairStep {
-	s := rpc.RepairStep{Name: "检查其他代理工具", OK: true, Detail: "未发现冲突"}
+	s := rpc.RepairStep{Name: i18n.T("检查其他代理工具"), OK: true, Detail: i18n.T("未发现冲突")}
 	var probs []string
 	if f := env.FullTunnel(); f != nil {
-		probs = append(probs, fmt.Sprintf("%s 接管了全部流量；如果不是正在使用的 VPN，请在对应的代理工具中关闭 TUN（及服务模式）并退出，或重启电脑", f.Iface))
+		probs = append(probs, i18n.T("%s 接管了全部流量；如果不是正在使用的 VPN，请在对应的代理工具中关闭 TUN（及服务模式）并退出，或重启电脑", f.Iface))
 	}
 	if len(env.StaleDNS) > 0 {
-		probs = append(probs, fmt.Sprintf("系统 DNS 仍指向 %s（代理工具退出时没有还原），请在网络设置中把 DNS 改回自动获取", strings.Join(env.StaleDNS, "、")))
+		probs = append(probs, i18n.T("系统 DNS 仍指向 %s（代理工具退出时没有还原），请在网络设置中把 DNS 改回自动获取", strings.Join(env.StaleDNS, "、")))
 	}
 	if len(probs) > 0 {
 		s.OK, s.Warn, s.Detail = false, true, strings.Join(probs, "；")
@@ -2038,7 +2057,7 @@ func (d *Daemon) whileStarting(next http.Handler) http.Handler {
 		starting := d.starting
 		d.mu.RUnlock()
 		if starting && r.Method != http.MethodGet {
-			writeErr(w, http.StatusServiceUnavailable, errors.New("Velum 正在启动，请稍候再试"))
+			writeErr(w, http.StatusServiceUnavailable, i18n.New("Velum 正在启动，请稍候再试"))
 			return
 		}
 		next.ServeHTTP(w, r)

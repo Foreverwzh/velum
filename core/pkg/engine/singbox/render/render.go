@@ -6,6 +6,7 @@ package render
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/Foreverwzh/velum/core/pkg/i18n"
 	"net/netip"
 
 	"github.com/Foreverwzh/velum/core/pkg/compiler"
@@ -60,7 +61,7 @@ func Render(p *compiler.Plan, opts Options) (*Rendered, error) {
 		}
 		if isEndpoint {
 			if mtu := wireguardMTU(n); mtu > wireguardMaxMTU {
-				warn("wireguard_mtu", fmt.Sprintf("MTU %d 超过上限 %d，会被自动调低；对端发来更大的包时会被丢弃", mtu, wireguardMaxMTU), n.Tag, n.Source)
+				warn("wireguard_mtu", i18n.T("MTU %d 超过上限 %d，会被自动调低；对端发来更大的包时会被丢弃", mtu, wireguardMaxMTU), n.Tag, n.Source)
 			}
 			endpoints = append(endpoints, o)
 		} else {
@@ -121,10 +122,10 @@ func Render(p *compiler.Plan, opts Options) (*Rendered, error) {
 		emit(ro, i, r.Source)
 	}
 	if c.Final.Kind == ir.ActionRoute && orDefault(c.Final.Outbound, ir.OutboundDirect) == ir.OutboundDirect {
-		emit(obj{"action": "resolve"}, -1, ir.Source{Kind: ir.SourceVelum, Text: "final 为 DIRECT：按 DNS 规则解析"})
+		emit(obj{"action": "resolve"}, -1, ir.Source{Kind: ir.SourceVelum, Text: i18n.T("final 为 DIRECT：按 DNS 规则解析")})
 	}
 	if len(c.DNS.Rules) > 0 && groupsReachDirect(c) {
-		warn("dns", "经策略组选择 DIRECT 的连接按默认 DNS（"+c.DNS.Final+"）解析，不应用 DNS 分流规则（为避免代理域名泄漏到直连 DNS）", "", ir.Source{Kind: ir.SourceVelum})
+		warn("dns", i18n.T("经策略组选择 DIRECT 的连接按默认 DNS（")+c.DNS.Final+i18n.T("）解析，不应用 DNS 分流规则（为避免代理域名泄漏到直连 DNS）"), "", ir.Source{Kind: ir.SourceVelum})
 	}
 	var ruleSets []any
 	for _, rs := range c.RuleSets {
@@ -170,7 +171,11 @@ func Render(p *compiler.Plan, opts Options) (*Rendered, error) {
 		return nil, err
 	}
 
-	inbounds := []any{obj{"type": "mixed", "tag": "mixed-in", "listen": p.Options.Listen.Addr().String(), "listen_port": p.Options.Listen.Port()}}
+	var inbounds []any
+	// iOS 上别的应用也能连本机回环：不开本地代理端口（既没有用处，也会被用来探测代理）。
+	if p.Options.Platform != "ios" {
+		inbounds = append(inbounds, obj{"type": "mixed", "tag": "mixed-in", "listen": p.Options.Listen.Addr().String(), "listen_port": p.Options.Listen.Port()})
+	}
 	if pub := p.Options.Public; pub != nil {
 		inbounds = append(inbounds, obj{"type": "mixed", "tag": "mixed-public", "listen": pub.Listen.Addr().String(), "listen_port": pub.Listen.Port(),
 			"users": []obj{{"username": pub.Username, "password": pub.Password}}})
@@ -181,7 +186,8 @@ func Render(p *compiler.Plan, opts Options) (*Rendered, error) {
 			addrs = append(addrs, p.Route.Address6)
 		}
 		tun := obj{"type": "tun", "tag": "tun-in", "address": addrs, "mtu": p.Route.MTU, "stack": "system"}
-		if p.Options.Platform == "android" {
+		if p.Options.Platform == "android" || p.Options.Platform == "ios" {
+			// iOS：真机内存实测用的就是 gVisor 栈（spikes/ios-memory）。
 			// Android：VpnService 排除了 Velum 自身（防回环），system 栈在本进程监听 TCP、回包经内核路由回 TUN，
 			// 而本进程的流量不走 VPN，握手无法完成；改用用户态的 gVisor 栈
 			tun["stack"] = "gvisor"
@@ -448,7 +454,7 @@ func isIP(s string) bool {
 func checkRuleSetMixing(m ir.Match) error {
 	if c := m.Cond; c != nil {
 		if len(c.RuleSet) > 0 && (len(c.Domain)+len(c.DomainSuffix)+len(c.DomainKeyword)+len(c.DomainRegex)+len(c.IPCIDR) > 0 || c.IPPrivate) {
-			return fmt.Errorf("rule_set 与地址类条件混放，sing-box 语义取决于规则集结构")
+			return i18n.Errorf("rule_set 与地址类条件混放，sing-box 语义取决于规则集结构")
 		}
 		return nil
 	}

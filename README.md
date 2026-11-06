@@ -8,6 +8,7 @@
 
 ## 特点
 
+- **中英文**：所有端跟随系统语言，桌面端可以在设置里切换（Interface and messages in Chinese and English）。
 - **直接用现有订阅**：支持 Clash / Stash / mihomo YAML，包括 proxy-providers、rule-providers、GEOIP / GEOSITE、策略组、DNS（多上游竞速、`respect-rules`、fake-ip）。无法完全等价转换的配置项会给出告警，不会静默丢弃。
 - **多个订阅**：保存多个订阅，在设置、概览或托盘菜单中一键切换（`vlu profile`）；显示订阅服务提供的已用流量、剩余额度与到期时间。
 - **可解释**：`vlu why <域名或地址>` 逐条推演 DNS、系统代理豁免与规则匹配，告诉你某个连接为什么走了这个出站，以及命中的规则来自订阅还是本地配置的哪一行。连接列表中，每个连接也会显示实际命中的规则和出站链。

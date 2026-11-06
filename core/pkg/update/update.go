@@ -4,7 +4,7 @@ package update
 import (
 	"context"
 	"encoding/json"
-	"fmt"
+	"github.com/Foreverwzh/velum/core/pkg/i18n"
 	"io"
 	"net/http"
 	"strconv"
@@ -103,7 +103,7 @@ func fetchReleases(ctx context.Context, client *http.Client, api, ua, asset stri
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("GitHub 返回 %s", resp.Status)
+		return nil, i18n.Errorf("GitHub 返回 %s", resp.Status)
 	}
 	var list []struct {
 		Tag        string    `json:"tag_name"`
@@ -117,7 +117,7 @@ func fetchReleases(ctx context.Context, client *http.Client, api, ua, asset stri
 		} `json:"assets"`
 	}
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 8<<20)).Decode(&list); err != nil {
-		return nil, fmt.Errorf("解析发布列表：%w", err)
+		return nil, i18n.Errorf("解析发布列表：%w", err)
 	}
 	var out []Release
 	for _, r := range list {

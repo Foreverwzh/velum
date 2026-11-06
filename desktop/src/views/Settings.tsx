@@ -7,23 +7,25 @@ import { Button, cx, IconButton, KV, Notice, PageHeader, Panel, Row, Section, Sw
 import { UsageBar, usageOf } from "../components/Usage";
 import { SubscriptionForm } from "../components/SubscriptionForm";
 import { installHelper } from "../components/TunToggle";
+import { languagePref, setLanguagePref, t, type LanguagePref } from "../i18n";
 
 export default function Settings({ status: s, refresh }: { status: Status; refresh: Refresh }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <PageHeader title="设置" />
+      <PageHeader title={t("设置")} />
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto flex max-w-[720px] flex-col gap-7 px-6 py-5">
           <Subscription status={s} refresh={refresh} />
           <Components status={s} refresh={refresh} />
-          <Section title="关于">
+          <LanguageSection />
+          <Section title={t("关于")}>
             <Release status={s} refresh={refresh} />
             <Panel className="mt-2 px-3.5 py-3">
               <KV rows={[
-                ["核心", <span className="font-mono text-[12px]">velumd {s.version} · pid {s.pid}</span>],
-                ["本地端口", <span className="selectable font-mono text-[12px]">{s.listen || "—"}</span>],
-                ["配置目录", <span className="selectable font-mono text-[12px] break-all">{s.home}</span>],
-                ["开关来源", s.overridden ? "界面设置（覆盖 config.yaml，重启后保持）" : "config.yaml"],
+                [t("核心"), <span className="font-mono text-[12px]">velumd {s.version} · pid {s.pid}</span>],
+                [t("本地端口"), <span className="selectable font-mono text-[12px]">{s.listen || "—"}</span>],
+                [t("配置目录"), <span className="selectable font-mono text-[12px] break-all">{s.home}</span>],
+                [t("开关来源"), s.overridden ? t("界面设置（覆盖 config.yaml，重启后保持）") : "config.yaml"],
               ]} />
             </Panel>
           </Section>
@@ -42,11 +44,11 @@ function Subscription({ status: s, refresh }: { status: Status; refresh: Refresh
   const fetched = sub.fetched_at && !sub.fetched_at.startsWith("0001") ? new Date(sub.fetched_at).toLocaleString([], { hour12: false }) : "—";
   return (
     <Section
-      title="订阅"
+      title={t("订阅")}
       actions={profiles.length > 0 && !adding && (
         <>
-          <Button size="sm" variant="ghost" icon={RefreshCw} loading={busy === "update"} disabled={!!busy} onClick={() => run("update", api.update)}>更新当前订阅</Button>
-          <Button size="sm" variant="ghost" icon={Plus} disabled={!!busy} onClick={() => setAdding(true)}>添加订阅</Button>
+          <Button size="sm" variant="ghost" icon={RefreshCw} loading={busy === "update"} disabled={!!busy} onClick={() => run("update", api.update)}>{t("更新当前订阅")}</Button>
+          <Button size="sm" variant="ghost" icon={Plus} disabled={!!busy} onClick={() => setAdding(true)}>{t("添加订阅")}</Button>
         </>
       )}
     >
@@ -70,11 +72,11 @@ function Subscription({ status: s, refresh }: { status: Status; refresh: Refresh
       )}
       {sub.source && (
         <p className="mt-2 px-1 text-[12px] text-fg-3">
-          当前订阅：<span className="tnum">{sub.nodes} 个节点 · {sub.groups} 个策略组 · {sub.rules} 条规则 · {sub.rule_sets} 个规则集 · 上次获取 {fetched}</span>
-          {sub.fetch_error && "（缓存）"}
+          {t("当前订阅：")}<span className="tnum">{sub.nodes}{" "}{t("个节点 ·")}{" "}{sub.groups}{" "}{t("个策略组 ·")}{" "}{sub.rules}{" "}{t("条规则 ·")}{" "}{sub.rule_sets}{" "}{t("个规则集 · 上次获取")}{" "}{fetched}</span>
+          {sub.fetch_error && t("（缓存）")}
         </p>
       )}
-      {sub.fetch_error && <div className="mt-2"><Notice tone="warn">远程拉取失败，正在使用缓存：{sub.fetch_error}</Notice></div>}
+      {sub.fetch_error && <div className="mt-2"><Notice tone="warn">{t("远程拉取失败，正在使用缓存：")}{sub.fetch_error}</Notice></div>}
       {error && <div className="mt-2"><Notice tone="err">{error}</Notice></div>}
     </Section>
   );
@@ -89,9 +91,9 @@ function ProfileRow({ profile: p, busy, onUse, onUpdate, onEdit, onDelete }: {
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
           <span className="truncate font-medium">{p.name}</span>
-          {p.active && <Tag tone="accent">使用中</Tag>}
+          {p.active && <Tag tone="accent">{t("使用中")}</Tag>}
           {p.info?.web_page && (
-            <a href={p.info.web_page} target="_blank" rel="noreferrer" className="text-[11.5px] text-fg-3 hover:text-fg-2">用户中心</a>
+            <a href={p.info.web_page} target="_blank" rel="noreferrer" className="text-[11.5px] text-fg-3 hover:text-fg-2">{t("用户中心")}</a>
           )}
         </div>
         {u ? (
@@ -100,15 +102,15 @@ function ProfileRow({ profile: p, busy, onUse, onUpdate, onEdit, onDelete }: {
             <div className={cx("tnum mt-1 text-[12px]", u.tone === "err" ? "text-err" : u.tone === "warn" ? "text-warn" : "text-fg-2")}>{u.text}</div>
           </>
         ) : (
-          <div className="mt-0.5 text-[12px] text-fg-3">{p.kind === "file" ? "本地文件" : "订阅未提供流量信息"}</div>
+          <div className="mt-0.5 text-[12px] text-fg-3">{p.kind === "file" ? t("本地文件") : t("订阅未提供流量信息")}</div>
         )}
         <div className="selectable mt-0.5 truncate font-mono text-[11px] text-fg-3" title={p.source}>{p.source}</div>
       </div>
       <div className="flex shrink-0 items-center gap-1">
-        {!p.active && <Button size="sm" loading={busy === "use:" + p.id} disabled={!!busy} onClick={onUse}>使用</Button>}
-        {p.kind === "url" && <IconButton icon={RefreshCw} label="更新（同时刷新流量）" disabled={!!busy} className={cx(busy === "update:" + p.id && "animate-spin")} onClick={onUpdate} />}
-        <IconButton icon={Pencil} label="编辑" disabled={!!busy} onClick={onEdit} />
-        <IconButton icon={Trash2} label={p.active ? "正在使用的订阅不能删除" : "删除"} disabled={!!busy || p.active} onClick={onDelete} />
+        {!p.active && <Button size="sm" loading={busy === "use:" + p.id} disabled={!!busy} onClick={onUse}>{t("使用")}</Button>}
+        {p.kind === "url" && <IconButton icon={RefreshCw} label={t("更新（同时刷新流量）")} disabled={!!busy} className={cx(busy === "update:" + p.id && "animate-spin")} onClick={onUpdate} />}
+        <IconButton icon={Pencil} label={t("编辑")} disabled={!!busy} onClick={onEdit} />
+        <IconButton icon={Trash2} label={p.active ? t("正在使用的订阅不能删除") : t("删除")} disabled={!!busy || p.active} onClick={onDelete} />
       </div>
     </div>
   );
@@ -122,11 +124,11 @@ function ProfileEditor({ profile: p, busy, onSave, onCancel }: {
   return (
     <form className="flex flex-col gap-2 border-b border-line px-3.5 py-3 last:border-b-0"
       onSubmit={(e) => { e.preventDefault(); onSave({ name: name.trim() || undefined, url: url.trim() || undefined }); }}>
-      <TextInput value={name} onChange={(e) => setName(e.target.value)} placeholder="名称" autoFocus />
-      {p.kind === "url" && <TextInput value={url} onChange={(e) => setUrl(e.target.value)} placeholder="新的订阅地址（不改则留空）" className="font-mono text-[12px]" />}
+      <TextInput value={name} onChange={(e) => setName(e.target.value)} placeholder={t("名称")} autoFocus />
+      {p.kind === "url" && <TextInput value={url} onChange={(e) => setUrl(e.target.value)} placeholder={t("新的订阅地址（不改则留空）")} className="font-mono text-[12px]" />}
       <div className="flex items-center gap-2">
-        <Button type="submit" variant="primary" loading={busy}>{busy && url.trim() ? "正在拉取并校验" : "保存"}</Button>
-        <Button type="button" variant="ghost" onClick={onCancel} disabled={busy}>取消</Button>
+        <Button type="submit" variant="primary" loading={busy}>{busy && url.trim() ? t("正在拉取并校验") : t("保存")}</Button>
+        <Button type="button" variant="ghost" onClick={onCancel} disabled={busy}>{t("取消")}</Button>
       </div>
     </form>
   );
@@ -138,12 +140,12 @@ function AddProfile({ busy, onAdd, onCancel }: { busy: boolean; onAdd: (url: str
   const [activate, setActivate] = useState(false);
   return (
     <form className="flex flex-col gap-2 px-3.5 py-3" onSubmit={(e) => { e.preventDefault(); if (url.trim() && !busy) onAdd(url.trim(), name.trim(), activate); }}>
-      <TextInput value={url} onChange={(e) => setUrl(e.target.value)} placeholder="订阅地址 https://…" autoFocus className="font-mono text-[12px]" />
-      <TextInput value={name} onChange={(e) => setName(e.target.value)} placeholder="名称（可选，默认取订阅提供的名称）" />
+      <TextInput value={url} onChange={(e) => setUrl(e.target.value)} placeholder={t("订阅地址 https://…")} autoFocus className="font-mono text-[12px]" />
+      <TextInput value={name} onChange={(e) => setName(e.target.value)} placeholder={t("名称（可选，默认取订阅提供的名称）")} />
       <div className="flex items-center gap-2">
-        <Button type="submit" variant="primary" loading={busy} disabled={!url.trim()} onClick={() => setActivate(false)}>{busy ? "正在拉取并校验" : "添加"}</Button>
-        <Button type="submit" disabled={!url.trim() || busy} onClick={() => setActivate(true)}>添加并使用</Button>
-        <Button type="button" variant="ghost" onClick={onCancel} disabled={busy}>取消</Button>
+        <Button type="submit" variant="primary" loading={busy} disabled={!url.trim()} onClick={() => setActivate(false)}>{busy ? t("正在拉取并校验") : t("添加")}</Button>
+        <Button type="submit" disabled={!url.trim() || busy} onClick={() => setActivate(true)}>{t("添加并使用")}</Button>
+        <Button type="button" variant="ghost" onClick={onCancel} disabled={busy}>{t("取消")}</Button>
       </div>
     </form>
   );
@@ -162,28 +164,28 @@ function Release({ status: s, refresh }: { status: Status; refresh: Refresh }) {
   const installing = progress && progress.stage !== "error";
   const checked = u ? new Date(u.checked_at).toLocaleString([], { hour12: false }) : "";
   const pct = progress?.total ? Math.floor((progress.downloaded / progress.total) * 100) : undefined;
-  const hint = installing ? (progress.stage === "install" ? "正在安装，完成后 Velum 会自动重启…" : `正在下载新版本 ${u?.latest ?? ""}${pct !== undefined ? ` · ${pct}%` : "…"}`)
-    : !u ? "尚未检查新版本"
-    : u.available ? <>新版本 <span className="font-mono">{u.latest}</span> 已发布{!u.manifest && (u.download ? "，需要手动下载安装" : "，当前平台没有安装包，请在发布页查看")}</>
-    : u.error ? <span className="text-warn">检查失败：{u.error}</span>
-    : channel === "stable" && /-/.test(s.version) ? `当前是测试版：正式版高于 ${s.version} 后会提示更新 · 检查于 ${checked}`
-    : `已是最新版本 · 检查于 ${checked}`;
+  const hint = installing ? (progress.stage === "install" ? t("正在安装，完成后 Velum 会自动重启…") : t("正在下载新版本 {0}{1}", u?.latest ?? "", pct !== undefined ? ` · ${pct}%` : "…"))
+    : !u ? t("尚未检查新版本")
+    : u.available ? <>{t("新版本")}{" "}<span className="font-mono">{u.latest}</span>{" "}{t("已发布")}{!u.manifest && (u.download ? t("，需要手动下载安装") : t("，当前平台没有安装包，请在发布页查看"))}</>
+    : u.error ? <span className="text-warn">{t("检查失败：")}{u.error}</span>
+    : channel === "stable" && /-/.test(s.version) ? t("当前是测试版：正式版高于 {0} 后会提示更新 · 检查于 {1}", s.version, checked)
+    : t("已是最新版本 · 检查于 {0}", checked);
   const action = installing ? null
     : u?.available && u.manifest && native.available
-      ? <Button variant="primary" icon={Download} disabled={!!busy} onClick={() => run("install", () => native.installUpdate(u.manifest!))}>立即更新</Button>
+      ? <Button variant="primary" icon={Download} disabled={!!busy} onClick={() => run("install", () => native.installUpdate(u.manifest!))}>{t("立即更新")}</Button>
     : u?.available && u.download
-      ? <Button variant="primary" icon={Download} onClick={() => run("open", () => native.openRelease(u.download!))}>下载</Button>
-    : <Button icon={RefreshCw} loading={busy === "check"} disabled={!!busy} onClick={() => run("check", api.checkRelease)}>检查更新</Button>;
+      ? <Button variant="primary" icon={Download} onClick={() => run("open", () => native.openRelease(u.download!))}>{t("下载")}</Button>
+    : <Button icon={RefreshCw} loading={busy === "check"} disabled={!!busy} onClick={() => run("check", api.checkRelease)}>{t("检查更新")}</Button>;
   return (
     <>
       <Panel>
-        <Row label={<span className="flex items-center gap-2">Velum <span className="font-mono text-[12px] font-normal">{s.version}</span>{u?.available && <Tag tone="accent">有新版本</Tag>}</span>} hint={hint}>
-          {u?.available && u.url && !installing && <Button variant="ghost" onClick={() => run("open", () => native.openRelease(u.url!))}>发布说明</Button>}
+        <Row label={<span className="flex items-center gap-2">Velum <span className="font-mono text-[12px] font-normal">{s.version}</span>{u?.available && <Tag tone="accent">{t("有新版本")}</Tag>}</span>} hint={hint}>
+          {u?.available && u.url && !installing && <Button variant="ghost" onClick={() => run("open", () => native.openRelease(u.url!))}>{t("发布说明")}</Button>}
           {action}
         </Row>
-        <Row label="更新通道" hint={channel === "beta" ? "测试版：同时接收预发布版本（rc），更早用上新功能，可能不够稳定" : "正式版：只接收正式版本"}>
+        <Row label={t("更新通道")} hint={channel === "beta" ? t("测试版：同时接收预发布版本（rc），更早用上新功能，可能不够稳定") : t("正式版：只接收正式版本")}>
           <div className="inline-flex rounded-md border border-line p-0.5">
-            {([["stable", "正式版"], ["beta", "测试版"]] as const).map(([id, label]) => (
+            {([["stable", t("正式版")], ["beta", t("测试版")]] as const).map(([id, label]) => (
               <button key={id} disabled={!!busy || !!installing} onClick={() => id !== channel && run("channel", () => api.setChannel(id))}
                 className={cx("inline-flex h-6 items-center rounded px-2.5 text-[12px] transition-colors", channel === id ? "bg-active font-medium text-fg" : "text-fg-2 hover:text-fg")}>
                 {label}
@@ -219,53 +221,78 @@ function Components({ status: s, refresh }: { status: Status; refresh: Refresh }
     if (s.want_tun) await api.setSwitch("tun", "off"); // 先关 TUN，避免卸载后断网
     await native.helperUninstall();
   };
-  const state = !helper ? <Tag>检测中</Tag>
-    : helper.reachable ? <Tag tone="accent">{isWindows ? "已安装" : `已安装 · 协议 ${helper.version}`}</Tag>
-    : helper.outdated ? <Tag tone="warn">需要更新</Tag>
-    : <Tag>未安装</Tag>;
+  const state = !helper ? <Tag>{t("检测中")}</Tag>
+    : helper.reachable ? <Tag tone="accent">{isWindows ? t("已安装") : t("已安装 · 协议 {0}", helper.version)}</Tag>
+    : helper.outdated ? <Tag tone="warn">{t("需要更新")}</Tag>
+    : <Tag>{t("未安装")}</Tag>;
 
   return (
-    <Section title="系统组件">
+    <Section title={t("系统组件")}>
       <Panel>
         {ne?.bundled && (
           <Row
-            label={<span className="flex items-center gap-2">网络扩展 <Tag tone="warn">实验</Tag>{ne.enabled && <Tag tone="accent">使用中</Tag>}</span>}
+            label={<span className="flex items-center gap-2">{t("网络扩展")}{" "}<Tag tone="warn">{t("实验")}</Tag>{ne.enabled && <Tag tone="accent">{t("使用中")}</Tag>}</span>}
             hint={busy === "ne" && !ne.enabled
-              ? "如果系统提示，请在「系统设置 → 隐私与安全性」或「通用 → 登录项与扩展」中允许 Velum 的网络扩展，并允许添加 VPN 配置"
-              : "核心、TUN 与系统代理改由系统网络扩展运行，不需要 TUN 组件；Velum 退出或崩溃时系统自动撤销路由、DNS 与系统代理。开启时会以当前配置重新迁移，关闭后扩展里改过的设置不会带回"}
+              ? t("如果系统提示，请在「系统设置 → 隐私与安全性」或「通用 → 登录项与扩展」中允许 Velum 的网络扩展，并允许添加 VPN 配置")
+              : t("核心、TUN 与系统代理改由系统网络扩展运行，不需要 TUN 组件；Velum 退出或崩溃时系统自动撤销路由、DNS 与系统代理。开启时会以当前配置重新迁移，关闭后扩展里改过的设置不会带回")}
           >
-            <Switch label="网络扩展" checked={ne.enabled} disabled={!!busy && busy !== "ne"} pending={busy === "ne"} busy={!!busy}
+            <Switch label={t("网络扩展")} checked={ne.enabled} disabled={!!busy && busy !== "ne"} pending={busy === "ne"} busy={!!busy}
               onChange={(v) => run("ne", () => native.netextSet(v))} />
           </Row>
         )}
         {!ne?.enabled && (
-        <Row label={<span className="flex items-center gap-2">TUN 组件 {state}</span>} hint={componentText.brief}>
-          {(helper?.reachable || helper?.outdated) && <Button variant="danger" disabled={!!busy} loading={busy === "uninstall"} onClick={() => run("uninstall", uninstall)}>卸载</Button>}
+        <Row label={<span className="flex items-center gap-2">{t("TUN 组件")}{" "}{state}</span>} hint={componentText.brief}>
+          {(helper?.reachable || helper?.outdated) && <Button variant="danger" disabled={!!busy} loading={busy === "uninstall"} onClick={() => run("uninstall", uninstall)}>{t("卸载")}</Button>}
           <Button variant={helper?.outdated ? "primary" : "secondary"} loading={busy === "install"} disabled={!!busy} onClick={() => run("install", installHelper)}>
-            {helper?.reachable ? "重新安装" : helper?.outdated ? "更新" : "安装"}
+            {helper?.reachable ? t("重新安装") : helper?.outdated ? t("更新") : t("安装")}
           </Button>
         </Row>
         )}
         {cli && (
           <Row
-            label={<span className="flex items-center gap-2">命令行工具 vlu {cli.installed ? <Tag tone="accent">已安装</Tag> : <Tag>未安装</Tag>}</span>}
+            label={<span className="flex items-center gap-2">{t("命令行工具 vlu")}{" "}{cli.installed ? <Tag tone="accent">{t("已安装")}</Tag> : <Tag>{t("未安装")}</Tag>}</span>}
             hint={<>
-              {isWindows ? "把 Velum 安装目录加入当前用户的 PATH，新打开的终端里可以直接使用 vlu" : <>在 <code className="font-mono">{cli.path}</code> 创建链接，终端里可以直接使用 vlu（需要管理员密码）</>}
-              {cli.conflict && <span className="text-warn">；已存在其他 vlu（{cli.conflict}），安装会替换它</span>}
+              {isWindows ? t("把 Velum 安装目录加入当前用户的 PATH，新打开的终端里可以直接使用 vlu") : <>{t("在")}{" "}<code className="font-mono">{cli.path}</code>{" "}{t("创建链接，终端里可以直接使用 vlu（需要管理员密码）")}</>}
+              {cli.conflict && <span className="text-warn">{t("；已存在其他 vlu（")}{cli.conflict}{t("），安装会替换它")}</span>}
             </>}
           >
             <Button variant={cli.installed ? "danger" : "secondary"} loading={busy === "cli"} disabled={!!busy} onClick={() => run("cli", cli.installed ? native.cliUninstall : native.cliInstall)}>
-              {cli.installed ? "移除" : "安装"}
+              {cli.installed ? t("移除") : t("安装")}
             </Button>
           </Row>
         )}
         {native.available && auto !== undefined && (
-          <Row label="登录时启动" hint="登录后在后台启动 Velum，只显示菜单栏图标">
-            <Switch label="登录时启动" checked={auto} disabled={!!busy} onChange={(v) => run("auto", () => native.autostartSet(v))} />
+          <Row label={t("登录时启动")} hint={t("登录后在后台启动 Velum，只显示菜单栏图标")}>
+            <Switch label={t("登录时启动")} checked={auto} disabled={!!busy} onChange={(v) => run("auto", () => native.autostartSet(v))} />
           </Row>
         )}
       </Panel>
       {error && <div className="mt-2"><Notice tone="err">{error}</Notice></div>}
+    </Section>
+  );
+}
+
+/** 语言：切换后重新加载页面。 */
+function LanguageSection() {
+  const options: { value: LanguagePref; label: string }[] = [
+    { value: "auto", label: t("跟随系统") },
+    { value: "zh", label: "中文" },
+    { value: "en", label: "English" },
+  ];
+  const pref = languagePref();
+  return (
+    <Section title={t("语言")}>
+      <Panel>
+        <Row label={t("界面语言")} hint={t("当前显示中文")}>
+          <div className="flex gap-1">
+            {options.map((o) => (
+              <Button key={o.value} size="sm" variant={pref === o.value ? "primary" : "secondary"} onClick={() => setLanguagePref(o.value)}>
+                {o.label}
+              </Button>
+            ))}
+          </div>
+        </Row>
+      </Panel>
     </Section>
   );
 }

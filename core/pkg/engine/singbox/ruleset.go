@@ -3,8 +3,7 @@ package singbox
 import (
 	"bytes"
 	"context"
-	"errors"
-	"fmt"
+	"github.com/Foreverwzh/velum/core/pkg/i18n"
 	"net/netip"
 	"os"
 
@@ -31,7 +30,7 @@ func LoadRuleSetFile(path, format string) ([]ir.Cond, error) {
 		compat, err = srs.Read(bytes.NewReader(data), true) // recover=true：还原域名 / IP 列表
 	}
 	if err != nil {
-		return nil, fmt.Errorf("读取规则集 %s：%w", path, err)
+		return nil, i18n.Errorf("读取规则集 %s：%w", path, err)
 	}
 	plain, err := compat.Upgrade()
 	if err != nil {
@@ -40,7 +39,7 @@ func LoadRuleSetFile(path, format string) ([]ir.Cond, error) {
 	var out []ir.Cond
 	for _, r := range plain.Rules {
 		if r.Type != "" && r.Type != C.RuleTypeDefault {
-			return nil, errors.New("规则集包含逻辑规则，暂不支持静态求值")
+			return nil, i18n.New("规则集包含逻辑规则，暂不支持静态求值")
 		}
 		d := r.DefaultOptions
 		c := ir.Cond{
@@ -80,11 +79,11 @@ func (e *Engine) Resolve(ctx context.Context, domain string) ([]netip.Addr, erro
 	running := e.instance != nil
 	e.lmu.Unlock()
 	if !running || bctx == nil {
-		return nil, errors.New("引擎未运行")
+		return nil, i18n.New("引擎未运行")
 	}
 	router := service.FromContext[adapter.DNSRouter](bctx)
 	if router == nil {
-		return nil, errors.New("DNS 路由器不可用")
+		return nil, i18n.New("DNS 路由器不可用")
 	}
 	return router.Lookup(ctx, domain, adapter.DNSQueryOptions{})
 }

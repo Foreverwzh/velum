@@ -4,6 +4,7 @@ import { api, errText, type Status } from "../api";
 import { delayOf, leafOf } from "../hooks";
 import type { Go, Page, Refresh } from "../App";
 import { Kbd, Latency, cx } from "./ui";
+import { t } from "../i18n";
 
 interface Item {
   id: string;
@@ -18,13 +19,13 @@ interface Item {
 }
 
 const pages: { page: Page; label: string }[] = [
-  { page: "overview", label: "概览" },
-  { page: "groups", label: "策略组" },
-  { page: "connections", label: "连接" },
-  { page: "diagnose", label: "诊断" },
-  { page: "overlay", label: "本地覆盖" },
-  { page: "warnings", label: "告警" },
-  { page: "settings", label: "设置" },
+  { page: "overview", label: t("概览") },
+  { page: "groups", label: t("策略组") },
+  { page: "connections", label: t("连接") },
+  { page: "diagnose", label: t("诊断") },
+  { page: "overlay", label: t("本地覆盖") },
+  { page: "warnings", label: t("告警") },
+  { page: "settings", label: t("设置") },
 ];
 
 /** Raycast 式命令面板：搜索并切换任意策略组的节点、开关代理、诊断一个地址、跳转页面。 */
@@ -42,21 +43,21 @@ export function CommandPalette({ status, refresh, go, onClose }: { status: Statu
     if (status) {
       const sw = (which: "system_proxy" | "tun", want: boolean, label: string) =>
         out.push({
-          id: `sw-${which}`, section: "操作", icon: Shield, title: `${want ? "关闭" : "开启"}${label}`, text: `${label} 开关 ${which}`,
+          id: `sw-${which}`, section: t("操作"), icon: Shield, title: `${want ? t("关闭") : t("开启")}${label}`, text: t("{0} 开关 {1}", label, which),
           run: () => api.setSwitch(which, want ? "off" : "on"),
         });
-      sw("system_proxy", status.want_system_proxy, "系统代理");
+      sw("system_proxy", status.want_system_proxy, t("系统代理"));
       sw("tun", status.want_tun, "TUN");
-      out.push({ id: "repair", section: "操作", icon: Wrench, title: "一键修复", text: "一键修复 repair", run: api.repair });
-      out.push({ id: "update", section: "操作", icon: RefreshCw, title: "更新订阅", text: "更新订阅 update", run: api.update });
-      out.push({ id: "test", section: "操作", icon: Gauge, title: "测速全部节点", text: "测速 延迟 test", run: () => api.test("") });
+      out.push({ id: "repair", section: t("操作"), icon: Wrench, title: t("一键修复"), text: t("一键修复 repair"), run: api.repair });
+      out.push({ id: "update", section: t("操作"), icon: RefreshCw, title: t("更新订阅"), text: t("更新订阅 update"), run: api.update });
+      out.push({ id: "test", section: t("操作"), icon: Gauge, title: t("测速全部节点"), text: t("测速 延迟 test"), run: () => api.test("") });
     }
     if (query && /[.:/]/.test(query)) {
-      out.unshift({ id: "why", section: "诊断", icon: ScanSearch, title: <>诊断 <span className="font-mono">{query}</span></>, text: query, run: () => go("diagnose", query) });
+      out.unshift({ id: "why", section: t("诊断"), icon: ScanSearch, title: <>{t("诊断")}{" "}<span className="font-mono">{query}</span></>, text: query, run: () => go("diagnose", query) });
     }
     for (const g of groups) {
       out.push({
-        id: `g-${g.tag}`, section: "策略组", icon: Waypoints, title: g.tag, text: `${g.tag} ${g.selected}`,
+        id: `g-${g.tag}`, section: t("策略组"), icon: Waypoints, title: g.tag, text: `${g.tag} ${g.selected}`,
         hint: <span className="truncate">{leafOf(groups, g.tag)}</span>, run: () => go("groups", g.tag),
       });
     }
@@ -64,19 +65,19 @@ export function CommandPalette({ status, refresh, go, onClose }: { status: Statu
       for (const m of g.members) {
         const current = m === g.selected;
         out.push({
-          id: `n-${g.tag}-${m}`, section: "切换节点", icon: current ? Check : Zap, current,
+          id: `n-${g.tag}-${m}`, section: t("切换节点"), icon: current ? Check : Zap, current,
           title: <><span className="text-fg-3">{g.tag}</span><ArrowRight className="mx-1 inline size-3 text-fg-3" />{m}</>,
           text: `${g.tag} ${m}`, hint: <Latency ms={delayOf(groups, leafOf(groups, m))} />,
           run: () => api.select(g.tag, m),
         });
       }
     }
-    for (const p of pages) out.push({ id: `p-${p.page}`, section: "页面", icon: ArrowRight, title: `前往${p.label}`, text: p.label, run: () => go(p.page) });
+    for (const p of pages) out.push({ id: `p-${p.page}`, section: t("页面"), icon: ArrowRight, title: t("前往{0}", p.label), text: p.label, run: () => go(p.page) });
 
-    if (!query) return out.filter((i) => i.section !== "切换节点" && i.section !== "策略组").concat(out.filter((i) => i.section === "策略组"));
+    if (!query) return out.filter((i) => i.section !== t("切换节点") && i.section !== t("策略组")).concat(out.filter((i) => i.section === t("策略组")));
     // 空格分隔的关键词都要命中（例如「ai 板橋」）
     const keys = query.toLowerCase().split(/\s+/);
-    return out.filter((i) => i.section === "诊断" || keys.every((k) => i.text.toLowerCase().includes(k)));
+    return out.filter((i) => i.section === t("诊断") || keys.every((k) => i.text.toLowerCase().includes(k)));
   }, [q, status, go]);
 
   useEffect(() => setIdx(0), [q]);
@@ -119,7 +120,7 @@ export function CommandPalette({ status, refresh, go, onClose }: { status: Statu
     <div className="fixed inset-0 z-50 flex justify-center bg-black/25 pt-[12vh] backdrop-blur-[2px] animate-[fade_120ms_ease-out]" onMouseDown={onClose}>
       <div
         role="dialog"
-        aria-label="命令面板"
+        aria-label={t("命令面板")}
         onMouseDown={(e) => e.stopPropagation()}
         className="flex h-fit max-h-[min(520px,76vh)] w-[min(620px,calc(100vw-48px))] flex-col overflow-hidden rounded-xl border border-line-strong bg-raised shadow-pop"
       >
@@ -129,14 +130,14 @@ export function CommandPalette({ status, refresh, go, onClose }: { status: Statu
             value={q}
             onChange={(e) => setQ(e.target.value)}
             onKeyDown={onKey}
-            placeholder="搜索节点、策略组或操作；输入网址可直接诊断"
+            placeholder={t("搜索节点、策略组或操作；输入网址可直接诊断")}
             spellCheck={false}
             className="min-w-0 flex-1 bg-transparent text-[14px] outline-none placeholder:text-fg-3"
           />
           <Kbd>esc</Kbd>
         </div>
         <div ref={list} className="min-h-0 flex-1 overflow-y-auto p-1.5">
-          {!items.length && <div className="px-3 py-8 text-center text-[12.5px] text-fg-3">没有匹配的节点或操作</div>}
+          {!items.length && <div className="px-3 py-8 text-center text-[12.5px] text-fg-3">{t("没有匹配的节点或操作")}</div>}
           {items.map((it, i) => {
             const header = it.section !== lastSection ? it.section : undefined;
             lastSection = it.section;
@@ -159,7 +160,7 @@ export function CommandPalette({ status, refresh, go, onClose }: { status: Statu
           })}
         </div>
         {(err || busy) && (
-          <div className={cx("border-t border-line px-4 py-2 text-[12px]", err ? "selectable text-err" : "text-fg-3")}>{err ?? "正在执行…"}</div>
+          <div className={cx("border-t border-line px-4 py-2 text-[12px]", err ? "selectable text-err" : "text-fg-3")}>{err ?? t("正在执行…")}</div>
         )}
       </div>
     </div>

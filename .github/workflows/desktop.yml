@@ -69,7 +69,7 @@ jobs:
           workspaces: desktop/src-tauri
       - run: bun install --frozen-lockfile
       - name: typecheck + build frontend
-        run: bun run typecheck && bun run build
+        run: bun run typecheck && bun run check:i18n && bun run build
       # tauri-build 会检查 externalBin 是否存在，需先构建 Go 核心
       - name: sidecars
         run: sh scripts/sidecars.sh

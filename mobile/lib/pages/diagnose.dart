@@ -1,6 +1,7 @@
 // 诊断（专业模式）：输入 URL / 域名 / IP，推演 DNS → 规则 → 出站，并与实际连接对照。与桌面端「诊断」一致。
 // Android 没有系统代理，省略桌面端的「系统代理」一步。
 
+import '../i18n.dart';
 import 'package:flutter/material.dart';
 
 import '../api.dart';
@@ -36,8 +37,8 @@ class _DiagnosePageState extends State<DiagnosePage> {
     final api = Velum.read(context).api;
     try {
       final r = await api.why(target);
-      final t = (r['report'] as Json)['target'] as Json;
-      final live = await api.connections(limit: 5, host: (t['domain'] ?? t['ip'] ?? '') as String);
+      final tgt = (r['report'] as Json)['target'] as Json;
+      final live = await api.connections(limit: 5, host: (tgt['domain'] ?? tgt['ip'] ?? '') as String);
       setState(() {
         _res = r;
         _live = live;
@@ -60,14 +61,14 @@ class _DiagnosePageState extends State<DiagnosePage> {
           Expanded(
             child: TextField(
               controller: _ctl,
-              decoration: const InputDecoration(hintText: 'URL、域名或 IP，如 www.google.com', isDense: true, border: OutlineInputBorder()),
+              decoration: InputDecoration(hintText: t('URL、域名或 IP，如 www.google.com'), isDense: true, border: OutlineInputBorder()),
               keyboardType: TextInputType.url,
               autocorrect: false,
               onSubmitted: (_) => _run(),
             ),
           ),
           const SizedBox(width: 8),
-          FilledButton(onPressed: _busy ? null : _run, child: const Text('推演')),
+          FilledButton(onPressed: _busy ? null : _run, child: Text(t('推演'))),
         ]),
       ),
       if (_err != null) Padding(padding: const EdgeInsets.all(16), child: Text(_err!, style: TextStyle(color: Theme.of(context).colorScheme.error))),
@@ -77,7 +78,7 @@ class _DiagnosePageState extends State<DiagnosePage> {
 
   List<Widget> _report(BuildContext context, Json res) {
     final r = res['report'] as Json;
-    final t = r['target'] as Json;
+    final tgt = r['target'] as Json;
     final dns = r['dns'] as Json;
     final d = r['decision'] as Json;
     final rules = ((r['rules'] as List?) ?? []).cast<Json>();
@@ -90,22 +91,22 @@ class _DiagnosePageState extends State<DiagnosePage> {
 
     return [
       Section(
-        title: '${t['domain'] ?? t['ip']}:${t['port']}',
+        title: '${tgt['domain'] ?? tgt['ip']}:${tgt['port']}',
         trailing: d['uncertain'] == true
-            ? const Chip(label: Text('结论不确定'), visualDensity: VisualDensity.compact)
-            : const Chip(label: Text('确定'), visualDensity: VisualDensity.compact),
+            ? Chip(label: Text(t('结论不确定')), visualDensity: VisualDensity.compact)
+            : Chip(label: Text(t('确定')), visualDensity: VisualDensity.compact),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           _Step('① DNS', [
             Text(dns['applicable'] != true
-                ? '目标是 IP，无需解析'
+                ? t('目标是 IP，无需解析')
                 : (dns['answer'] as List?)?.isNotEmpty == true
-                    ? 'hosts 覆盖 ${(dns['answer'] as List).join(', ')}'
+                    ? t('hosts 覆盖 {0}', [(dns['answer'] as List).join(', ')])
                     : '${dns['server'] ?? ''}'),
             if (src(dns['source']) != null) SelectableText(srcText(src(dns['source'])), style: outline),
-            if (resolved.isNotEmpty) Text('解析结果 ${resolved.join(', ')}', style: outline),
-            if ((res['resolve_error'] as String?)?.isNotEmpty == true) Text('解析失败：${res['resolve_error']}', style: const TextStyle(color: Colors.orange)),
+            if (resolved.isNotEmpty) Text(t('解析结果 {0}', [resolved.join(', ')]), style: outline),
+            if ((res['resolve_error'] as String?)?.isNotEmpty == true) Text(t('解析失败：{0}', [res['resolve_error']]), style: const TextStyle(color: Colors.orange)),
           ]),
-          _Step('② 规则', [
+          _Step(t('② 规则'), [
             for (final x in shown)
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: 2),
@@ -125,13 +126,13 @@ class _DiagnosePageState extends State<DiagnosePage> {
             TextButton(
               style: TextButton.styleFrom(padding: EdgeInsets.zero, visualDensity: VisualDensity.compact),
               onPressed: () => setState(() => _all = !_all),
-              child: Text(_all ? '只看命中与未知' : '显示全部 ${rules.length} 条（含未命中原因）'),
+              child: Text(_all ? t('只看命中与未知') : t('显示全部 {0} 条（含未命中原因）', [rules.length])),
             ),
           ]),
-          _Step('③ 出站', [
-            Text(chain.isNotEmpty ? chain.join(' → ') : (d['action'] == 'reject' ? '拦截' : '${d['outbound'] ?? ''}'),
+          _Step(t('③ 出站'), [
+            Text(chain.isNotEmpty ? chain.join(' → ') : (d['action'] == 'reject' ? t('拦截') : '${d['outbound'] ?? ''}'),
                 style: const TextStyle(fontWeight: FontWeight.w600)),
-            if ((d['override_address'] as String?)?.isNotEmpty == true) Text('目标改写为 ${d['override_address']}（hosts 覆盖）', style: outline),
+            if ((d['override_address'] as String?)?.isNotEmpty == true) Text(t('目标改写为 {0}（hosts 覆盖）', [d['override_address']]), style: outline),
           ]),
           for (final n in ((r['notes'] as List?) ?? []).cast<String>())
             Container(
@@ -143,9 +144,9 @@ class _DiagnosePageState extends State<DiagnosePage> {
         ]),
       ),
       Section(
-        title: '实际连接（最近 5 条）',
+        title: t('实际连接（最近 5 条）'),
         child: _live.isEmpty
-            ? Text('暂无记录。经 Velum 访问一次该目标后再推演，可对照实际走向。', style: outline)
+            ? Text(t('暂无记录。经 Velum 访问一次该目标后再推演，可对照实际走向。'), style: outline)
             : Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
                 for (final c in _live)
                   Padding(
@@ -153,7 +154,7 @@ class _DiagnosePageState extends State<DiagnosePage> {
                     child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                       Row(children: [
                         Expanded(child: Text(((c['chain'] as List?) ?? []).join(' → '))),
-                        if (c['rule_index'] != d['rule_index']) const Text('与推演不一致', style: TextStyle(color: Colors.orange)),
+                        if (c['rule_index'] != d['rule_index']) Text(t('与推演不一致'), style: TextStyle(color: Colors.orange)),
                       ]),
                       Text(
                         '${(c['rule_index'] as num) >= 0 ? '#${c['rule_index']} ' : 'final '}${srcText(src(c['provenance']))} · ↓${human(c['download'] as num)}',

@@ -7,7 +7,7 @@ package main
 
 import (
 	"flag"
-	"fmt"
+	"github.com/Foreverwzh/velum/core/pkg/i18n"
 	"log"
 	"net"
 	"os"
@@ -20,8 +20,8 @@ import (
 )
 
 func main() {
-	sock := flag.String("socket", helper.DefaultSocket, "监听的 Unix socket")
-	allowUID := flag.Int("allow-uid", -1, "允许连接的用户 uid（默认取 SUDO_UID）")
+	sock := flag.String("socket", helper.DefaultSocket, i18n.T("监听的 Unix socket"))
+	allowUID := flag.Int("allow-uid", -1, i18n.T("允许连接的用户 uid（默认取 SUDO_UID）"))
 	flag.Parse()
 	logger := log.New(os.Stderr, "[velum-helper] ", log.LstdFlags|log.Lmicroseconds)
 	if os.Geteuid() != 0 {
@@ -50,7 +50,7 @@ func main() {
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
 		s := <-sig
-		srv.Shutdown(fmt.Sprintf("收到信号 %s", s))
+		srv.Shutdown(i18n.T("收到信号 %s", s))
 		ln.Close()
 	}()
 	logger.Printf("监听 %s，允许 uid=%d（协议 %s），签名要求：%s", *sock, *allowUID, helper.Version, orNone(srv.Requirement))
@@ -61,7 +61,7 @@ func main() {
 
 func orNone(s string) string {
 	if s == "" {
-		return "无（未签名构建，只按 uid 鉴权）"
+		return i18n.T("无（未签名构建，只按 uid 鉴权）")
 	}
 	return s
 }

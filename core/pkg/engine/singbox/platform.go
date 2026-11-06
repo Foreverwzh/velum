@@ -2,7 +2,7 @@ package singbox
 
 import (
 	"context"
-	"fmt"
+	"github.com/Foreverwzh/velum/core/pkg/i18n"
 	"io"
 	"net/netip"
 	"os"
@@ -48,7 +48,7 @@ func (p *platform) OpenInterface(options *tun.Options, _ option.TunPlatformOptio
 	fd, name, release, err := p.cfg.Opener.OpenTUN(engine.TUNRequest{MTU: options.MTU, Inet4: inet4, Inet6: inet6,
 		Routes: p.cfg.Routes, SystemDNS: p.cfg.SystemDNS, IncludeApps: p.cfg.IncludeApps, ExcludeApps: p.cfg.ExcludeApps})
 	if err != nil {
-		return nil, fmt.Errorf("打开 TUN：%w", err)
+		return nil, i18n.Errorf("打开 TUN：%w", err)
 	}
 	p.mu.Lock()
 	p.releases = append(p.releases, release)

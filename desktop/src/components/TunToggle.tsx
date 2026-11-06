@@ -2,6 +2,7 @@ import { useState } from "react";
 import { ShieldCheck } from "lucide-react";
 import { api, componentStatus, componentText, errText, native, type HelperStatus, type Status } from "../api";
 import { Button, Row, Switch, Tag } from "./ui";
+import { t } from "../i18n";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -16,7 +17,7 @@ export async function installHelper() {
     }
     await sleep(300);
   }
-  throw new Error(`TUN 组件已安装，但没有按时启动；可查看 ${componentText.log}`);
+  throw new Error(t("TUN 组件已安装，但没有按时启动；可查看 {0}", componentText.log));
 }
 
 /** 系统代理与 TUN 两个开关（相互独立）。开启 TUN 前检查 TUN 组件，未安装或需要更新时在下方引导安装。 */
@@ -63,19 +64,19 @@ export function SwitchRows({ status, disabled, onDone }: { status: Status; disab
       setPrompt(undefined);
     });
 
-  const pausedHint = (want: boolean, on: boolean) => (want && !on && paused ? <span className="text-warn">已暂停：{paused}</span> : undefined);
+  const pausedHint = (want: boolean, on: boolean) => (want && !on && paused ? <span className="text-warn">{t("已暂停：")}{paused}</span> : undefined);
   return (
     <>
       <Row
-        label={<span className="flex items-center gap-2">系统代理{status.want_system_proxy && !status.system_proxy_on && <Tag tone="warn">已暂停</Tag>}</span>}
-        hint={pausedHint(status.want_system_proxy, status.system_proxy_on) ?? "浏览器等遵守系统代理设置的应用经过 Velum"}
+        label={<span className="flex items-center gap-2">{t("系统代理")}{status.want_system_proxy && !status.system_proxy_on && <Tag tone="warn">{t("已暂停")}</Tag>}</span>}
+        hint={pausedHint(status.want_system_proxy, status.system_proxy_on) ?? t("浏览器等遵守系统代理设置的应用经过 Velum")}
       >
-        <Switch label="系统代理" checked={want.sys ?? status.want_system_proxy} paused={want.sys === undefined && status.want_system_proxy && !status.system_proxy_on}
+        <Switch label={t("系统代理")} checked={want.sys ?? status.want_system_proxy} paused={want.sys === undefined && status.want_system_proxy && !status.system_proxy_on}
           disabled={disabled} pending={busy === "sys"} busy={!!busy} onChange={setSys} />
       </Row>
       <Row
-        label={<span className="flex items-center gap-2">TUN{status.want_tun && !status.tun_on && <Tag tone="warn">已暂停</Tag>}</span>}
-        hint={pausedHint(status.want_tun, status.tun_on) ?? `接管所有应用的流量${status.tun?.system_dns?.length ? "，并接管系统 DNS" : ""}；可与系统代理同时开启`}
+        label={<span className="flex items-center gap-2">TUN{status.want_tun && !status.tun_on && <Tag tone="warn">{t("已暂停")}</Tag>}</span>}
+        hint={pausedHint(status.want_tun, status.tun_on) ?? t("接管所有应用的流量{0}；可与系统代理同时开启", status.tun?.system_dns?.length ? t("，并接管系统 DNS") : "")}
       >
         <Switch label="TUN" checked={want.tun ?? status.want_tun} paused={want.tun === undefined && status.want_tun && !status.tun_on}
           disabled={disabled} pending={busy === "tun"} busy={!!busy} onChange={setTun} />
@@ -84,11 +85,11 @@ export function SwitchRows({ status, disabled, onDone }: { status: Status; disab
         <div className="flex items-start gap-3 border-t border-line bg-info-soft px-3.5 py-3">
           <ShieldCheck className="mt-0.5 size-4 shrink-0 text-info" strokeWidth={1.8} />
           <div className="min-w-0 flex-1">
-            <div className="font-medium">{prompt.outdated ? "TUN 组件需要更新" : "开启 TUN 需要先安装 TUN 组件"}</div>
+            <div className="font-medium">{prompt.outdated ? t("TUN 组件需要更新") : t("开启 TUN 需要先安装 TUN 组件")}</div>
             <div className="mt-0.5 text-[12px] text-fg-2">{componentText.detail}</div>
             <div className="mt-2.5 flex gap-2">
-              <Button variant="primary" loading={busy === "install"} onClick={install}>{prompt.outdated ? "更新并开启" : "安装并开启"}</Button>
-              <Button variant="ghost" disabled={!!busy} onClick={() => setPrompt(undefined)}>取消</Button>
+              <Button variant="primary" loading={busy === "install"} onClick={install}>{prompt.outdated ? t("更新并开启") : t("安装并开启")}</Button>
+              <Button variant="ghost" disabled={!!busy} onClick={() => setPrompt(undefined)}>{t("取消")}</Button>
             </div>
           </div>
         </div>

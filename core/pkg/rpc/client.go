@@ -84,6 +84,38 @@ func (c *Client) doWith(hc *http.Client, method, path string, body, out any) err
 	return nil
 }
 
+// Raw 发送一次请求，返回响应正文（iOS 界面的 JSON 由 Swift 解码）。按慢请求处理：切换开关、拉取订阅都可能很久。
+func (c *Client) Raw(method, path string, body []byte) ([]byte, error) {
+	hc := *c.http
+	hc.Timeout = slowTimeout
+	var rd io.Reader
+	if body != nil {
+		rd = bytes.NewReader(body)
+	}
+	req, err := http.NewRequest(method, "http://velumd"+path, rd)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := hc.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	b, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode != http.StatusOK {
+		var e ErrorResponse
+		_ = json.Unmarshal(b, &e)
+		if e.Error == "" {
+			e.Error = resp.Status
+		}
+		return nil, errors.New(e.Error)
+	}
+	return b, nil
+}
+
 func (c *Client) Status() (*Status, error) {
 	var s Status
 	return &s, c.do(http.MethodGet, "/v1/status", nil, &s)

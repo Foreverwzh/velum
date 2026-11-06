@@ -5,8 +5,7 @@
 package helper
 
 import (
-	"errors"
-	"fmt"
+	"github.com/Foreverwzh/velum/core/pkg/i18n"
 	"net/netip"
 )
 
@@ -14,7 +13,7 @@ import (
 const Version = "8" // 2：TUN IPv6 地址、set_dns；3：打开 TUN 时为物理网卡补作用域默认路由；4：close（同步清理）；5：网络变化后重新补作用域默认路由；6：替换旧网络留下的作用域默认路由，等待缩短到 0.3 秒；7：reset_dns；8：发布构建校验对端代码签名（升版本以提示更新）
 
 // ErrVersionMismatch 表示 helper 在运行，但协议版本与 velumd 不一致（需要更新 helper）。
-var ErrVersionMismatch = errors.New("helper 协议版本不匹配")
+var ErrVersionMismatch = i18n.Static("helper 协议版本不匹配")
 
 // DefaultSocket 是 helper 的默认监听地址。
 const DefaultSocket = "/var/run/velum-helper.sock"
@@ -61,13 +60,13 @@ func ValidateRoute(s string) (netip.Prefix, error) {
 	}
 	p = p.Masked()
 	if p.Bits() == 0 {
-		return p, fmt.Errorf("拒绝 %s：不替换默认路由（全局接管请使用 0.0.0.0/1 + 128.0.0.0/1、::/1 + 8000::/1）", p)
+		return p, i18n.Errorf("拒绝 %s：不替换默认路由（全局接管请使用 0.0.0.0/1 + 128.0.0.0/1、::/1 + 8000::/1）", p)
 	}
 	// 只拒绝落在保留网段内的路由；0.0.0.0/1 这类宽路由虽覆盖回环，但系统中更具体的回环路由优先，不受影响
 	for _, reserved := range []string{"127.0.0.0/8", "::1/128", "fe80::/10"} {
 		r := netip.MustParsePrefix(reserved)
 		if p.Addr().Is4() == r.Addr().Is4() && p.Bits() >= r.Bits() && r.Contains(p.Addr()) {
-			return p, fmt.Errorf("拒绝 %s：属于保留网段 %s", p, r)
+			return p, i18n.Errorf("拒绝 %s：属于保留网段 %s", p, r)
 		}
 	}
 	return p, nil

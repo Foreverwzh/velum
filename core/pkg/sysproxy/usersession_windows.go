@@ -2,8 +2,7 @@ package sysproxy
 
 import (
 	"encoding/json"
-	"errors"
-	"fmt"
+	"github.com/Foreverwzh/velum/core/pkg/i18n"
 	"time"
 
 	"github.com/Foreverwzh/velum/core/pkg/winuser"
@@ -35,7 +34,7 @@ func (b UserSessionBackend) Write(s WinSettings) error {
 func (b UserSessionBackend) run(op string, in []byte) ([]byte, error) {
 	out, err := winuser.Run(b.AllowSIDs, b.Exe, []string{"sysproxy", op}, in, 15*time.Second)
 	if err != nil {
-		return nil, fmt.Errorf("在用户会话中设置系统代理（%s）：%w", op, err)
+		return nil, i18n.Errorf("在用户会话中设置系统代理（%s）：%w", op, err)
 	}
 	return out, nil
 }
@@ -43,7 +42,7 @@ func (b UserSessionBackend) run(op string, in []byte) ([]byte, error) {
 // RunCommand 实现子进程一侧：`sysproxy read` 输出当前设置（JSON），`sysproxy write` 从 stdin 读取设置并写入。
 func RunCommand(args []string, stdin []byte) ([]byte, error) {
 	if len(args) != 1 {
-		return nil, errors.New("用法：sysproxy read|write")
+		return nil, i18n.New("用法：sysproxy read|write")
 	}
 	var b WinINetBackend
 	switch args[0] {
@@ -60,5 +59,5 @@ func RunCommand(args []string, stdin []byte) ([]byte, error) {
 		}
 		return nil, b.Write(s)
 	}
-	return nil, fmt.Errorf("未知操作：%s", args[0])
+	return nil, i18n.Errorf("未知操作：%s", args[0])
 }

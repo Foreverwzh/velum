@@ -5,6 +5,7 @@ package config
 
 import (
 	"fmt"
+	"github.com/Foreverwzh/velum/core/pkg/i18n"
 	"net/netip"
 	"os"
 	"path/filepath"
@@ -73,7 +74,9 @@ type Config struct {
 }
 
 // Template 是首次运行写入的配置（带注释）。修改默认值请改这里，保证用户能看到。
-var Template = `# Velum 配置。首次运行时生成，可随时编辑；修改后执行 vlu reload 生效。
+// Template 是首次运行时生成的配置文件。注释跟随语言。
+func Template() string {
+	return i18n.T(`# Velum 配置。首次运行时生成，可随时编辑；修改后执行 vlu reload 生效。
 
 # 本地代理入口（HTTP + SOCKS5 mixed）
 listen: 127.0.0.1:7899
@@ -126,7 +129,7 @@ subscription:
   # provider 的本地文件存在时直接使用，不按 url 拉取
   prefer_local_providers: false
   # GEOIP / GEOSITE 规则集下载地址模板；{kind} = geoip / geosite，{code} = 代码（如 cn）
-  geo_ruleset_url: ` + subscription.DefaultGeoRuleSetURL + `
+  geo_ruleset_url: `) + subscription.DefaultGeoRuleSetURL + i18n.T(`
   # 远程规则集（GEOIP / GEOSITE）由 Velum 下载并缓存（遵循 HTTPS_PROXY 环境变量），更新间隔：
   ruleset_update_interval: 24h
 
@@ -149,10 +152,13 @@ network_sense:
   captive_probes:
     - "http://captive.apple.com/hotspot-detect.html|Success"
     - "http://connectivitycheck.gstatic.com/generate_204"
-`
+`)
+}
 
 // OverlayTemplate 是首次运行写入的 overlay.yaml（只有注释，不含任何条目）。
-var OverlayTemplate = `# Velum 本地覆盖层：优先于订阅生效，并同步到系统代理豁免 / DNS / 规则各层。
+// OverlayTemplate 是首次运行时生成的 overlay 文件。
+func OverlayTemplate() string {
+	return i18n.T(`# Velum 本地覆盖层：优先于订阅生效，并同步到系统代理豁免 / DNS / 规则各层。
 # 修改后执行 vlu reload 生效。
 #
 # dev_bypass:
@@ -169,7 +175,8 @@ var OverlayTemplate = `# Velum 本地覆盖层：优先于订阅生效，并同�
 #   bypass:              # 系统代理豁免，原样写入系统设置
 #     - localhost
 #     - 127.0.0.1
-`
+`)
+}
 
 // Home 返回 Velum 目录：$VELUM_HOME 优先。
 func Home() (string, error) {
@@ -252,7 +259,7 @@ func Ensure(p Paths) error {
 			return err
 		}
 	}
-	for path, content := range map[string]string{p.Config: Template, p.Overlay: OverlayTemplate} {
+	for path, content := range map[string]string{p.Config: Template(), p.Overlay: OverlayTemplate()} {
 		if _, err := userfs.Stat(path); os.IsNotExist(err) {
 			if err := userfs.WriteFile(path, []byte(content), 0o600); err != nil {
 				return err
@@ -264,7 +271,7 @@ func Ensure(p Paths) error {
 
 func Load(p Paths) (*Config, error) {
 	var c Config
-	if err := yaml.Unmarshal([]byte(Template), &c); err != nil { // 模板即默认值
+	if err := yaml.Unmarshal([]byte(Template()), &c); err != nil { // 模板即默认值
 		return nil, err
 	}
 	data, err := userfs.ReadFile(p.Config)
@@ -275,24 +282,24 @@ func Load(p Paths) (*Config, error) {
 		return nil, fmt.Errorf("%s: %w", p.Config, err)
 	}
 	if _, err := netip.ParseAddrPort(c.Listen); err != nil {
-		return nil, fmt.Errorf("listen 无效：%q", c.Listen)
+		return nil, i18n.Errorf("listen 无效：%q", c.Listen)
 	}
 	if pub := c.ListenPublic; pub.Address != "" {
 		a, err := netip.ParseAddrPort(pub.Address)
 		if err != nil {
-			return nil, fmt.Errorf("listen_public.address 无效：%q", pub.Address)
+			return nil, i18n.Errorf("listen_public.address 无效：%q", pub.Address)
 		}
 		if pub.Username == "" || pub.Password == "" {
-			return nil, fmt.Errorf("listen_public 必须设置 username 和 password")
+			return nil, i18n.Errorf("listen_public 必须设置 username 和 password")
 		}
 		if a.Port() == c.ListenAddr().Port() {
-			return nil, fmt.Errorf("listen_public 不能与 listen 使用同一端口（%d）", a.Port())
+			return nil, i18n.Errorf("listen_public 不能与 listen 使用同一端口（%d）", a.Port())
 		}
 	}
 	switch c.Mode { // 旧写法 mode: 仍然兼容
 	case "", "proxy", "sysproxy", "tun":
 	default:
-		return nil, fmt.Errorf("mode 无效：%q（已改为 system_proxy / tun.enabled 两个开关）", c.Mode)
+		return nil, i18n.Errorf("mode 无效：%q（已改为 system_proxy / tun.enabled 两个开关）", c.Mode)
 	}
 	if c.Overlay != "" && !filepath.IsAbs(c.Overlay) {
 		c.Overlay = filepath.Join(p.Home, c.Overlay)
@@ -316,11 +323,11 @@ func (c *Config) PublicListenAddr() (a netip.AddrPort, ok bool) {
 // TUNOptions 解析 tun: 配置段。
 func (c *Config) TUNOptions() (addr, addr6 netip.Prefix, mtu uint32, include, exclude []netip.Prefix, err error) {
 	if addr, err = netip.ParsePrefix(c.TUN.Address); err != nil {
-		return addr, addr6, 0, nil, nil, fmt.Errorf("tun.address 无效：%q", c.TUN.Address)
+		return addr, addr6, 0, nil, nil, i18n.Errorf("tun.address 无效：%q", c.TUN.Address)
 	}
 	if c.TUN.Address6 != "" {
 		if addr6, err = netip.ParsePrefix(c.TUN.Address6); err != nil || !addr6.Addr().Is6() {
-			return addr, addr6, 0, nil, nil, fmt.Errorf("tun.address6 无效：%q", c.TUN.Address6)
+			return addr, addr6, 0, nil, nil, i18n.Errorf("tun.address6 无效：%q", c.TUN.Address6)
 		}
 	}
 	parse := func(name string, ss []string) ([]netip.Prefix, error) {
@@ -330,7 +337,7 @@ func (c *Config) TUNOptions() (addr, addr6 netip.Prefix, mtu uint32, include, ex
 			if err != nil {
 				a, err2 := netip.ParseAddr(s)
 				if err2 != nil {
-					return nil, fmt.Errorf("%s 中的网段无效：%q", name, s)
+					return nil, i18n.Errorf("%s 中的网段无效：%q", name, s)
 				}
 				p = netip.PrefixFrom(a, a.BitLen())
 			}

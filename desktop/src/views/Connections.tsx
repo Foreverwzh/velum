@@ -4,6 +4,7 @@ import { api, human, rate, srcText, subscribeConnections, type Connection, type 
 import type { Go, Refresh } from "../App";
 import { RuleDialog } from "../components/RuleDialog";
 import { Button, Chain, Empty, IconButton, KV, SearchInput, Tag, chainSteps, cx } from "../components/ui";
+import { t } from "../i18n";
 
 /** 按规则拦截（REJECT 出站或 reject 动作），其报错是预期行为。 */
 export function isRejected(c: Connection) {
@@ -88,45 +89,45 @@ export default function Connections({ go, refresh, initialQuery }: { go: Go; ref
     <div className="flex min-h-0 flex-1">
       <div className="flex min-w-0 flex-1 flex-col">
         <div className="flex items-center gap-2 border-b border-line px-4 pt-1 pb-2.5">
-          <SearchInput value={q} onChange={(e) => setQ(e.target.value)} placeholder="按域名、进程、节点或规则过滤" className="min-w-[140px] max-w-[320px] flex-1" />
+          <SearchInput value={q} onChange={(e) => setQ(e.target.value)} placeholder={t("按域名、进程、节点或规则过滤")} className="min-w-[140px] max-w-[320px] flex-1" />
           <button onClick={() => setOnlyErr(!onlyErr)}
             className={cx("inline-flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md border px-2.5 text-[12px] transition-colors",
               onlyErr ? "border-err/40 bg-err-soft text-err" : "border-line text-fg-2 hover:bg-hover")}>
-            <TriangleAlert className="size-3.5" strokeWidth={1.8} />出错 <span className="font-mono tnum">{errCount}</span>
+            <TriangleAlert className="size-3.5" strokeWidth={1.8} />{t("出错")}{" "}<span className="font-mono tnum">{errCount}</span>
           </button>
           {!!rejCount && (
-            <button onClick={() => setHideRej(!hideRej)} title="按规则拦截的连接是预期行为（如订阅 ipv6: false 拒绝 IPv6）"
+            <button onClick={() => setHideRej(!hideRej)} title={t("按规则拦截的连接是预期行为（如订阅 ipv6: false 拒绝 IPv6）")}
               className={cx("inline-flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md border px-2.5 text-[12px] transition-colors",
                 hideRej ? "border-line-strong bg-active text-fg" : "border-line text-fg-2 hover:bg-hover")}>
-              <Ban className="size-3.5" strokeWidth={1.8} />{hideRej ? "已隐藏拦截" : "隐藏拦截"} <span className="font-mono tnum">{rejCount}</span>
+              <Ban className="size-3.5" strokeWidth={1.8} />{hideRej ? t("已隐藏拦截") : t("隐藏拦截")} <span className="font-mono tnum">{rejCount}</span>
             </button>
           )}
-          <button onClick={() => setOnlyActive(!onlyActive)} title="只看正在传输的连接"
+          <button onClick={() => setOnlyActive(!onlyActive)} title={t("只看正在传输的连接")}
             className={cx("inline-flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md border px-2.5 text-[12px] transition-colors",
               onlyActive ? "border-accent/40 bg-accent-soft text-fg" : "border-line text-fg-2 hover:bg-hover")}>
-            <Activity className="size-3.5" strokeWidth={1.8} />活动 <span className="font-mono tnum">{active.length}</span>
+            <Activity className="size-3.5" strokeWidth={1.8} />{t("活动")}{" "}<span className="font-mono tnum">{active.length}</span>
           </button>
-          <div className="ml-auto flex shrink-0 items-center gap-3 whitespace-nowrap font-mono text-[12px] tnum" title="经过 Velum 的实时总速率">
+          <div className="ml-auto flex shrink-0 items-center gap-3 whitespace-nowrap font-mono text-[12px] tnum" title={t("经过 Velum 的实时总速率")}>
             <span className="inline-flex items-center gap-1 text-fg"><ArrowDown className="size-3.5 text-accent" strokeWidth={2} />{traffic ? rate(traffic.down_rate) : "—"}</span>
             <span className="inline-flex items-center gap-1 text-fg-2"><ArrowUp className="size-3.5 text-fg-3" strokeWidth={2} />{traffic ? rate(traffic.up_rate) : "—"}</span>
           </div>
-          <IconButton icon={paused ? Play : Pause} label={paused ? "继续实时更新" : "暂停实时更新"} onClick={() => setPaused(!paused)} className={paused ? "text-warn" : undefined} />
+          <IconButton icon={paused ? Play : Pause} label={paused ? t("继续实时更新") : t("暂停实时更新")} onClick={() => setPaused(!paused)} className={paused ? "text-warn" : undefined} />
         </div>
         <div className="min-h-0 flex-1 overflow-auto">
           {!shown.length ? (
-            <Empty icon={ArrowLeftRight} title={all.length ? "没有匹配的连接" : onlyActive ? "当前没有活动连接" : "还没有连接"}
-              hint={all.length ? "换个关键词，或关闭「出错」「隐藏拦截」筛选" : "经 Velum 访问任意网站后，连接会实时出现在这里"} />
+            <Empty icon={ArrowLeftRight} title={all.length ? t("没有匹配的连接") : onlyActive ? t("当前没有活动连接") : t("还没有连接")}
+              hint={all.length ? t("换个关键词，或关闭「出错」「隐藏拦截」筛选") : t("经 Velum 访问任意网站后，连接会实时出现在这里")} />
           ) : (
             <table className="w-full table-fixed text-[12.5px]">
               <thead className="sticky top-0 z-10 bg-bg text-left text-[11.5px] text-fg-3">
                 <tr className="[&>th]:h-8 [&>th]:border-b [&>th]:border-line [&>th]:px-3 [&>th]:font-medium">
-                  <th className="w-[88px] !pl-4">时间</th>
-                  <th>目标</th>
-                  {hasProc && <th className="w-[110px]">进程</th>}
-                  <th className="w-[32%]">规则与出站</th>
-                  <th className="w-[84px] text-right">速率</th>
-                  <th className={cx("w-[68px] text-right", cur && "!pr-4")}>下行</th>
-                  {!cur && <th className="w-[72px] !pr-4 text-right">首包</th>}
+                  <th className="w-[88px] !pl-4">{t("时间")}</th>
+                  <th>{t("目标")}</th>
+                  {hasProc && <th className="w-[110px]">{t("进程")}</th>}
+                  <th className="w-[32%]">{t("规则与出站")}</th>
+                  <th className="w-[84px] text-right">{t("速率")}</th>
+                  <th className={cx("w-[68px] text-right", cur && "!pr-4")}>{t("下行")}</th>
+                  {!cur && <th className="w-[72px] !pr-4 text-right">{t("首包")}</th>}
                 </tr>
               </thead>
               <tbody>
@@ -138,7 +139,7 @@ export default function Connections({ go, refresh, initialQuery }: { go: Go; ref
                     <tr key={c.id} onClick={() => setSel(c)}
                       className={cx("h-9 border-b border-line transition-colors [&>td]:px-3", sel?.id === c.id ? "bg-active" : "hover:bg-hover")}>
                       <td className="!pl-4 whitespace-nowrap font-mono text-[11.5px] text-fg-3 tnum">
-                        <span className={cx("mr-1.5 inline-block size-1.5 rounded-full align-middle", live ? "bg-accent" : "bg-transparent")} title={live ? "进行中" : undefined} />
+                        <span className={cx("mr-1.5 inline-block size-1.5 rounded-full align-middle", live ? "bg-accent" : "bg-transparent")} title={live ? t("进行中") : undefined} />
                         {new Date(c.start).toLocaleTimeString([], { hour12: false })}
                       </td>
                       <td className="truncate">
@@ -167,26 +168,26 @@ export default function Connections({ go, refresh, initialQuery }: { go: Go; ref
               <div className="selectable truncate text-[14px] font-semibold" title={cur.domain || cur.destination}>{cur.domain || cur.destination}</div>
               <div className="mt-0.5 font-mono text-[11.5px] text-fg-3 tnum">{new Date(cur.start).toLocaleString([], { hour12: false })} · {cur.network.toUpperCase()}</div>
             </div>
-            <IconButton icon={X} label="关闭" onClick={() => setSel(undefined)} />
+            <IconButton icon={X} label={t("关闭")} onClick={() => setSel(undefined)} />
           </div>
           <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-4 py-4">
             <div>
-              <div className="mb-1.5 text-[11.5px] text-fg-3">路由</div>
+              <div className="mb-1.5 text-[11.5px] text-fg-3">{t("路由")}</div>
               <Chain className="flex-wrap" steps={chainSteps(cur.chain, { label: ruleLabel(sel) })} />
-              <div className="selectable mt-2 rounded-md bg-hover px-2.5 py-2 font-mono text-[11.5px] leading-5 break-all text-fg-2">{srcText(cur.provenance) || "未命中任何规则，走最终出站"}</div>
+              <div className="selectable mt-2 rounded-md bg-hover px-2.5 py-2 font-mono text-[11.5px] leading-5 break-all text-fg-2">{srcText(cur.provenance) || t("未命中任何规则，走最终出站")}</div>
             </div>
             <KV rows={[
-              ["目标", <span className="selectable font-mono text-[12px] break-all">{cur.destination}</span>],
-              ...(cur.resolved?.length ? [["解析", <span className="selectable font-mono text-[12px] break-all">{cur.resolved.join(", ")}</span>] as [string, React.ReactNode]] : []),
-              ["进程", <span className="selectable break-all">{cur.process ?? "—"}</span>],
-              ["流量", <span className="font-mono text-[12px] tnum">↑ {human(cur.upload)}　↓ {human(cur.download)}</span>],
-              ...(!cur.end ? [["速率", <span className="font-mono text-[12px] tnum">↑ {rate(speeds.get(cur.id)?.up ?? 0)}　↓ {rate(speeds.get(cur.id)?.down ?? 0)}</span>] as [string, React.ReactNode]] : []),
-              ["首包", <span className="font-mono text-[12px] tnum">{cur.first_byte_ms >= 0 ? `${cur.first_byte_ms} ms` : "无"}</span>],
-              ["时长", <span className="font-mono text-[12px] tnum">{cur.end ? `${cur.duration_ms} ms` : "进行中"}</span>],
-              ...(cur.sniffed ? [["嗅探", cur.sniffed] as [string, React.ReactNode]] : []),
+              [t("目标"), <span className="selectable font-mono text-[12px] break-all">{cur.destination}</span>],
+              ...(cur.resolved?.length ? [[t("解析"), <span className="selectable font-mono text-[12px] break-all">{cur.resolved.join(", ")}</span>] as [string, React.ReactNode]] : []),
+              [t("进程"), <span className="selectable break-all">{cur.process ?? "—"}</span>],
+              [t("流量"), <span className="font-mono text-[12px] tnum">↑ {human(cur.upload)}　↓ {human(cur.download)}</span>],
+              ...(!cur.end ? [[t("速率"), <span className="font-mono text-[12px] tnum">↑ {rate(speeds.get(cur.id)?.up ?? 0)}　↓ {rate(speeds.get(cur.id)?.down ?? 0)}</span>] as [string, React.ReactNode]] : []),
+              [t("首包"), <span className="font-mono text-[12px] tnum">{cur.first_byte_ms >= 0 ? `${cur.first_byte_ms} ms` : t("无")}</span>],
+              [t("时长"), <span className="font-mono text-[12px] tnum">{cur.end ? `${cur.duration_ms} ms` : t("进行中")}</span>],
+              ...(cur.sniffed ? [[t("嗅探"), cur.sniffed] as [string, React.ReactNode]] : []),
             ]} />
             {isRejected(sel) ? (
-              <Tag>按规则拦截，属于预期行为</Tag>
+              <Tag>{t("按规则拦截，属于预期行为")}</Tag>
             ) : (
               !!cur.errors?.length && (
                 <div className="space-y-1.5">
@@ -196,8 +197,8 @@ export default function Connections({ go, refresh, initialQuery }: { go: Go; ref
             )}
           </div>
           <div className="flex gap-2 border-t border-line p-3">
-            <Button className="flex-1" icon={ListPlus} onClick={() => setRule(sel)}>加入本地规则</Button>
-            <Button className="flex-1" icon={ScanSearch} onClick={() => go("diagnose", cur.domain || cur.destination)}>诊断</Button>
+            <Button className="flex-1" icon={ListPlus} onClick={() => setRule(sel)}>{t("加入本地规则")}</Button>
+            <Button className="flex-1" icon={ScanSearch} onClick={() => go("diagnose", cur.domain || cur.destination)}>{t("诊断")}</Button>
           </div>
         </aside>
       )}

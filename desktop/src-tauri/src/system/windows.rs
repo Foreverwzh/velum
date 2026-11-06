@@ -1,6 +1,7 @@
 //! Windows：TUN 组件即 Velum 服务（velumd 以 SYSTEM 运行，自建 wintun）。安装 / 卸载经 UAC 以管理员身份执行
 //! `velumd service install|uninstall`；启动 / 停止与状态查询由安装用户直接执行（服务 DACL 已授权）。开机启动写 HKCU 的 Run 键。
 
+use crate::i18n::{t, tf};
 use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -18,12 +19,12 @@ pub fn run_hidden(bin: &Path, args: &[&str]) -> Result<String, String> {
         return Ok(String::from_utf8_lossy(&out.stdout).into_owned());
     }
     let err = String::from_utf8_lossy(&out.stderr);
-    Err(if err.trim().is_empty() { format!("{} 失败：{}", bin.display(), out.status) } else { err.trim().to_string() })
+    Err(if err.trim().is_empty() { tf("{0} 失败：{1}", &[&bin.display(), &out.status]) } else { err.trim().to_string() })
 }
 
 /// `velumd service status`：{installed, running, outdated, binary, error}。
 pub fn service_status() -> Result<serde_json::Value, String> {
-    let bin = velum::velumd_path().ok_or("找不到内置的 velumd")?;
+    let bin = velum::velumd_path().ok_or(t("找不到内置的 velumd"))?;
     let out = run_hidden(&bin, &["service", "status"])?;
     serde_json::from_str(&out).map_err(|e| e.to_string())
 }
@@ -72,7 +73,7 @@ fn run_elevated(args: &[&str]) -> Result<(), String> {
     use windows_sys::Win32::UI::Shell::{ShellExecuteExW, SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW};
     use windows_sys::Win32::UI::WindowsAndMessaging::SW_HIDE;
 
-    let bin = velum::velumd_path().ok_or("找不到内置的 velumd")?;
+    let bin = velum::velumd_path().ok_or(t("找不到内置的 velumd"))?;
     let params = args.iter().map(|a| quote_arg(a)).collect::<Vec<_>>().join(" ");
     let (verb, file, params) = (wide("runas"), wide(&bin.to_string_lossy()), wide(&params));
     let log = service_data_dir().join("logs").join("service.log");
@@ -89,7 +90,7 @@ fn run_elevated(args: &[&str]) -> Result<(), String> {
         info.nShow = SW_HIDE;
         if ShellExecuteExW(&mut info) == 0 {
             let err = std::io::Error::last_os_error();
-            return Err(if err.raw_os_error() == Some(1223) { "已取消".into() } else { format!("无法以管理员身份运行：{err}") });
+            return Err(if err.raw_os_error() == Some(1223) { t("已取消").into() } else { tf("无法以管理员身份运行：{0}", &[&err]) });
         }
         WaitForSingleObject(info.hProcess, INFINITE);
         let mut code = 0u32;
@@ -98,7 +99,7 @@ fn run_elevated(args: &[&str]) -> Result<(), String> {
         if code != 0 {
             let fresh = std::fs::metadata(&log).and_then(|m| m.modified()).map(|t| t >= started).unwrap_or(false);
             let detail = if fresh { std::fs::read_to_string(&log).unwrap_or_default() } else { String::new() };
-            return Err(if detail.trim().is_empty() { format!("操作失败（退出码 {code}）") } else { detail.trim().to_string() });
+            return Err(if detail.trim().is_empty() { tf("操作失败（退出码 {0}）", &[&code]) } else { detail.trim().to_string() });
         }
     }
     Ok(())
@@ -150,7 +151,7 @@ pub fn cli_status() -> serde_json::Value {
 
 /// 把安装目录加入当前用户的 PATH（不需要管理员权限；新打开的终端生效）。
 pub fn cli_install() -> Result<(), String> {
-    let dir = velum::bin_path("vlu").and_then(|p| p.parent().map(|d| d.to_string_lossy().into_owned())).ok_or("找不到内置的 vlu")?;
+    let dir = velum::bin_path("vlu").and_then(|p| p.parent().map(|d| d.to_string_lossy().into_owned())).ok_or(t("找不到内置的 vlu"))?;
     let (path, ty) = user_path::read()?;
     if user_path::contains(&path, &dir) {
         return Ok(());
@@ -192,7 +193,7 @@ mod user_path {
         // SAFETY：子键名为以 0 结尾的 UTF-16；成功时由调用方关闭 key。
         let rc = unsafe { RegOpenKeyExW(HKEY_CURRENT_USER, wide("Environment").as_ptr(), 0, access, &mut key) };
         if rc != 0 {
-            return Err(format!("打开用户环境变量失败（{rc}）"));
+            return Err(tf("打开用户环境变量失败（{0}）", &[&rc]));
         }
         Ok(key)
     }
@@ -213,7 +214,7 @@ mod user_path {
             let rc = if rc == 0 { RegQueryValueExW(key, name.as_ptr(), std::ptr::null(), &mut ty, buf.as_mut_ptr().cast(), &mut size) } else { rc };
             RegCloseKey(key);
             if rc != 0 {
-                return Err(format!("读取用户 PATH 失败（{rc}）"));
+                return Err(tf("读取用户 PATH 失败（{0}）", &[&rc]));
             }
             while buf.last() == Some(&0) {
                 buf.pop();
@@ -230,7 +231,7 @@ mod user_path {
         let rc = unsafe { RegSetValueExW(key, wide("Path").as_ptr(), 0, ty, data.as_ptr().cast(), (data.len() * 2) as u32) };
         unsafe { RegCloseKey(key) };
         if rc != 0 {
-            return Err(format!("写入用户 PATH 失败（{rc}）"));
+            return Err(tf("写入用户 PATH 失败（{0}）", &[&rc]));
         }
         let env = wide("Environment");
         let mut result = 0usize;

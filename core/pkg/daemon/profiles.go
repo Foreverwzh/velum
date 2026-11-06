@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
+	"github.com/Foreverwzh/velum/core/pkg/i18n"
 	"net/http"
 	"net/url"
 	"os"
@@ -85,7 +85,7 @@ func defaultProfileName(p config.Profile, info *source.Info) string {
 // verifySubscription 拉取并解析订阅地址（忽略缓存），必须有可用节点；返回订阅服务提供的信息。
 func (d *Daemon) verifySubscription(cfg *config.Config, rawURL, ua string) (*source.Info, error) {
 	if u, err := url.Parse(rawURL); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-		return nil, fmt.Errorf("订阅地址应以 http:// 或 https:// 开头")
+		return nil, i18n.Errorf("订阅地址应以 http:// 或 https:// 开头")
 	}
 	f := source.New(d.Paths.Cache, ua)
 	// 订阅本身重新拉取（下面 ttl 为 0）；provider 有缓存就用：校验只需要知道订阅能否解析出节点，
@@ -101,14 +101,14 @@ func (d *Daemon) verifySubscription(cfg *config.Config, rawURL, ua string) (*sou
 		err = errors.New(res.Err) // 拉取失败、回落到了旧缓存：校验时不算成功
 	}
 	if err != nil {
-		return nil, fmt.Errorf("拉取订阅失败：%w", err)
+		return nil, i18n.Errorf("拉取订阅失败：%w", err)
 	}
 	sub, err := subscription.Parse(data, subscription.Options{File: "subscription", ReadFile: f.ProviderReader(), GeoRuleSetURL: cfg.Subscription.GeoRuleSetURL})
 	if err != nil {
-		return nil, fmt.Errorf("订阅内容无法识别（需要 Clash / Stash / mihomo 格式）：%w", err)
+		return nil, i18n.Errorf("订阅内容无法识别（需要 Clash / Stash / mihomo 格式）：%w", err)
 	}
 	if len(sub.Nodes) == 0 {
-		return nil, fmt.Errorf("订阅中没有可用节点")
+		return nil, i18n.Errorf("订阅中没有可用节点")
 	}
 	return f.Info("subscription", rawURL), nil
 }
@@ -129,7 +129,7 @@ func (d *Daemon) useSubscription(ctx context.Context, rawURL, file string) error
 	if err := d.Reload(ctx); err != nil {
 		_ = userfs.WriteFileAtomic(d.Paths.Config, old, 0o600)
 		_ = d.Reload(ctx)
-		return fmt.Errorf("应用失败，已改回原订阅：%w", err)
+		return i18n.Errorf("应用失败，已改回原订阅：%w", err)
 	}
 	return nil
 }
@@ -157,7 +157,7 @@ func (d *Daemon) addProfile(w http.ResponseWriter, r *http.Request) {
 	}
 	p := config.Profile{Name: req.Name, URL: req.URL}
 	if i := config.FindProfile(ps, p.ID()); i >= 0 {
-		writeErr(w, http.StatusConflict, fmt.Errorf("这个订阅已在列表中（%s）", ps[i].Name))
+		writeErr(w, http.StatusConflict, i18n.Errorf("这个订阅已在列表中（%s）", ps[i].Name))
 		return
 	}
 	info, err := d.verifySubscription(cfg, req.URL, cfg.Subscription.UserAgent)
@@ -193,7 +193,7 @@ func (d *Daemon) profileAt(w http.ResponseWriter, id string) ([]config.Profile, 
 	}
 	i := config.FindProfile(ps, id)
 	if i < 0 {
-		writeErr(w, http.StatusNotFound, fmt.Errorf("订阅不存在"))
+		writeErr(w, http.StatusNotFound, i18n.Errorf("订阅不存在"))
 		return nil, -1, false
 	}
 	return ps, i, true
@@ -222,7 +222,7 @@ func (d *Daemon) editProfile(w http.ResponseWriter, r *http.Request) {
 	newURL := strings.TrimSpace(req.URL)
 	if newURL != "" && newURL != ps[i].URL {
 		if j := config.FindProfile(ps, config.ProfileID(newURL, "")); j >= 0 {
-			writeErr(w, http.StatusConflict, fmt.Errorf("这个地址已在列表中（%s）", ps[j].Name))
+			writeErr(w, http.StatusConflict, i18n.Errorf("这个地址已在列表中（%s）", ps[j].Name))
 			return
 		}
 		cfg, err := config.Load(d.Paths)
@@ -261,7 +261,7 @@ func (d *Daemon) deleteProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if d.isActive(ps[i]) {
-		writeErr(w, http.StatusConflict, fmt.Errorf("正在使用的订阅不能删除，请先切换到其他订阅"))
+		writeErr(w, http.StatusConflict, i18n.Errorf("正在使用的订阅不能删除，请先切换到其他订阅"))
 		return
 	}
 	if err := config.SaveProfiles(d.Paths.Profiles, append(ps[:i:i], ps[i+1:]...)); err != nil {

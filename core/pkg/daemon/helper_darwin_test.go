@@ -26,7 +26,7 @@ func TestHelperStatus(t *testing.T) {
 	paths := testPaths(home)
 	_ = config.Ensure(paths)
 	hsock := filepath.Join(home, "h.sock")
-	cfg := strings.Replace(config.Template, "helper_socket: /var/run/velum-helper.sock", "helper_socket: "+hsock, 1)
+	cfg := strings.Replace(config.Template(), "helper_socket: /var/run/velum-helper.sock", "helper_socket: "+hsock, 1)
 	_ = os.WriteFile(paths.Config, []byte(cfg), 0o600)
 	d := daemon.New(paths, &fakeEngine{}, log.New(io.Discard, "", 0))
 	go func() { _ = d.Run(context.Background()) }()

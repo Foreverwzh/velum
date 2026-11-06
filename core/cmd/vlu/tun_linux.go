@@ -5,6 +5,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"github.com/Foreverwzh/velum/core/pkg/i18n"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -35,7 +36,7 @@ const tunUsage = "用法：vlu tun on [--try[=120s]] [--force] | confirm [--forc
 func parseTUNArgs(args []string) (tunArgs, error) {
 	a := tunArgs{trial: defaultTrial}
 	if len(args) == 0 {
-		return a, errors.New(tunUsage)
+		return a, i18n.New(tunUsage)
 	}
 	a.action = args[0]
 	for i := 1; i < len(args); i++ {
@@ -55,15 +56,15 @@ func parseTUNArgs(args []string) (tunArgs, error) {
 			a.try = true
 			dur = strings.TrimPrefix(v, "--try=")
 		default:
-			return a, errors.New(tunUsage)
+			return a, i18n.New(tunUsage)
 		}
 		if dur != "" {
 			d, err := time.ParseDuration(dur)
 			if err != nil {
-				return a, fmt.Errorf("试运行时长无效：%s（例如 120s）", dur)
+				return a, i18n.Errorf("试运行时长无效：%s（例如 120s）", dur)
 			}
 			if d < minTrial {
-				return a, fmt.Errorf("试运行时长不能少于 %s：要留出新开 SSH 连接确认的时间", minTrial)
+				return a, i18n.Errorf("试运行时长不能少于 %s：要留出新开 SSH 连接确认的时间", minTrial)
 			}
 			a.trial = d
 		}
@@ -71,10 +72,10 @@ func parseTUNArgs(args []string) (tunArgs, error) {
 	switch a.action {
 	case "on", "off", "config", "confirm":
 	default:
-		return a, errors.New(tunUsage)
+		return a, i18n.New(tunUsage)
 	}
 	if a.try && a.action != "on" {
-		return a, errors.New(tunUsage)
+		return a, i18n.New(tunUsage)
 	}
 	return a, nil
 }
@@ -124,14 +125,14 @@ func setTUN(c *rpc.Client, args []string) error {
 	switch {
 	case a.try:
 		if !installed {
-			return errors.New("试运行需要系统服务：先执行 sudo velumd service install")
+			return i18n.New("试运行需要系统服务：先执行 sudo velumd service install")
 		}
 		return tunTry(c, a.trial)
 	case a.action == "confirm":
 		return tunConfirm(c, a.force)
 	case (a.action == "on" || a.action == "config") && installed && !a.force && sshSession() != "":
 		// config 也可能开启 TUN（tun.enabled: true）
-		return fmt.Errorf("当前在 SSH 会话里，直接接管网络可能把你锁在服务器外面。请用 sudo vlu tun on --try，确认后才生效；确实要跳过时加 --force")
+		return i18n.Errorf("当前在 SSH 会话里，直接接管网络可能把你锁在服务器外面。请用 sudo vlu tun on --try，确认后才生效；确实要跳过时加 --force")
 	}
 	err = setSwitch(c, "TUN", []string{a.action})
 	if err == nil && os.Geteuid() == 0 && installed {
@@ -142,20 +143,20 @@ func setTUN(c *rpc.Client, args []string) error {
 
 func tunTry(c *rpc.Client, d time.Duration) error {
 	if os.Geteuid() != 0 {
-		return errors.New("试运行要注册 systemd 定时器，需要 root：sudo vlu tun on --try")
+		return i18n.New("试运行要注册 systemd 定时器，需要 root：sudo vlu tun on --try")
 	}
 	s, err := c.Status()
 	if err != nil {
 		return err
 	}
 	if s.TUNOn {
-		return errors.New("TUN 已开启，不需要试运行")
+		return i18n.New("TUN 已开启，不需要试运行")
 	}
 	// 先注册回退，再动网络：动网络之后这条 SSH 连接可能已经断了
 	stopRevertTimer()
 	secs := strconv.Itoa(int(d.Seconds())) + "s"
 	if out, err := exec.Command("systemd-run", "--quiet", "--unit="+revertUnit, "--collect", "--on-active="+secs, installedVelumd, "service", "tun-revert").CombinedOutput(); err != nil {
-		return fmt.Errorf("注册回退定时器失败，没有开启 TUN：%v\n%s", err, strings.TrimSpace(string(out)))
+		return i18n.Errorf("注册回退定时器失败，没有开启 TUN：%v\n%s", err, strings.TrimSpace(string(out)))
 	}
 	s, err = c.Switch(rpc.SwitchRequest{TUN: "try", TrialDeadline: time.Now().Add(d), TrialSession: sshSession()})
 	switch {
@@ -168,16 +169,16 @@ func tunTry(c *rpc.Client, d time.Duration) error {
 	case !s.TUNOn:
 		stopRevertTimer()
 		if s.Network != nil && s.Network.Paused != "" {
-			return fmt.Errorf("TUN 没有开启：%s", s.Network.Paused)
+			return i18n.Errorf("TUN 没有开启：%s", s.Network.Paused)
 		}
-		return errors.New("TUN 没有开启")
+		return i18n.New("TUN 没有开启")
 	}
-	fmt.Printf("TUN 试运行中：%s 内未确认就自动回退到端口模式，重启后也会回到端口模式\n", d)
+	i18n.Printf("TUN 试运行中：%s 内未确认就自动回退到端口模式，重启后也会回到端口模式\n", d)
 	if s.TUN != nil {
-		fmt.Printf("  %s %s，%d 条路由\n", s.TUN.Name, s.TUN.Address, len(s.TUN.Routes))
+		i18n.Printf("  %s %s，%d 条路由\n", s.TUN.Name, s.TUN.Address, len(s.TUN.Routes))
 	}
 	printFirewallAdvisories(c)
-	fmt.Println("  现在**新开一个 SSH 连接**执行：sudo vlu tun confirm")
+	fmt.Println(i18n.T("  现在**新开一个 SSH 连接**执行：sudo vlu tun confirm"))
 	return nil
 }
 
@@ -195,7 +196,7 @@ func printFirewallAdvisories(c *rpc.Client) {
 
 func tunConfirm(c *rpc.Client, force bool) error {
 	if os.Geteuid() != 0 {
-		return errors.New("确认要取消 systemd 定时器，需要 root：sudo vlu tun confirm")
+		return i18n.New("确认要取消 systemd 定时器，需要 root：sudo vlu tun confirm")
 	}
 	// 先保存，再取消定时器：定时器若在两步之间到期，发现试运行已结束，不会回退
 	s, err := c.Switch(rpc.SwitchRequest{TUN: "confirm", TrialSession: sshSession(), TrialForce: force})
@@ -206,6 +207,6 @@ func tunConfirm(c *rpc.Client, force bool) error {
 	if s.LastError != "" {
 		return errors.New(s.LastError)
 	}
-	fmt.Println("TUN 已确认并保存，重启后保持开启")
+	fmt.Println(i18n.T("TUN 已确认并保存，重启后保持开启"))
 	return nil
 }
