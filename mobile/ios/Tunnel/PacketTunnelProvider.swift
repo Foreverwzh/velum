@@ -1,5 +1,6 @@
 // 隧道扩展：只运行内核（core/iostunnel），配置由 App 写到 App Group。内存上限约 50MB，见 spikes/ios-memory。
 // 路由和 DNS 的写法来自 macOS 扩展（desktop/extension），各条约束的来历见 spikes/mn-netext/README.md。
+import Darwin
 import Foundation
 import Iostunnel
 import NetworkExtension
@@ -8,8 +9,39 @@ import os
 let log = Logger(subsystem: "io.github.foreverwzh.velum.tunnel", category: "tunnel")
 let appGroup = "group.io.github.foreverwzh.velum"
 
+/// 系统判定内存超限用的指标。
+func footprintMiB() -> Double {
+    var info = task_vm_info_data_t()
+    var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<integer_t>.size)
+    let kr = withUnsafeMutablePointer(to: &info) {
+        $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+            task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count)
+        }
+    }
+    return kr == KERN_SUCCESS ? Double(info.phys_footprint) / 1048576 : -1
+}
+
 class PacketTunnelProvider: NEPacketTunnelProvider {
     var stopping = false
+    private var memTimer: DispatchSourceTimer?
+    private var peak = 0.0
+
+    /// 每 2 秒把内存读数写到共享目录（一行，覆盖写）：被系统杀掉后还能看到最后的峰值。
+    private func recordMemory(_ home: URL) {
+        let path = home.appendingPathComponent("tunnel/memory.txt")
+        let t = DispatchSource.makeTimerSource(queue: .global(qos: .utility))
+        t.schedule(deadline: .now() + 1, repeating: 2)
+        t.setEventHandler { [weak self] in
+            guard let self else { return }
+            let f = footprintMiB()
+            peak = max(peak, f)
+            let limit = f + Double(os_proc_available_memory()) / 1048576
+            let line = String(format: "%.0f footprint=%.1f peak=%.1f limit=%.1f\n", Date().timeIntervalSince1970, f, peak, limit)
+            try? line.write(to: path, atomically: true, encoding: .utf8)
+        }
+        t.resume()
+        memTimer = t
+    }
 
     override func startTunnel(options: [String: NSObject]?, completionHandler: @escaping (Error?) -> Void) {
         guard let group = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroup) else {
@@ -21,6 +53,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
             var err: NSError?
             IostunnelStart(home.path, TunHost(provider: self), &err)
             if let err { log.error("内核启动失败：\(err, privacy: .public)") }
+            else { self.recordMemory(home) }
             completionHandler(err)
         }
     }
@@ -28,6 +61,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
     override func stopTunnel(with reason: NEProviderStopReason, completionHandler: @escaping () -> Void) {
         log.notice("停止隧道，原因 \(reason.rawValue)")
         stopping = true
+        memTimer?.cancel()
         DispatchQueue.global().async {
             IostunnelStop()
             completionHandler()

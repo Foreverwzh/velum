@@ -3,6 +3,7 @@
 # 用法：smoke.sh <velumd 与 vlu 所在目录>
 # 数据放在临时目录，端口用 127.0.0.1 上的高位端口；不开 TUN、系统代理和网络感知，也不影响正在运行的 Velum。
 set -eu
+export VELUM_LANG=zh # 下面的断言匹配中文输出
 bin="$(cd "$1" && pwd)"
 home="$(mktemp -d)"
 export VELUM_HOME="$home"

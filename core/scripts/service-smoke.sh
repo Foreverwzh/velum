@@ -80,14 +80,14 @@ echo "service-smoke: 本地端口可用"
 
 # Linux 没有系统代理后端：不能显示为已开启
 vlu sysproxy on >/dev/null 2>&1 && fail "vlu sysproxy on 不应成功"
-if vlu status | grep -q '系统代理 开'; then fail "状态误报系统代理已开启"; fi
+if vlu status | grep -qE '系统代理 开|system proxy on'; then fail "状态误报系统代理已开启"; fi
 vlu sysproxy config >/dev/null 2>&1 || true
 echo "service-smoke: 系统代理如实显示不支持"
 
 # 访问控制
 home="$(mktemp -d)"; chmod 777 "$home"
 out="$(sudo -u nobody env HOME="$home" /usr/local/bin/vlu status 2>&1 || true)"
-echo "$out" | grep -q 'velum 组' || fail "未加入 velum 组的用户没有被拒绝：$out"
+echo "$out" | grep -qE 'velum 组|velum group' || fail "未加入 velum 组的用户没有被拒绝：$out"
 usermod -aG velum "$member"
 sudo -u "$member" env HOME="$home" /usr/local/bin/vlu status | grep -q "$port" || fail "velum 组成员无法使用 vlu"
 rm -rf "$home"
@@ -96,7 +96,7 @@ echo "service-smoke: socket 只对 velum 组开放"
 # 对外监听
 write_config "0.0.0.0:$port" ""
 systemctl restart velum
-until_true 15 sh -c 'vlu status 2>&1 | grep -q 开放代理' || { vlu status >&2 || true; fail "无认证的 listen 没有被拒绝"; }
+until_true 15 sh -c 'vlu status 2>&1 | grep -qE "开放代理|open proxy"' || { vlu status >&2 || true; fail "无认证的 listen 没有被拒绝"; }
 if ss -Hltn "sport = :$port" | grep -q .; then fail "被拒绝后端口仍在监听"; fi
 write_config "127.0.0.1:$port" "listen_public: {address: 127.0.0.1:$pub, username: \"\", password: \"\"}"
 systemctl restart velum
@@ -146,7 +146,7 @@ echo "service-smoke: 卸载干净"
 # 已有同名的真人账号：不能借用，也不能被删除
 useradd -m velum
 if out="$(sh "$dir/install.sh" 2>&1)"; then fail "已有同名用户时不应安装成功"; fi
-echo "$out" | grep -q '不是 Velum 创建的' || fail "同名用户的提示不对：$out"
+echo "$out" | grep -qE '不是 Velum 创建的|not created by Velum' || fail "同名用户的提示不对：$out"
 [ ! -e /etc/systemd/system/velum.service ] && [ ! -e /usr/local/bin/velumd ] || fail "拒绝安装后留下了文件"
 "$dir/velumd" service uninstall --purge >/dev/null || fail "uninstall --purge 失败"
 id velum >/dev/null 2>&1 || fail "--purge 删除了不是 Velum 创建的用户"

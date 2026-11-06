@@ -7,6 +7,7 @@
 # kill -9 后的清理、规则不累积、不动别人的规则。
 # 不覆盖：回退定时器（依赖 systemd，在虚拟机上验证）、真实节点。
 set -u
+export VELUM_LANG=zh # 下面的断言匹配中文输出
 bin="$(cd "$1" && pwd)"
 [ "$(id -u)" = 0 ] || { echo "需要 root"; exit 1; }
 for d in /run/velum /var/lib/velum; do

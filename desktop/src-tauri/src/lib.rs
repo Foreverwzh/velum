@@ -1,9 +1,9 @@
 //! Velum 桌面壳：界面 + 托盘 + velumd 进程管理。业务逻辑全部在 velumd（Go 核心）中。
 
 use crate::i18n::{t, tf};
-#[cfg(target_os = "macos")]
 mod i18n;
 mod i18n_en;
+#[cfg(target_os = "macos")]
 mod menu_tabs;
 #[cfg(target_os = "macos")]
 mod netext;
