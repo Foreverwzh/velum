@@ -71,20 +71,20 @@ struct ExplainView: View {
             if r.report.dns.applicable, let a = r.resolved?.first {
                 step("DNS", symbol: "globe") {
                     Text(a).font(.subheadline.monospaced())
-                    if let by = r.resolvedBy { Text("由 \(by) 解析").font(.footnote).foregroundStyle(.secondary) }
+                    if let by = r.resolvedBy { Text(resolverName(by)).font(.footnote).foregroundStyle(.secondary) }
                 }
             }
             if let e = r.resolveError {
                 step("DNS", symbol: "globe") { Text(e).font(.footnote).foregroundStyle(Color.warn) }
             }
-            step("规则 #\(d.ruleIndex)", symbol: "checkmark.seal") {
+            step(d.ruleIndex >= 0 ? String(localized: "规则 #\(d.ruleIndex)") : String(localized: "没有规则命中，走默认出站"), symbol: "checkmark.seal") {
                 if let t = d.source.text { Text(t).font(.subheadline.monospaced()).textSelection(.enabled) }
-                Text("来自 " + d.source.location).font(.footnote).foregroundStyle(.secondary)
+                Text("来自 \(d.source.location)").font(.footnote).foregroundStyle(.secondary)
             }
-            let misses = r.report.rules.filter { !$0.matched }
+            let misses = (r.report.rules ?? []).filter { !$0.matched }
             if !misses.isEmpty {
                 NavigationLink {
-                    RuleTraceList(rules: r.report.rules)
+                    RuleTraceList(rules: r.report.rules ?? [])
                 } label: {
                     Text("前面 \(misses.count) 条规则未命中").font(.subheadline)
                 }
@@ -117,11 +117,19 @@ struct ExplainView: View {
         }
     }
 
+    private func resolverName(_ by: String) -> String {
+        switch by {
+        case "engine": String(localized: "按 Velum 的 DNS 规则解析")
+        case "user": String(localized: "你指定的地址")
+        default: String(localized: "由 \(by) 解析")
+        }
+    }
+
     private func sentence(_ r: WhyResponse) -> String {
-        guard let last = r.chain?.last else { return "没有匹配的线路" }
-        if last == "DIRECT" { return "直连，不经过节点" }
-        if last == "REJECT" || last.hasPrefix("reject") { return "被规则拦截" }
-        return "经 \(last) 转发"
+        guard let last = r.chain?.last else { return String(localized: "没有匹配的线路") }
+        if last == "DIRECT" { return String(localized: "直连，不经过节点") }
+        if last == "REJECT" || last.hasPrefix("reject") { return String(localized: "被规则拦截") }
+        return String(localized: "经 \(last) 转发")
     }
 
     private func step<C: View>(_ title: String, symbol: String, @ViewBuilder content: () -> C) -> some View {
@@ -239,10 +247,18 @@ struct RuleSheet: View {
     }
 
     private var summary: String {
-        if isIP { return "\(target) 直连" }
-        if action == "host" { return "\(target) 解析为 \(ip.isEmpty ? "…" : ip)" }
-        let what = ["suffix": "\(base) 及其子域", "exact": "仅 \(base)", "sub": "\(base) 的子域"][scope]!
-        return "\(what) 直连"
+        if isIP { return String(localized: "\(target) 直连") }
+        if action == "host" {
+            let shown = ip.isEmpty ? "…" : ip
+            return String(localized: "\(target) 解析为 \(shown)")
+        }
+        let what: String
+        switch scope {
+        case "exact": what = String(localized: "仅 \(base)")
+        case "sub": what = String(localized: "\(base) 的子域")
+        default: what = String(localized: "\(base) 及其子域")
+        }
+        return String(localized: "\(what) 直连")
     }
 
     private func save() async {

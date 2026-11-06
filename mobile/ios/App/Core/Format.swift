@@ -15,12 +15,13 @@ enum Fmt {
     }
 
     static func ago(_ d: Date, now: Date = .now) -> String {
+        if d.timeIntervalSince1970 < 0 { return String(localized: "未知") } // Go 的零值时间
         let s = Int(now.timeIntervalSince(d))
-        if s < 5 { return "刚刚" }
-        if s < 60 { return "\(s) 秒前" }
-        if s < 3600 { return "\(s / 60) 分钟前" }
-        if s < 86400 { return "\(s / 3600) 小时前" }
-        return "\(s / 86400) 天前"
+        if s < 5 { return String(localized: "刚刚") }
+        if s < 60 { return String(localized: "\(s) 秒前") }
+        if s < 3600 { return String(localized: "\(s / 60) 分钟前") }
+        if s < 86400 { return String(localized: "\(s / 3600) 小时前") }
+        return String(localized: "\(s / 86400) 天前")
     }
 
     /// 把 URL、host:port 等输入整理为主机名或 IP（与桌面端 cleanTarget 相同）。

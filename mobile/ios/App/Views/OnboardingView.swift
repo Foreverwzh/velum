@@ -16,7 +16,7 @@ struct OnboardingView: View {
     }
 
     private var add: some View {
-        SubscriptionForm(cta: "添加订阅", intro: "填写订阅地址即可开始使用。订阅地址由提供订阅的服务给你。") { imported = true }
+        SubscriptionForm(cta: String(localized: "添加订阅"), intro: String(localized: "填写订阅地址即可开始使用。订阅地址由提供订阅的服务给你。")) { imported = true }
             .navigationTitle("欢迎使用 Velum")
     }
 
@@ -41,14 +41,28 @@ struct OnboardingView: View {
                 Button {
                     Task { await model.setTunnel(true) }
                 } label: {
-                    Text("连接").frame(maxWidth: .infinity)
+                    HStack(spacing: 8) {
+                        if model.toggling { ProgressView().tint(.white) }
+                        Text(model.toggling ? "正在连接…" : "连接")
+                    }
+                    .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
+                .disabled(model.toggling)
                 .listRowInsets(EdgeInsets())
                 .listRowBackground(Color.clear)
             } footer: {
-                Text("iOS 接下来会询问是否允许添加 VPN 配置，点“允许”。Velum 没有自己的服务器，流量只按你的订阅转发。")
+                VStack(alignment: .leading, spacing: 8) {
+                    if let e = model.actionError { Text(e).foregroundStyle(Color.err) }
+                    Text("iOS 接下来会询问是否允许添加 VPN 配置，点“允许”。Velum 没有自己的服务器，流量只按你的订阅转发。")
+                }
+            }
+            // 连接失败或暂时不想连接时不能被困在这里
+            Section {
+                Button("稍后再连接") { model.onboarding = false }
+                    .frame(maxWidth: .infinity)
+                    .disabled(model.toggling)
             }
         }
         .navigationTitle("准备好了")

@@ -2,6 +2,7 @@ package mobilebind
 
 import (
 	"encoding/json"
+	"github.com/Foreverwzh/velum/core/pkg/i18n"
 
 	"github.com/Foreverwzh/velum/core/pkg/netsense"
 )
@@ -23,7 +24,7 @@ func netSnapshot(host Host) (netsense.Snapshot, error) {
 func NetDiag() string {
 	s, err := netsense.DarwinSnapshot()
 	if err != nil {
-		return "读取失败：" + err.Error()
+		return i18n.T("读取失败：") + err.Error()
 	}
 	a := netsense.Analyze(s)
 	b, _ := json.Marshal(map[string]any{

@@ -1,6 +1,7 @@
 name: Velum
 options:
   bundleIdPrefix: io.github.foreverwzh
+  developmentLanguage: zh-Hans
   deploymentTarget:
     iOS: "26.1"
 settings:
@@ -8,6 +9,7 @@ settings:
     DEVELOPMENT_TEAM: H3H5ULV8KR
     CODE_SIGN_STYLE: Automatic
     SWIFT_VERSION: "5.0"
+    SWIFT_EMIT_LOC_STRINGS: YES
     CURRENT_PROJECT_VERSION: 1
     MARKETING_VERSION: "0.1"
     TARGETED_DEVICE_FAMILY: "1"
@@ -21,6 +23,7 @@ targets:
       properties:
         CFBundleDisplayName: Velum
         CFBundleDevelopmentRegion: zh-Hans
+        CFBundleLocalizations: [zh-Hans, en]
         UILaunchScreen: {}
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
@@ -29,6 +32,48 @@ targets:
       PRODUCT_BUNDLE_IDENTIFIER: io.github.foreverwzh.velum
       ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
       ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+      SWIFT_OBJC_BRIDGING_HEADER: App/Bridging.h
+    entitlements:
+      path: App/App.entitlements
+      properties:
+        com.apple.developer.networking.networkextension: [packet-tunnel-provider]
+        com.apple.security.application-groups: [group.io.github.foreverwzh.velum]
+    dependencies:
+      - target: VelumTunnel
+        embed: true
+      - framework: build/Mobilebind.xcframework
+        embed: false
+      - sdk: NetworkExtension.framework
+      - sdk: SystemConfiguration.framework
+      - sdk: Security.framework
+      - sdk: UIKit.framework
+      - sdk: libresolv.tbd
+  VelumTunnel:
+    type: app-extension
+    platform: iOS
+    sources: [Tunnel]
+    info:
+      path: Tunnel/Info.plist
+      properties:
+        CFBundleDisplayName: Velum Tunnel
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.networkextension.packet-tunnel
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).PacketTunnelProvider
+    entitlements:
+      path: Tunnel/Tunnel.entitlements
+      properties:
+        com.apple.developer.networking.networkextension: [packet-tunnel-provider]
+        com.apple.security.application-groups: [group.io.github.foreverwzh.velum]
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: io.github.foreverwzh.velum.tunnel
+    dependencies:
+      - framework: build/Iostunnel.xcframework
+        embed: false
+      - sdk: NetworkExtension.framework
+      - sdk: SystemConfiguration.framework
+      - sdk: Security.framework
+      - sdk: UIKit.framework
+      - sdk: libresolv.tbd
   VelumUITests:
     type: bundle.ui-testing
     platform: iOS

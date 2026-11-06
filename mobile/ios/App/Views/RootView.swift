@@ -32,7 +32,11 @@ struct RootView: View {
         }
         .sheet(isPresented: $model.showSearch) { SearchView() }
         .fullScreenCover(isPresented: $model.onboarding) { OnboardingView() }
-        .task(id: phase) { if phase == .active { await model.poll() } }
+        .task(id: phase) {
+            guard phase == .active else { return }
+            (model.core as? RealCore)?.tunnel.reconcile()
+            await model.poll()
+        }
         .onAppear(perform: applyDemo)
     }
 

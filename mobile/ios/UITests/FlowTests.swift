@@ -5,7 +5,7 @@ final class FlowTests: XCTestCase {
     private func launch(_ scenario: String, slow: Bool = false) -> XCUIApplication {
         continueAfterFailure = false
         let app = XCUIApplication()
-        app.launchArguments = ["-scenario", scenario] + (slow ? ["-slowConnect", "YES"] : [])
+        app.launchArguments = ["-AppleLanguages", "(zh-Hans)", "-scenario", scenario] + (slow ? ["-slowConnect", "YES"] : [])
         app.launch()
         return app
     }

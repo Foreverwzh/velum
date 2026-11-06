@@ -12,7 +12,7 @@ struct SettingsView: View {
                     if let s = model.status?.subscription, !s.source.isEmpty {
                         NavigationLink(value: Route.subscriptions) {
                             VStack(alignment: .leading, spacing: 6) {
-                                Text(s.name ?? "订阅")
+                                Text(s.name ?? String(localized: "订阅"))
                                 Text("\(s.nodes) 个节点 · \(s.groups) 个策略组 · \(s.rules) 条规则")
                                     .font(.footnote).foregroundStyle(.secondary)
                                 if let i = s.info { UsageBar(info: i) }
@@ -71,7 +71,7 @@ struct SettingsView: View {
                         LabeledContent("源代码", value: "GPL-3.0-or-later")
                     }
                     #if DEBUG
-                    LabeledContent("数据", value: "演示数据，未接入核心")
+                    if model.core is DemoCore { LabeledContent("数据", value: "演示数据") }
                     #endif
                 }
             }
@@ -123,7 +123,7 @@ struct SubscriptionsView: View {
                             Image(systemName: "checkmark").font(.footnote.weight(.semibold)).foregroundStyle(.tint).opacity(p.active ? 1 : 0)
                             VStack(alignment: .leading, spacing: 3) {
                                 Text(p.name).foregroundStyle(.primary)
-                                if let f = p.fetchedAt { Text("更新于 " + Fmt.ago(f)).font(.footnote).foregroundStyle(.secondary) }
+                                if let f = p.fetchedAt { Text("更新于 \(Fmt.ago(f))").font(.footnote).foregroundStyle(.secondary) }
                                 if let i = p.info { UsageBar(info: i) }
                             }
                             if busy == p.id { Spacer(); ProgressView() }
@@ -149,7 +149,7 @@ struct SubscriptionsView: View {
         }
         .sheet(isPresented: $showAdd) {
             NavigationStack {
-                SubscriptionForm(cta: "添加") { showAdd = false }
+                SubscriptionForm(cta: String(localized: "添加")) { showAdd = false }
                     .navigationTitle("添加订阅")
                     .navigationBarTitleDisplayMode(.inline)
                     .toolbar { ToolbarItem(placement: .cancellationAction) { Button("取消") { showAdd = false } } }
@@ -213,7 +213,7 @@ struct SubscriptionForm: View {
                 } label: {
                     HStack(spacing: 8) {
                         if busy { ProgressView().tint(.white) }
-                        Text(busy ? "正在校验…" : cta)
+                        Text(busy ? String(localized: "正在校验…") : cta)
                     }
                     .frame(maxWidth: .infinity)
                 }
@@ -236,7 +236,7 @@ struct LocalRulesView: View {
             ForEach(items) { e in
                 VStack(alignment: .leading, spacing: 2) {
                     Text(display(e)).font(.subheadline.monospaced())
-                    Text(e.kind == "host" ? "解析为 \(e.ip ?? "")" : "直连").font(.footnote).foregroundStyle(.secondary)
+                    Text(ruleDetail(e)).font(.footnote).foregroundStyle(.secondary)
                 }
                 .swipeActions {
                     Button("删除", role: .destructive) {
@@ -255,10 +255,16 @@ struct LocalRulesView: View {
         .task { await load() }
     }
 
+    private func ruleDetail(_ e: OverlayEntry) -> String {
+        guard e.kind == "host" else { return String(localized: "直连") }
+        let ip = e.ip ?? ""
+        return String(localized: "解析为 \(ip)")
+    }
+
     private func display(_ e: OverlayEntry) -> String {
-        if e.value.hasPrefix("=") { return e.value.dropFirst() + "（仅此域名）" }
-        if e.value.hasPrefix(".") { return e.value.dropFirst() + "（仅子域）" }
-        return e.kind == "domain" ? e.value + "（含子域）" : e.value
+        if e.value.hasPrefix("=") { return e.value.dropFirst() + String(localized: "（仅此域名）") }
+        if e.value.hasPrefix(".") { return e.value.dropFirst() + String(localized: "（仅子域）") }
+        return e.kind == "domain" ? e.value + String(localized: "（含子域）") : e.value
     }
 
     private func load() async { items = (try? await model.core.overlayItems()) ?? [] }

@@ -103,7 +103,7 @@ struct ConnectionView: View {
                 }
             }
             Section("命中的规则") {
-                Text(c.rule).font(.subheadline.monospaced()).textSelection(.enabled)
+                Text(c.provenance.text ?? c.rule).font(.subheadline.monospaced()).textSelection(.enabled)
                 LabeledContent("来源", value: c.provenance.location)
             }
             Section("流量") {

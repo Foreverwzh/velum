@@ -26,12 +26,12 @@ final class AppModel {
         let h = Health.of(status, error: error)
         // 隧道开着但当前节点不通：流量走不出去，不能显示「正在保护」。
         if h.tone == .green, let g = primaryGroup, delay(of: g.tag) == -1 {
-            return Health(tone: .amber, title: "当前节点超时", detail: "最近一次测速超时，可以换一个节点试试", customSymbol: "exclamationmark.circle.fill")
+            return Health(tone: .amber, title: String(localized: "当前节点超时"), detail: String(localized: "最近一次测速超时，可以换一个节点试试"), customSymbol: "exclamationmark.circle.fill")
         }
         return h
     }
     /// 所有策略组的当前选择；变化时，已经显示的推演结果要重算。
-    var selectionKey: String { groups.map { $0.tag + "=" + $0.selected }.joined(separator: "|") }
+    var selectionKey: String { groups.map { $0.tag + "=" + ($0.selected ?? "") }.joined(separator: "|") }
     var groups: [GroupStatus] { status?.groups ?? [] }
     var hasSubscription: Bool { !(status?.subscription.source ?? "").isEmpty }
     /// 主线路：订阅中第一个可选策略组（Clash 订阅的惯例）。
@@ -144,24 +144,24 @@ final class AppModel {
         guard let s = status else { return [] }
         var out: [Attention] = []
         if let e = s.lastError, !e.isEmpty {
-            out.append(Attention(id: "cfg-sub", symbol: "arrow.clockwise.circle.fill", tone: .red, title: "更换或更新订阅", detail: "问题来自订阅内容时", target: .subscriptions))
-            out.append(Attention(id: "cfg-rules", symbol: "text.badge.xmark", tone: .red, title: "检查本地规则", detail: "问题来自本地规则时", target: .rules))
+            out.append(Attention(id: "cfg-sub", symbol: "arrow.clockwise.circle.fill", tone: .red, title: String(localized: "更换或更新订阅"), detail: String(localized: "问题来自订阅内容时"), target: .subscriptions))
+            out.append(Attention(id: "cfg-rules", symbol: "text.badge.xmark", tone: .red, title: String(localized: "检查本地规则"), detail: String(localized: "问题来自本地规则时"), target: .rules))
         }
         if let e = s.subscription.fetchError, !e.isEmpty {
-            out.append(Attention(id: "fetch", symbol: "arrow.clockwise.circle.fill", tone: .amber, title: "订阅更新失败", detail: e, target: .subscriptions))
+            out.append(Attention(id: "fetch", symbol: "arrow.clockwise.circle.fill", tone: .amber, title: String(localized: "订阅更新失败"), detail: e, target: .subscriptions))
         }
         if let g = primaryGroup, delay(of: g.tag) == -1, s.tunOn {
-            out.append(Attention(id: "timeout", symbol: "arrow.triangle.2.circlepath", tone: .red, title: "换一个节点", detail: (chain(from: g.tag).last ?? "") + " 超时", target: .group(g.tag)))
+            out.append(Attention(id: "timeout", symbol: "arrow.triangle.2.circlepath", tone: .red, title: String(localized: "换一个节点"), detail: (chain(from: g.tag).last ?? "") + String(localized: " 超时"), target: .group(g.tag)))
         }
         if let i = s.subscription.info, i.total > 0, Double(i.upload + i.download) / Double(i.total) >= 0.9 {
-            out.append(Attention(id: "quota", symbol: "gauge.with.dots.needle.100percent", tone: .amber, title: "订阅流量快用完了",
-                                 detail: "已用 \(Fmt.bytes(i.upload + i.download)) / \(Fmt.bytes(i.total))", target: .subscriptions))
+            out.append(Attention(id: "quota", symbol: "gauge.with.dots.needle.100percent", tone: .amber, title: String(localized: "订阅流量快用完了"),
+                                 detail: String(localized: "已用 \(Fmt.bytes(i.upload + i.download)) / \(Fmt.bytes(i.total))"), target: .subscriptions))
         }
         if s.warnings > 0 {
-            out.append(Attention(id: "warn", symbol: "exclamationmark.triangle.fill", tone: .amber, title: "\(s.warnings) 项订阅内容无法精确转换", detail: "查看被降级或跳过的内容", target: .warnings))
+            out.append(Attention(id: "warn", symbol: "exclamationmark.triangle.fill", tone: .amber, title: String(localized: "\(s.warnings) 项订阅内容无法精确转换"), detail: String(localized: "查看被降级或跳过的内容"), target: .warnings))
         }
         if let f = failedHosts.first {
-            out.append(Attention(id: "failed", symbol: "xmark.circle.fill", tone: .red, title: "最近连接失败", detail: f, target: .explain(f)))
+            out.append(Attention(id: "failed", symbol: "xmark.circle.fill", tone: .red, title: String(localized: "最近连接失败"), detail: f, target: .explain(f)))
         }
         // 影响当下使用的（红）排在前面
         return out.filter { $0.tone == .red } + out.filter { $0.tone != .red }

@@ -2,7 +2,7 @@ package mobilebind
 
 import (
 	"encoding/json"
-	"errors"
+	"github.com/Foreverwzh/velum/core/pkg/i18n"
 	"reflect"
 	"sync"
 
@@ -44,7 +44,7 @@ type hostProxy struct {
 
 func (p *hostProxy) Apply(plan compiler.SysProxyPlan) error {
 	if plan.Host == "" || plan.Port == 0 {
-		return errors.New("系统代理地址无效")
+		return i18n.New("系统代理地址无效")
 	}
 	req := ProxyRequest{Host: plan.Host, Port: int(plan.Port)}
 	for _, e := range plan.Exceptions {

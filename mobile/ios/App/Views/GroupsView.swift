@@ -105,7 +105,7 @@ struct MembersView: View {
                     .foregroundStyle(.tint)
                     .opacity(m == g?.selected ? 1 : 0)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(m == "DIRECT" ? "直连" : m).foregroundStyle(.primary).lineLimit(2)
+                    Text(m == "DIRECT" ? String(localized: "直连") : m).foregroundStyle(.primary).lineLimit(2)
                     if model.group(m) != nil {
                         Text(model.chain(from: m).dropFirst().joined(separator: " → ")).font(.footnote).foregroundStyle(.secondary)
                     }

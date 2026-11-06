@@ -10,10 +10,10 @@ struct ChainStep: Identifiable, Hashable {
     /// 与桌面端 chainSteps 相同：最后一段是节点，DIRECT 和 REJECT 单独表示。
     static func from(_ chain: [String], ruleIndex: Int? = nil) -> [ChainStep] {
         var out: [ChainStep] = []
-        if let ruleIndex { out.append(ChainStep(label: "#\(ruleIndex)", kind: .rule)) }
+        if let ruleIndex, ruleIndex >= 0 { out.append(ChainStep(label: "#\(ruleIndex)", kind: .rule)) }
         for (i, c) in chain.enumerated() {
-            if c == "DIRECT" { out.append(ChainStep(label: "直连", kind: .direct)) }
-            else if c == "REJECT" || c.hasPrefix("reject") { out.append(ChainStep(label: "拦截", kind: .reject)) }
+            if c == "DIRECT" { out.append(ChainStep(label: String(localized: "直连"), kind: .direct)) }
+            else if c == "REJECT" || c.hasPrefix("reject") { out.append(ChainStep(label: String(localized: "拦截"), kind: .reject)) }
             else { out.append(ChainStep(label: c, kind: i == chain.count - 1 ? .node : .group)) }
         }
         return out
@@ -39,7 +39,7 @@ struct RouteChain: View {
             }
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(steps.map(\.spoken).joined(separator: "，然后 "))
+        .accessibilityLabel(steps.map(\.spoken).joined(separator: String(localized: "，然后 ")))
     }
 
     private func label(_ step: ChainStep) -> some View {
@@ -84,7 +84,7 @@ extension ChainStep {
 
     var spoken: String {
         switch kind {
-        case .rule: "规则 \(label.dropFirst())"
+        case .rule: String(localized: "规则 \(String(label.dropFirst()))")
         default: label
         }
     }

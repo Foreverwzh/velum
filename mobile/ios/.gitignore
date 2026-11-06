@@ -1,3 +1,6 @@
 *.xcodeproj
 build/
 App/Info.plist
+App/App.entitlements
+Tunnel/Info.plist
+Tunnel/Tunnel.entitlements

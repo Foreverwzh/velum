@@ -18,7 +18,7 @@ struct Source: Codable, Hashable {
 struct GroupStatus: Codable, Hashable, Identifiable {
     var tag: String
     var type: String
-    var selected: String
+    var selected: String?
     var members: [String]
     var delays: [String: Int]?
     var id: String { tag }
@@ -26,7 +26,7 @@ struct GroupStatus: Codable, Hashable, Identifiable {
 }
 
 struct NetworkStatus: Codable, Hashable {
-    var primaryInterface: String
+    var primaryInterface: String?
     var captive: String?
     var paused: String?
 }
@@ -101,6 +101,24 @@ struct Connection: Codable, Hashable, Identifiable {
     var failed: Bool { !(errors ?? []).isEmpty }
 }
 
+extension Connection {
+    // 内核可能给出 null 的出站链（连接还没选定出站）：解码为空数组，界面不用到处判断。
+    init(from decoder: Decoder) throws {
+        enum K: String, CodingKey {
+            case id, start, end, network, domain, destination, ruleIndex, rule, provenance, chain, upload, download, firstByteMs, durationMs, errors
+        }
+        let c = try decoder.container(keyedBy: K.self)
+        self.init(id: try c.decode(Int.self, forKey: .id), start: try c.decode(Date.self, forKey: .start),
+                  end: try c.decodeIfPresent(Date.self, forKey: .end), network: try c.decode(String.self, forKey: .network),
+                  domain: try c.decodeIfPresent(String.self, forKey: .domain), destination: try c.decode(String.self, forKey: .destination),
+                  ruleIndex: try c.decode(Int.self, forKey: .ruleIndex), rule: try c.decode(String.self, forKey: .rule),
+                  provenance: try c.decode(Source.self, forKey: .provenance), chain: try c.decodeIfPresent([String].self, forKey: .chain) ?? [],
+                  upload: try c.decode(Int64.self, forKey: .upload), download: try c.decode(Int64.self, forKey: .download),
+                  firstByteMs: try c.decode(Int.self, forKey: .firstByteMs), durationMs: try c.decode(Int.self, forKey: .durationMs),
+                  errors: try c.decodeIfPresent([String].self, forKey: .errors))
+    }
+}
+
 struct RuleTrace: Codable, Hashable, Identifiable {
     var index: Int
     var action: String
@@ -123,7 +141,7 @@ struct WhyReport: Codable, Hashable {
     }
     var target: Target
     var dns: DNS
-    var rules: [RuleTrace]
+    var rules: [RuleTrace]?
     var decision: Decision
     var notes: [String]?
 }

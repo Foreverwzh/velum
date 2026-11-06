@@ -68,8 +68,8 @@ struct SearchView: View {
             }
         }
         Section {
-            hint("network", "输入网址", "看它命中哪条规则、走哪条线路")
-            hint("point.3.connected.trianglepath.dotted", "输入节点名", "在任一策略组里直接切换")
+            hint("network", String(localized: "输入网址"), String(localized: "看它命中哪条规则、走哪条线路"))
+            hint("point.3.connected.trianglepath.dotted", String(localized: "输入节点名"), String(localized: "在任一策略组里直接切换"))
         }
     }
 
@@ -140,7 +140,7 @@ struct SearchView: View {
         } label: {
             HStack(spacing: 10) {
                 Image(systemName: "checkmark").font(.footnote.weight(.semibold)).foregroundStyle(.tint).opacity(g.selected == m ? 1 : 0)
-                Text(m == "DIRECT" ? "直连" : m).foregroundStyle(.primary).lineLimit(2)
+                Text(m == "DIRECT" ? String(localized: "直连") : m).foregroundStyle(.primary).lineLimit(2)
                 Spacer()
                 LatencyLabel(ms: m == "DIRECT" ? nil : model.delay(of: m))
             }
@@ -156,7 +156,8 @@ struct SearchView: View {
         guard !q.isEmpty else { return [] }
         return model.groups.filter(\.isSelectable).compactMap { g in
             if g.tag.localizedCaseInsensitiveContains(q) { return (g, g.members) }
-            let m = g.members.filter { $0.localizedCaseInsensitiveContains(q) }
+            // DIRECT 显示为「直连」，两种写法都要能搜到
+            let m = g.members.filter { $0.localizedCaseInsensitiveContains(q) || ($0 == "DIRECT" && String(localized: "直连").localizedCaseInsensitiveContains(q)) }
             return m.isEmpty ? nil : (g, m)
         }
     }

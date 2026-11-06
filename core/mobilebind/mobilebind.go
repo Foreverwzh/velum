@@ -8,11 +8,13 @@ package mobilebind
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
-	"errors"
-	"fmt"
+	"github.com/Foreverwzh/velum/core/pkg/i18n"
 	"io"
 	"log"
+	"net"
 	"net/netip"
 	"path/filepath"
 	"sync"
@@ -22,6 +24,7 @@ import (
 	"github.com/Foreverwzh/velum/core/pkg/daemon"
 	"github.com/Foreverwzh/velum/core/pkg/engine"
 	"github.com/Foreverwzh/velum/core/pkg/engine/singbox"
+	"github.com/Foreverwzh/velum/core/pkg/ipc"
 	"github.com/Foreverwzh/velum/core/pkg/logfile"
 	"github.com/Foreverwzh/velum/core/pkg/netsense"
 	"github.com/Foreverwzh/velum/core/pkg/rpc"
@@ -86,6 +89,9 @@ func SetSocket(addr string) {
 	socket = addr
 }
 
+// SetLocale 设置核心的语言（错误、告警、修复步骤等），在 Start 之前调用。
+func SetLocale(l string) { i18n.SetLocale(l) }
+
 // Version 返回核心版本。
 func Version() string { return daemon.Version }
 
@@ -103,8 +109,69 @@ var (
 // Start 在 home 目录启动 daemon，本地接口就绪后返回。已在运行时直接返回。
 func Start(home string, host Host) error {
 	if host == nil {
-		return errors.New("host 不能为空")
+		return i18n.New("host 不能为空")
 	}
+	return start(home, func(paths config.Paths, lf io.Writer, logger *log.Logger) *daemon.Daemon {
+		d := daemon.New(paths, singbox.New(singbox.Options{Log: lf}), logger)
+		d.TUNOpener = opener{host}
+		d.NetSnapshot = func() (netsense.Snapshot, error) { return netSnapshot(host) }
+		if proxyHost != nil {
+			d.SysProxy = &hostProxy{h: proxyHost}
+		}
+		return d
+	})
+}
+
+// StartSplit 是 iOS 的入口：daemon 在 App 进程，内核在隧道扩展里（core/iostunnel）。
+// 本地接口用回环 TCP + 令牌：App Group 路径可能超过 Unix socket 的长度限制。界面经 Call 访问。
+func StartSplit(home string, host TunnelHost) error {
+	if host == nil {
+		return i18n.New("host 不能为空")
+	}
+	mu.Lock()
+	if socket == "" {
+		a, err := loopbackAddr()
+		if err != nil {
+			mu.Unlock()
+			return err
+		}
+		socket = a
+	}
+	mu.Unlock()
+	return start(home, func(paths config.Paths, lf io.Writer, logger *log.Logger) *daemon.Daemon {
+		se := newSplitEngine(home, host, singbox.New(singbox.Options{Log: lf}))
+		se.onAdopt = TunRequested
+		d := daemon.New(paths, se, logger)
+		d.NetSnapshot = func() (netsense.Snapshot, error) { return snapshot(host.Network()) }
+		return d
+	})
+}
+
+// Call 发送一次本地接口请求，返回响应正文。接口报错（如校验失败）时 error 是给用户看的原因。
+func Call(method, path string, body []byte) ([]byte, error) {
+	mu.Lock()
+	inst := cur
+	mu.Unlock()
+	if inst == nil {
+		return nil, i18n.New("核心未运行")
+	}
+	return rpc.NewClient(inst.d.Paths.Socket).Raw(method, path, body)
+}
+
+func loopbackAddr() (string, error) {
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return "", err
+	}
+	defer l.Close()
+	b := make([]byte, 24)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return ipc.TCPAddr(l.Addr().String(), hex.EncodeToString(b)), nil
+}
+
+func start(home string, build func(config.Paths, io.Writer, *log.Logger) *daemon.Daemon) error {
 	mu.Lock()
 	defer mu.Unlock()
 	if cur != nil {
@@ -123,12 +190,7 @@ func Start(home string, host Host) error {
 	}
 	logger := log.New(lf, "[velumd] ", log.LstdFlags|log.Lmicroseconds)
 	daemon.RuleSetLoader = singbox.LoadRuleSetFile
-	d := daemon.New(paths, singbox.New(singbox.Options{Log: lf}), logger)
-	d.TUNOpener = opener{host}
-	d.NetSnapshot = func() (netsense.Snapshot, error) { return netSnapshot(host) }
-	if proxyHost != nil {
-		d.SysProxy = &hostProxy{h: proxyHost}
-	}
+	d := build(paths, lf, logger)
 
 	inst := &instance{d: d, done: make(chan struct{}), lf: lf}
 	errc := make(chan error, 1)
@@ -144,14 +206,14 @@ func Start(home string, host Host) error {
 		case err := <-errc:
 			lf.Close()
 			if err == nil {
-				err = errors.New("daemon 意外退出")
+				err = i18n.New("daemon 意外退出")
 			}
 			return err
 		case <-time.After(50 * time.Millisecond):
 		}
 		if time.Now().After(deadline) {
 			d.Shutdown()
-			return errors.New("等待 daemon 就绪超时")
+			return i18n.New("等待 daemon 就绪超时")
 		}
 	}
 	cur = inst
@@ -177,11 +239,11 @@ func Stop() {
 
 // TunRevoked 由 App 在系统撤销 VPN 时调用（用户在系统设置中断开、被其他 VPN 取代）：关闭 TUN 开关，
 // 与用户在界面上关闭等效（保存到 state.json）。异步执行，立即返回。
-func TunRevoked() { switchTUN("off", "VPN 被系统撤销") }
+func TunRevoked() { switchTUN("off", i18n.T("VPN 被系统撤销")) }
 
 // TunRequested 由 App 在系统直接拉起 VPN 服务时调用（「始终开启的 VPN」、开机自动连接）：打开 TUN 开关。
 // 异步执行，立即返回；核心尚未就绪时等待其就绪。
-func TunRequested() { switchTUN("on", "系统请求连接 VPN") }
+func TunRequested() { switchTUN("on", i18n.T("系统请求连接 VPN")) }
 
 func switchTUN(v, why string) {
 	go func() {
@@ -214,10 +276,10 @@ func (o opener) OpenTUN(r engine.TUNRequest) (int, string, io.Closer, error) {
 		IncludeApps: r.IncludeApps, ExcludeApps: r.ExcludeApps})
 	fd, err := o.host.OpenTun(string(req))
 	if err != nil {
-		return -1, "", nil, fmt.Errorf("建立 VPN：%w", err)
+		return -1, "", nil, i18n.Errorf("建立 VPN：%w", err)
 	}
 	if fd < 0 {
-		return -1, "", nil, errors.New("建立 VPN：未获得 TUN 文件描述符（可能未授权 VPN）")
+		return -1, "", nil, i18n.New("建立 VPN：未获得 TUN 文件描述符（可能未授权 VPN）")
 	}
 	return int(fd), tunName(int(fd)), closerFunc(o.host.CloseTun), nil
 }
@@ -234,7 +296,7 @@ func (o opener) FindOwner(network string, src, dst netip.AddrPort) (engine.Owner
 	}
 	var w Owner
 	if err := json.Unmarshal([]byte(js), &w); err != nil {
-		return engine.Owner{}, false, fmt.Errorf("解析连接归属：%w", err)
+		return engine.Owner{}, false, i18n.Errorf("解析连接归属：%w", err)
 	}
 	return engine.Owner{UID: w.UID, Packages: w.Packages}, true, nil
 }
@@ -252,7 +314,7 @@ func snapshot(js string) (netsense.Snapshot, error) {
 	}
 	var n Network
 	if err := json.Unmarshal([]byte(js), &n); err != nil {
-		return s, fmt.Errorf("解析网络状态：%w", err)
+		return s, i18n.Errorf("解析网络状态：%w", err)
 	}
 	s.PrimaryInterface = n.Iface
 	if n.Iface != "" {

@@ -41,32 +41,49 @@ iOS 与 Android 的根本区别：界面和隧道必须是两个进程，隧道�
 | App（只在前台时活着） | SwiftUI；完整 daemon：订阅拉取与转换、编译、Explain、overlay、告警 |
 | 隧道扩展（后台常驻，≤ 50MB） | 只有内核：读 App Group 里编译好的配置 |
 
-**切分点是 `engine.Engine` 接口**：App 里的 daemon 不变，只把引擎换成一个转发实现（`Start` / `Restart` = 写配置到 App Group 并通知扩展，`Connections` / `Selected` 经 `sendProviderMessage` 查询）。这样 Explain 和规则编译全部复用，不需要第二套逻辑。
+**切分点是 `engine.Engine` 接口**（`core/mobilebind/split.go`）：App 里的 daemon 不变，只把引擎换成转发实现，Explain 和规则编译全部复用。
 
-待实现时验证：
+| 情况 | 行为 |
+| :--- | :--- |
+| 未连接 | App 内运行本地内核，所以未连接时也能测速、解析、切换节点 |
+| 连接 | 停本地内核，配置写到 App Group（`core/pkg/engine/tunnelproto`），启动隧道 |
+| 连接中配置变化 | 扩展重新加载，隧道不重建 |
+| 配置没变、隧道还在（重新打开 App） | 不打断现有连接 |
+| App 退出 | 隧道继续运行 |
+| 系统拉起隧道，App 才启动 | 不停隧道，把开关同步过去 |
+| 扩展被单独拉起 | 配置和选择都已落盘（`selected.json`） |
 
-- 选择节点和测速目前可能走 sing-box 引擎的专用接口，不只是 `engine.Engine`，要确认转发层的范围。
-- 扩展被系统拉起时 App 不在：配置必须已经落盘；订阅更新只能在 App 打开时做（或后台刷新）。
-- 连接记录放在扩展里，条数要有上限，并计入内存预算。
-- 界面的 `VelumCore` 协议是接口的 Swift 版，真实实现接入后 `DemoCore` 只留在 Debug 和 UI 测试中。Release 目前用 `#error` 禁止构建，防止演示数据进入正式包。
+- 选择、延迟、流量一次批量取回并缓存 1 秒：一次刷新要查几百次，不能每次都发消息给扩展。
+- 扩展只保留 200 条连接记录，GOGC=50、GOMEMLIMIT=40MiB。
+- 两个 framework 分开编译（`scripts/core.sh`），扩展不带 daemon 的依赖。
+- 不开本地代理端口：iOS 上别的应用也能连本机回环，既没用处，也会被用来探测代理。
+- 主线程不能等 NE 的回调（回调就在主线程）。接真实核心时踩过两次，见 `TunnelController` 的注释。
+
+已知风险，要在真机上确认：
+
+- **DNS**：iOS 没有公开接口读物理网络的 DNS。现在用系统解析器的结果（隧道开着时用切换前记下的值），换网后可能过期。
+- **内存**：真机只测过纯内核，现在多了规则来源和连接记录，见 I3。
+- **隧道被杀后恢复**：On-Demand 还没做，见 I4。
 
 ## 分步
 
 | 步骤 | 内容 | 状态 |
 | :--- | :--- | :--- |
 | I1 界面 | 全部页面、状态、演示核心、7 条 UI 流程测试 | ✅ 模拟器（iOS 27.2） |
-| I2 进程切分 | `core/mobilebind` 的 iOS 入口、转发引擎、App Group、隧道扩展 | |
+| I2 进程切分 | `core/mobilebind` 的 iOS 入口、转发引擎、App Group、隧道扩展 | 模拟器：真实核心通过；隧道待真机 |
 | I3 真机内存 | 完整产品在 iPhone 上：长时间运行、大量短连接、QUIC、**WireGuard 高速**（模拟估算峰值约 55MB，可能超限） | 需要真机 |
 | I4 网络变化 | Wi-Fi ↔ 蜂窝、Captive、其他 VPN 抢占、被系统结束后恢复（On-Demand） | 需要真机 |
 | I5 系统入口 | 控制中心开关、锁屏小组件、快捷指令 | |
 
 ## 验证现状
 
-只在模拟器上用演示数据验证过界面和交互。**没有接真实核心，没有在真机运行，没有 VPN 行为。** 手势和性能也要在真机上再看。
+模拟器上验证过：界面和交互（演示数据，7 条流程）；真实核心的订阅转换、Explain、切换节点、本地内核（2 条流程）；转发引擎和扩展入口的单元测试。**模拟器运行不了隧道，隧道本身还没有在真机上跑过。**
 
 ```sh
-cd mobile/ios && xcodegen generate
+cd mobile/ios && sh scripts/core.sh && xcodegen generate
 xcodebuild test -project Velum.xcodeproj -scheme Velum -destination 'platform=iOS Simulator,name=iPhone 17' CODE_SIGNING_ALLOWED=NO
 ```
+
+真实核心的两条流程需要一个本机订阅：`TEST_RUNNER_SUB_URL=http://127.0.0.1:端口/sub.yaml`，没有时跳过。
 
 查看某个状态：`xcrun simctl launch <模拟器> io.github.foreverwzh.velum -scenario paused`（protected、off、firstRun、paused、captive、error、attention、denied；可加 `-tab activity`、`-ask github.com`、`-push explain:github.com`）。
