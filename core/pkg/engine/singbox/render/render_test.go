@@ -479,3 +479,46 @@ func TestRenderWarnsOversizedWireGuardMTU(t *testing.T) {
 		t.Fatalf("应只对 wg-big 告警：%v", got)
 	}
 }
+
+// 只有直连的 url-test 组改测直连地址，否则会把直连的测速记录覆盖成高得离谱的值；混有节点的组不变，否则直连总是最快。
+func TestDirectOnlyGroupUsesDirectTestURL(t *testing.T) {
+	sub, err := subscription.Parse([]byte(`
+proxies:
+  - {name: n, type: socks5, server: 127.0.0.1, port: 9}
+proxy-groups:
+  - {name: only, type: url-test, url: "https://www.gstatic.com/generate_204", interval: 300, proxies: [DIRECT]}
+  - {name: mixed, type: url-test, url: "https://www.gstatic.com/generate_204", interval: 300, proxies: [n, DIRECT]}
+rules:
+  - MATCH,only
+`), subscription.Options{File: "sub.yaml"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := compiler.Compile(sub, &overlay.Overlay{}, compiler.Options{Mode: compiler.ModeProxy, Listen: netip.MustParseAddrPort("127.0.0.1:7899")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := render.Render(plan, render.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out struct {
+		Outbounds []struct {
+			Tag string `json:"tag"`
+			URL string `json:"url"`
+		} `json:"outbounds"`
+	}
+	if err := json.Unmarshal(r.JSON, &out); err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]string{}
+	for _, o := range out.Outbounds {
+		got[o.Tag] = o.URL
+	}
+	if got["only"] != render.DirectTestURL {
+		t.Errorf("只有直连的组：%q", got["only"])
+	}
+	if got["mixed"] != "https://www.gstatic.com/generate_204" {
+		t.Errorf("混有节点的组不应改：%q", got["mixed"])
+	}
+}

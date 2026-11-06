@@ -68,6 +68,12 @@ func Render(p *compiler.Plan, opts Options) (*Rendered, error) {
 			outbounds = append(outbounds, o)
 		}
 	}
+	directTags := map[string]bool{ir.OutboundDirect: true}
+	for _, n := range c.Nodes {
+		if n.Protocol == "direct" {
+			directTags[n.Tag] = true
+		}
+	}
 	for _, g := range c.Groups {
 		o := obj{"tag": g.Tag, "outbounds": g.Members}
 		switch g.Type {
@@ -80,6 +86,10 @@ func Render(p *compiler.Plan, opts Options) (*Rendered, error) {
 			o["type"] = "urltest"
 			if g.URL != "" {
 				o["url"] = g.URL
+			}
+			// 只有直连的组（如订阅里某地区没有节点时）：测速历史按线路全局保存，用组的地址测直连会覆盖掉真实结果
+			if allDirect(g.Members, directTags) {
+				o["url"] = DirectTestURL
 			}
 			if g.Interval > 0 {
 				o["interval"] = g.Interval.String()
@@ -94,12 +104,6 @@ func Render(p *compiler.Plan, opts Options) (*Rendered, error) {
 	}
 
 	// ---- route ----
-	directTags := map[string]bool{ir.OutboundDirect: true}
-	for _, n := range c.Nodes {
-		if n.Protocol == "direct" {
-			directTags[n.Tag] = true
-		}
-	}
 	var rules []any
 	emit := func(o obj, irIdx int, src ir.Source) {
 		rules = append(rules, o)
@@ -432,6 +436,19 @@ func routeRule(r ir.Rule) (obj, error) {
 // resolveTimeout 是为匹配 IP 规则而解析域名的时限。超时后跳过 IP 规则继续匹配，所以不必等到 DNS 的默认超时（10 秒）；
 // 代价是这条连接按域名规则走，本该按 IP 直连的可能走代理。
 const resolveTimeout = "3s"
+
+// DirectTestURL 是直连的测速地址。默认地址（Google 的 generate_204）在国内直连很慢甚至不通，
+// 测出的延迟不反映本地网络；与 Surge 的 internet-test-url 一样，直连改测全球都有就近节点的 Apple 地址。
+const DirectTestURL = "http://captive.apple.com/hotspot-detect.html"
+
+func allDirect(members []string, direct map[string]bool) bool {
+	for _, m := range members {
+		if !direct[m] {
+			return false
+		}
+	}
+	return len(members) > 0
+}
 
 // routesDirect：规则直接把连接交给直连类出站（DIRECT 或绑定接口的直连），且无目标改写，需要先按 DNS 规则解析域名。
 func routesDirect(r ir.Rule, direct map[string]bool) bool {

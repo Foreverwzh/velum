@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Foreverwzh/velum/core/pkg/engine/singbox/render"
 	"github.com/sagernet/sing-box/adapter"
 	"github.com/sagernet/sing-box/common/urltest"
 	"github.com/sagernet/sing/service"
@@ -41,12 +42,8 @@ func (e *Engine) SelectMember(group, member string) error {
 	return nil
 }
 
-// directTestURL 是直连的测速地址。默认地址（Google 的 generate_204）在国内直连很慢甚至不通，
-// 测出的延迟不反映本地网络；与 Surge 的 internet-test-url 一样，直连改测全球都有就近节点的 Apple 地址。
-const directTestURL = "http://captive.apple.com/hotspot-detect.html"
-
 // TestGroup 对组内每个成员测速（毫秒；失败为 -1），并写入测速历史。节点使用 sing-box 默认测速地址，
-// 直连使用 directTestURL。
+// 直连使用 render.DirectTestURL。
 // group 为空时测试全部节点（测速历史按节点全局保存，各组共享）。
 func (e *Engine) TestGroup(ctx context.Context, group string) (map[string]int, error) {
 	om, bctx, err := e.runtime()
@@ -106,7 +103,7 @@ func (e *Engine) TestGroup(ctx context.Context, group string) (map[string]int, e
 			defer cancel()
 			link := ""
 			if member.Type() == C.TypeDirect {
-				link = directTestURL
+				link = render.DirectTestURL
 			}
 			d, err := urltest.URLTest(tctx, link, member)
 			mu.Lock()
