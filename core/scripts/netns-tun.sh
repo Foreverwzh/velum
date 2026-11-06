@@ -175,7 +175,8 @@ start_velumd() {
   $S env VELUM_SERVICE=1 PATH=/nonexistent "$bin/velumd" --home "$work" --foreground >>"$work/velumd.out" 2>&1 &
   velumd_pid=$!
   for _ in $(seq 1 100); do
-    "$vlu" status >/dev/null 2>&1 && return 0
+    # 本地接口先就绪，配置随后才加载完；加载期间开关请求会被拒绝
+    st="$("$vlu" status 2>&1)" && ! echo "$st" | grep -q 正在启动 && return 0
     sleep 0.1
   done
   echo "velumd 没有启动"; failed=1; exit 1

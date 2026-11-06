@@ -173,6 +173,7 @@ pub fn cli_uninstall() -> Result<(), String> {
 /// 读写 HKCU\Environment 的 Path，保留原有的值类型（通常是 REG_EXPAND_SZ，其中的 %USERPROFILE% 等不能被展开写死）。
 mod user_path {
     use super::wide;
+    use crate::i18n::tf;
     use windows_sys::Win32::Foundation::ERROR_FILE_NOT_FOUND;
     use windows_sys::Win32::System::Registry::{
         RegCloseKey, RegOpenKeyExW, RegQueryValueExW, RegSetValueExW, HKEY, HKEY_CURRENT_USER, KEY_QUERY_VALUE, KEY_SET_VALUE, REG_EXPAND_SZ,
