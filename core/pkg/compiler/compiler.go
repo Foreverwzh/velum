@@ -400,10 +400,10 @@ func Compile(sub *ir.Config, ov *overlay.Overlay, opts Options) (*Plan, error) {
 			}
 		}
 	}
-	if opts.Platform != "ios" {
+	if opts.Platform == "android" || opts.Platform == "linux" {
 		for _, g := range cfg.Groups {
 			if g.Policy != nil {
-				warn("group", ir.Degraded, i18n.T("按网络自动切换（ssid-policy）目前只在 iOS 上生效，这里需要手动切换"), g.Tag, g.Source)
+				warn("group", ir.Degraded, i18n.T("按网络自动切换（ssid-policy）在这个平台上还不支持，需要手动切换"), g.Tag, g.Source)
 			}
 		}
 	}

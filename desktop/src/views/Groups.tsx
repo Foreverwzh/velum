@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState, useEffect } from "react";
 import { ArrowDownWideNarrow, Check, Gauge, Layers, ListOrdered } from "lucide-react";
-import { api, type GroupStatus, type Status } from "../api";
+import { api, type GroupStatus, type NetPolicy, type Status } from "../api";
 import { delayOf, leafOf, pathOf, useAction } from "../hooks";
 import type { Refresh } from "../App";
 import { Button, Chain, Empty, IconButton, Latency, Notice, SearchInput, Tag, cx } from "../components/ui";
@@ -73,6 +73,7 @@ export default function Groups({ status, refresh, focus }: { status: Status; ref
         <GroupDetail
           key={current.tag}
           group={current}
+          hint={status.network?.hint}
           groups={groups}
           filter={keys.length && !hit(current.tag) ? hit : undefined}
           byDelay={byDelay}
@@ -87,8 +88,8 @@ export default function Groups({ status, refresh, focus }: { status: Status; ref
   );
 }
 
-function GroupDetail({ group: g, groups, filter, byDelay, setByDelay, busy, error, onTest, onSelect }: {
-  group: GroupStatus; groups: GroupStatus[]; filter?: (s: string) => boolean; byDelay: boolean; setByDelay: (v: boolean) => void;
+function GroupDetail({ group: g, groups, hint, filter, byDelay, setByDelay, busy, error, onTest, onSelect }: {
+  group: GroupStatus; groups: GroupStatus[]; hint?: { kind: string; ssid?: string }; filter?: (s: string) => boolean; byDelay: boolean; setByDelay: (v: boolean) => void;
   busy?: string; error?: string; onTest: () => void; onSelect: (m: string) => void;
 }) {
   const manual = g.type === "select";
@@ -127,6 +128,7 @@ function GroupDetail({ group: g, groups, filter, byDelay, setByDelay, busy, erro
       {error && <div className="px-6 pt-3"><Notice tone="err">{error}</Notice></div>}
       <div className="min-h-0 flex-1 overflow-y-auto px-3 py-2">
         {!manual && <div className="px-3 pb-2 text-[12px] text-fg-3">{t("自动选择延迟最低的成员，不能手动切换。")}</div>}
+        {g.policy && <PolicyNote policy={g.policy} hint={hint} />}
         {!members.length && <div className="px-3 py-6 text-center text-[12px] text-fg-3">{t("这个策略组里没有匹配的节点")}</div>}
         {members.map(({ m, leaf, nested, delay }) => {
           const on = m === g.selected;
@@ -150,6 +152,28 @@ function GroupDetail({ group: g, groups, filter, byDelay, setByDelay, busy, erro
       <footer className="border-t border-line px-6 py-2 text-[11.5px] text-fg-3 tnum">
         {g.members.length}{" "}{t("个成员 ·")}{" "}{tested}{" "}{t("个有测速结果")}{filter && t(" · 已按搜索过滤")}
       </footer>
+    </div>
+  );
+}
+
+/** 这个组会随网络自动切换：说清楚规则；读不到 Wi-Fi 名称时明确提示，否则用户只会看到「没切换」。 */
+function PolicyNote({ policy, hint }: { policy: NetPolicy; hint?: { kind: string; ssid?: string } }) {
+  const name = (m: string) => (m === "DIRECT" ? t("直连") : m);
+  const rows: [string, string][] = Object.entries(policy.ssid ?? {}).map(([ssid, m]) => [ssid, name(m)]);
+  if (policy.cellular) rows.push([t("蜂窝网络"), name(policy.cellular)]);
+  if (policy.default) rows.push([t("其他网络"), name(policy.default)]);
+  return (
+    <div className="mx-3 mb-3 rounded-lg border border-line bg-panel px-3 py-2.5 text-[12px]">
+      <div className="mb-1.5 font-medium">{t("按网络自动切换")}</div>
+      <div className="grid grid-cols-[1fr_auto] gap-x-4 gap-y-1 text-fg-2">
+        {rows.map(([k, v]) => (
+          <div key={k} className="contents"><span className="min-w-0 truncate">{k}</span><span className="text-right">{v}</span></div>
+        ))}
+      </div>
+      <div className="mt-1.5 text-fg-3">{t("手动选择保持到下一次换网。")}</div>
+      {hint?.kind === "wifi" && !hint.ssid && (
+        <div className="mt-2"><Notice tone="warn">{t("读不到 Wi-Fi 名称，暂时不会自动切换。macOS：在系统设置的“隐私与安全性 → 定位服务”里允许 Velum。Windows：在“隐私和安全性 → 位置”里允许桌面应用访问位置。")}</Notice></div>
+      )}
     </div>
   );
 }

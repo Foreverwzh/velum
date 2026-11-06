@@ -3,11 +3,15 @@ import { t } from "./i18n";
 // Tauri 中经 Rust 命令访问 Unix socket；浏览器开发模式下经 Vite 代理（/api）。
 
 export interface Source { kind: string; file?: string; line?: number; text?: string }
-export interface GroupStatus { tag: string; type: string; selected: string; members: string[]; delays?: Record<string, number> }
+/** 按网络自动切换（订阅的 ssid-policy）。 */
+export interface NetPolicy { ssid?: Record<string, string>; cellular?: string; default?: string }
+export interface GroupStatus { tag: string; type: string; selected: string; members: string[]; delays?: Record<string, number>; policy?: NetPolicy }
 export interface VPN { iface: string; full: boolean; routes?: string[]; domains?: string[]; nameservers?: string[] }
 export interface NetworkStatus {
   primary_interface: string; vpns?: VPN[]; split_dns_domains?: string[]; stale_dns?: string[];
   captive?: string; captive_detail?: string; paused?: string;
+  /** App 报告的当前网络。 */
+  hint?: { kind: string; ssid?: string };
 }
 export interface TUNStatus { name?: string; address: string; address6?: string; routes: string[]; exclude?: string[]; system_dns?: string[] }
 /** 订阅服务提供的流量额度与到期时间（subscription-userinfo 等响应头）。 */

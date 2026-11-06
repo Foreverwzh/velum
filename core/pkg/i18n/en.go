@@ -301,7 +301,7 @@ var en = map[string]string{
 	"指定的出站 ":     "The specified outbound ",
 	"按 UDP 推演":   "Trace as UDP",
 	"按应用分流（include_apps / exclude_apps）只在 Android 上生效": "Per-app routing (include_apps / exclude_apps) only works on Android",
-	"按网络自动切换（ssid-policy）目前只在 iOS 上生效，这里需要手动切换":        "Switching by network (ssid-policy) only works on iOS for now; switch manually here",
+	"按网络自动切换（ssid-policy）在这个平台上还不支持，需要手动切换":            "Switching by network (ssid-policy) is not supported on this platform yet; switch manually here",
 	"探测未通过，但仍在正常收发数据（":                                 "Probes failed, but data is still flowing normally (",
 	"接管 DNS 查询": "Take over DNS queries",
 	"接管系统代理：%w": "Manage system proxy: %w",

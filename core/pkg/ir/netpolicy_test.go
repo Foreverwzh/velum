@@ -34,6 +34,15 @@ func TestNetPolicyPick(t *testing.T) {
 	if m, ok := home.Pick(NetWiFi, "家"); !ok || m != "DIRECT" {
 		t.Errorf("在家应当直连：%q %v", m, ok)
 	}
+	// 桌面端有线网络：不在家
+	if m, ok := home.Pick(NetWired, ""); !ok || m != "WG" {
+		t.Errorf("有线网络应当用 default：%q %v", m, ok)
+	}
+	got := map[string]string{}
+	ApplyNetPolicies(map[string]*NetPolicy{"Home": home, "空": {}}, NetWiFi, "家", func(g, m string) error { got[g] = m; return nil })
+	if len(got) != 1 || got["Home"] != "DIRECT" {
+		t.Errorf("ApplyNetPolicies 结果不对：%v", got)
+	}
 	var nilP *NetPolicy
 	if _, ok := nilP.Pick(NetWiFi, "家"); ok {
 		t.Error("没有策略不应切换")

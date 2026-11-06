@@ -101,11 +101,7 @@ func applyPoliciesLocked() {
 	if eng == nil {
 		return
 	}
-	for g, p := range policies {
-		if m, ok := p.Pick(netKind, netSSID); ok {
-			_ = eng.SelectMember(g, m)
-		}
-	}
+	ir.ApplyNetPolicies(policies, netKind, netSSID, eng.SelectMember)
 }
 
 // NetworkChanged 由扩展在网络变化时调用：kind 为 wifi / cellular，其他情况传空字符串；ssid 是 Wi-Fi 名称（取不到时为空）。

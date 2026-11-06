@@ -1198,3 +1198,81 @@ func TestSetLanguage(t *testing.T) {
 		t.Fatalf("got %q", got)
 	}
 }
+
+type recordingEngine struct {
+	*fakeEngine
+	mu  sync.Mutex
+	sel []string
+}
+
+func (e *recordingEngine) SelectMember(g, m string) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.sel = append(e.sel, g+"="+m)
+	return nil
+}
+
+func (e *recordingEngine) picks() []string {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return append([]string(nil), e.sel...)
+}
+
+// 桌面 App 报告当前网络后，核心按 ssid-policy 切换；网络没变不再切，手动选择才能保持到下一次换网。
+func TestNetworkHintAppliesPolicy(t *testing.T) {
+	home := t.TempDir()
+	paths := testPaths(home)
+	if err := config.Ensure(paths); err != nil {
+		t.Fatal(err)
+	}
+	sub := filepath.Join(home, "sub.yaml")
+	_ = os.WriteFile(sub, []byte(`proxies:
+  - {name: wg, type: ss, server: 192.0.2.1, port: 8388, cipher: aes-128-gcm, password: x}
+proxy-groups:
+  - name: Home
+    type: select
+    proxies: [DIRECT, wg]
+    ssid-policy: {我的家: DIRECT, default: wg}
+rules:
+  - MATCH,Home
+`), 0o600)
+	cfg := strings.Replace(config.Template(), `  file: ""`, `  file: '`+sub+`'`, 1)
+	cfg = strings.Replace(cfg, "listen: 127.0.0.1:7899", "listen: 127.0.0.1:17998", 1)
+	cfg = strings.Replace(cfg, "network_sense:\n  enabled: true", "network_sense:\n  enabled: false", 1)
+	_ = os.WriteFile(paths.Config, []byte(cfg), 0o600)
+
+	eng := &recordingEngine{fakeEngine: &fakeEngine{}}
+	d := daemon.New(paths, eng, log.New(io.Discard, "", 0))
+	done := make(chan error, 1)
+	go func() { done <- d.Run(context.Background()) }()
+	c := rpc.NewClient(paths.Socket)
+	defer func() { _ = c.Stop(); <-done }()
+	for i := 0; i < 200; i++ {
+		if st, err := c.Status(); err == nil && !st.Starting {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	hint := func(kind, ssid string) {
+		t.Helper()
+		b, _ := json.Marshal(rpc.NetworkHint{Kind: kind, SSID: ssid})
+		if _, err := c.Raw(http.MethodPut, "/v1/network-hint", b); err != nil {
+			t.Fatal(err)
+		}
+	}
+	hint("wifi", "我的家")
+	hint("wifi", "我的家") // 没变：不能再切，否则手动选择每 2 秒就被改回去
+	hint("wired", "")
+	hint("wifi", "") // 取不到名称：不切换
+	want := []string{"Home=DIRECT", "Home=wg"}
+	if got := eng.picks(); !slices.Equal(got, want) {
+		t.Fatalf("切换记录 %v，应为 %v", got, want)
+	}
+	st, err := c.Status()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Network != nil && (st.Network.Hint == nil || st.Network.Hint.Kind != "wifi") {
+		t.Fatalf("状态里应当有当前网络：%+v", st.Network)
+	}
+}

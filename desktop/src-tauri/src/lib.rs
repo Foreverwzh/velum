@@ -7,6 +7,7 @@ mod i18n_en;
 mod menu_tabs;
 #[cfg(target_os = "macos")]
 mod netext;
+mod network;
 mod system;
 mod tray;
 mod update;
@@ -278,6 +279,7 @@ pub fn run() {
                                         backoff = Duration::from_secs(5);
                                         next_try = std::time::Instant::now();
                                     }
+                                    network::sync(&app, &s);
                                     tray::refresh(&app, Some(&s), &summary(&s));
                                 }
                                 // 刚打开时 velumd 还在启动，先不报未运行（只在还没连上过时：连上后再断开要立即处理，网络扩展的重连依赖它）

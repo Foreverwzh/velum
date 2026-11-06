@@ -75,6 +75,7 @@ EOF
 <key>com.apple.developer.team-identifier</key><string>$team</string>
 <key>com.apple.developer.networking.networkextension</key><array><string>packet-tunnel-provider-systemextension</string></array>
 <key>com.apple.developer.system-extension.install</key><true/>
+<key>com.apple.security.personal-information.location</key><true/>
 <key>com.apple.security.application-groups</key><array><string>$group</string></array>
 </dict></plist>
 EOF

@@ -72,6 +72,7 @@ type SysProxy interface {
 }
 
 type Daemon struct {
+	netHint rpc.NetworkHint // 桌面 App 报告的当前网络
 	// SystemConnectivity 表示连通性和网页认证由系统处理（iOS），核心不做 Captive 探测。
 	SystemConnectivity bool
 	handlerOnce        sync.Once
@@ -519,6 +520,7 @@ func (d *Daemon) reload(ctx context.Context) error {
 	d.mu.Lock()
 	d.st, d.lastErr = st, ""
 	d.mu.Unlock()
+	d.applyNetPolicies() // 引擎重启后选择回到配置里的默认
 	d.syncSysProxy(st)
 	d.Logger.Printf("配置已加载：%d 节点 / %d 策略组 / %d 规则，%d 条告警", st.sub.Nodes, st.sub.Groups, st.sub.Rules, len(st.plan.Warnings))
 	d.retryMissing(st)
@@ -1111,6 +1113,7 @@ func (d *Daemon) handler() (h http.Handler) {
 	mux.HandleFunc("POST /v1/repair", d.repair)
 	mux.HandleFunc("POST /v1/switches", d.setSwitches)
 	mux.HandleFunc("PUT /v1/language", d.setLanguage)
+	mux.HandleFunc("PUT /v1/network-hint", d.setNetworkHint)
 	mux.HandleFunc("GET /v1/connections", func(w http.ResponseWriter, r *http.Request) {
 		limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 		if limit <= 0 {
@@ -1214,6 +1217,10 @@ func (d *Daemon) status() rpc.Status {
 	if d.NetSnapshot != nil {
 		s.Network = &rpc.NetworkStatus{PrimaryInterface: d.env.PrimaryInterface, VPNs: d.env.VPNs, SplitDNSDomains: d.env.SplitDNSDomains, StaleDNS: d.env.StaleDNS,
 			Captive: string(d.captive), CaptiveDetail: d.captiveDetail}
+		if d.netHint.Kind != "" {
+			hint := d.netHint
+			s.Network.Hint = &hint
+		}
 	}
 	if st := d.st; st != nil {
 		s.Listen, s.LoadedAt, s.Subscription, s.Profiles = st.cfg.Listen, st.loadedAt, st.sub, st.profiles
@@ -1485,6 +1492,45 @@ func modeName(sys, tun bool) string {
 }
 
 // setSwitches 切换系统代理 / TUN：保存到 state.json（重启后保持），不改 config.yaml；失败时恢复原状态。
+// setNetworkHint 由桌面 App 报告当前网络：核心跑在服务或系统扩展里，读不到 Wi-Fi 名称（macOS 要 App 自己申请定位权限）。
+// 只有网络真的变了才按策略切换，所以手动选择保持到下一次换网。
+func (d *Daemon) setNetworkHint(w http.ResponseWriter, r *http.Request) {
+	var req rpc.NetworkHint
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	d.mu.Lock()
+	changed := req != d.netHint
+	d.netHint = req
+	d.mu.Unlock()
+	if changed {
+		d.applyNetPolicies()
+	}
+	writeJSON(w, d.status())
+}
+
+// applyNetPolicies 按当前网络切换策略组。不写入保存的选择：写了会改变渲染结果，引擎就要重启、断开连接。
+func (d *Daemon) applyNetPolicies() {
+	sel, ok := d.Engine.(interface{ SelectMember(string, string) error })
+	if !ok {
+		return
+	}
+	d.mu.RLock()
+	hint, st := d.netHint, d.st
+	d.mu.RUnlock()
+	if st == nil || hint.Kind == "" {
+		return
+	}
+	policies := map[string]*ir.NetPolicy{}
+	for _, g := range st.plan.IR.Groups {
+		if g.Policy != nil {
+			policies[g.Tag] = g.Policy
+		}
+	}
+	ir.ApplyNetPolicies(policies, hint.Kind, hint.SSID, sel.SelectMember)
+}
+
 // setLanguage 由界面在启动时调用：核心返回的错误、告警跟随界面的语言。语言变化时重新加载，告警才会重新生成。
 func (d *Daemon) setLanguage(w http.ResponseWriter, r *http.Request) {
 	var req rpc.LanguageRequest

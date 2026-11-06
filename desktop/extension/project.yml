@@ -25,6 +25,7 @@ targets:
       path: Host/Host.entitlements
       properties:
         com.apple.developer.system-extension.install: true
+        com.apple.security.personal-information.location: true
         com.apple.developer.networking.networkextension: [packet-tunnel-provider]
         com.apple.security.application-groups: [H3H5ULV8KR.dev.velum]
     settings:

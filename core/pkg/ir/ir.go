@@ -117,6 +117,7 @@ type NetPolicy struct {
 const (
 	NetWiFi     = "wifi"
 	NetCellular = "cellular"
+	NetWired    = "wired" // 桌面端没连 Wi-Fi：有线网络等
 )
 
 // Pick 返回当前网络应选的成员；ok 为 false 表示不切换。
@@ -141,8 +142,19 @@ func (p *NetPolicy) Pick(kind, ssid string) (member string, ok bool) {
 			return m, true
 		}
 		return p.Default, p.Default != ""
+	case NetWired:
+		return p.Default, p.Default != ""
 	}
 	return "", false
+}
+
+// ApplyNetPolicies 按当前网络切换策略组：所有平台共用，平台层只负责报告当前网络。
+func ApplyNetPolicies(policies map[string]*NetPolicy, kind, ssid string, sel func(group, member string) error) {
+	for g, p := range policies {
+		if m, ok := p.Pick(kind, ssid); ok {
+			_ = sel(g, m) // 成员可能已不可用：保持当前选择
+		}
+	}
 }
 
 // ---------- 规则 ----------

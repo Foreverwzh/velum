@@ -174,9 +174,11 @@ type NetworkStatus struct {
 	VPNs             []netsense.VPN `json:"vpns,omitempty"`
 	SplitDNSDomains  []string       `json:"split_dns_domains,omitempty"`
 	// StaleDNS 是系统 DNS 中代理工具留下的虚拟地址（198.18.0.0/15，或 TUN 未运行时 Velum 自己的 TUN 内 DNS），见 netsense.Assessment。
-	StaleDNS      []string `json:"stale_dns,omitempty"`
-	Captive       string   `json:"captive,omitempty"` // online / captive / offline
-	CaptiveDetail string   `json:"captive_detail,omitempty"`
+	StaleDNS []string `json:"stale_dns,omitempty"`
+	Captive  string   `json:"captive,omitempty"` // online / captive / offline
+	// Hint 是桌面 App 报告的当前网络（用于按网络切换策略组）；iOS 由隧道扩展自己判断，这里为空。
+	Hint          *NetworkHint `json:"hint,omitempty"`
+	CaptiveDetail string       `json:"captive_detail,omitempty"`
 	// Paused 非空表示接管被暂停的原因（Captive Portal / 让路给全局型 VPN / TUN 不可用）。
 	Paused string `json:"paused,omitempty"`
 }
@@ -196,6 +198,12 @@ type SwitchRequest struct {
 }
 
 // Traffic 是经过 Velum 的实时流量（速率为最近一秒，字节 / 秒）。
+// NetworkHint 是桌面 App 报告的当前网络：Kind 为 wifi / wired，SSID 取不到时为空。
+type NetworkHint struct {
+	Kind string `json:"kind"`
+	SSID string `json:"ssid,omitempty"`
+}
+
 // LanguageRequest 设置核心的语言。
 type LanguageRequest struct {
 	Language string `json:"language"`
