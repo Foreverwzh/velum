@@ -420,6 +420,7 @@ func routeRule(r ir.Rule) (obj, error) {
 		o["action"] = "sniff"
 	case ir.ActionResolve:
 		o["action"] = "resolve"
+		o["timeout"] = resolveTimeout
 	case ir.ActionHijackDNS:
 		o["action"] = "hijack-dns"
 	default:
@@ -427,6 +428,10 @@ func routeRule(r ir.Rule) (obj, error) {
 	}
 	return o, nil
 }
+
+// resolveTimeout 是为匹配 IP 规则而解析域名的时限。超时后跳过 IP 规则继续匹配，所以不必等到 DNS 的默认超时（10 秒）；
+// 代价是这条连接按域名规则走，本该按 IP 直连的可能走代理。
+const resolveTimeout = "3s"
 
 // routesDirect：规则直接把连接交给直连类出站（DIRECT 或绑定接口的直连），且无目标改写，需要先按 DNS 规则解析域名。
 func routesDirect(r ir.Rule, direct map[string]bool) bool {

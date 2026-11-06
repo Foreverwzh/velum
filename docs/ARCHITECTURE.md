@@ -10,7 +10,7 @@
 
 | # | 决策 | 结论 | 状态 |
 | :--- | :--- | :--- | :--- |
-| D1 | 数据面内核 | **只用 sing-box**；桌面端直接实现内部 `adapter.PlatformInterface`，移动端评估 `experimental/libbox`（见 §2.2）；保留 `Engine` 接口，不实现 mihomo | ✅ 已定（M0 修订） |
+| D1 | 数据面内核 | **只用 sing-box**（构建用自己的 fork [Foreverwzh/sing-box](https://github.com/Foreverwzh/sing-box)，改动见其 `VELUM.md`）；桌面端直接实现内部 `adapter.PlatformInterface`，移动端评估 `experimental/libbox`（见 §2.2）；保留 `Engine` 接口，不实现 mihomo | ✅ 已定（M0 修订） |
 | D2 | 桌面 UI | **Tauri v2 + React + TypeScript** | ✅ 已定 |
 | D3 | 移动 UI | **Flutter** | ✅ 已定 |
 | D4 | macOS TUN 方案 | **SMAppService 特权 helper 创建 utun + 配路由，`SCM_RIGHTS` 传 FD 给用户态 `velumd`**；不用 SystemExtension | ✅ 已定（理由见 §3.2） |

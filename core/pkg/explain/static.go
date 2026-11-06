@@ -199,7 +199,7 @@ func WhyWith(p *compiler.Plan, t Target, loaded map[string][]ir.Cond) Report {
 					tr.Reason = i18n.T("解析域名（使用提供的地址 ") + joinAddrs(t.ResolvedIPs) + "）"
 				} else {
 					m.Unresolved = true
-					tr.Reason = i18n.T("此处解析域名；未提供解析结果，后续 IP 条件标为未知（可用 --resolve 指定）")
+					tr.Reason = i18n.T("此处解析域名，结果只用于匹配后面的 IP 规则（走代理时仍由节点解析；查不到则跳过 IP 规则）；未提供解析结果，后续 IP 条件标为未知（可用 --resolve 指定）")
 					r.Notes = append(r.Notes, i18n.T("推演经过 resolve：后续 IP 规则需要解析结果才能准确判断"))
 				}
 				tr.Matched = true

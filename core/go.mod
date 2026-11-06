@@ -190,3 +190,5 @@ require (
 
 // 只改了缓冲大小，见 third_party/wireguard-go/VELUM.md
 replace github.com/sagernet/wireguard-go => ./third_party/wireguard-go
+
+replace github.com/sagernet/sing-box => github.com/Foreverwzh/sing-box v1.14.3-velum.1

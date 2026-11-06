@@ -1130,7 +1130,8 @@
         ]
       },
       {
-        "action": "resolve"
+        "action": "resolve",
+        "timeout": "3s"
       },
       {
         "action": "route",
