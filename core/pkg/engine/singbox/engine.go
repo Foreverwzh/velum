@@ -68,12 +68,13 @@ type Engine struct {
 	minLevel sblog.Level
 	ruleIdx  map[adapter.Rule]int
 
-	live    map[uint32]*engine.Connection
-	meters  map[uint32]*meter // 进行中连接的实时字节数
-	errs    map[uint32][]string
-	history []engine.Connection // 环形缓冲
-	next    int
-	subs    map[chan engine.Connection]struct{}
+	live     map[uint32]*engine.Connection
+	meters   map[uint32]*meter // 进行中连接的实时字节数
+	errs     map[uint32][]string
+	canceled map[uint32]bool     // 应用在握手完成前放弃的连接
+	history  []engine.Connection // 环形缓冲
+	next     int
+	subs     map[chan engine.Connection]struct{}
 
 	totalUp, totalDown atomic.Int64        // 引擎启动以来经过 Velum 的总字节数（含已结束的连接）
 	procs              map[string]*counter // 按进程累计的字节数（含已结束的连接）；键为进程路径，空字符串表示未识别
@@ -85,7 +86,7 @@ func New(opts Options) *Engine {
 	if opts.History <= 0 {
 		opts.History = defaultHistory
 	}
-	return &Engine{opts: opts, live: map[uint32]*engine.Connection{}, meters: map[uint32]*meter{}, procs: map[string]*counter{}, errs: map[uint32][]string{},
+	return &Engine{opts: opts, live: map[uint32]*engine.Connection{}, canceled: map[uint32]bool{}, meters: map[uint32]*meter{}, procs: map[string]*counter{}, errs: map[uint32][]string{},
 		subs: map[chan engine.Connection]struct{}{}}
 }
 
@@ -379,9 +380,24 @@ func (t *tracker) RoutedFlow(context.Context, adapter.InboundContext, adapter.Ru
 	return nil
 }
 
+// handshakeReportFailed 出现在内核日志里，表示对端已经连上，回头完成和应用的握手时失败：TUN 用延迟握手，
+// 先连对端再回应应用，这时应用已经放弃了（超时、同时发起多条连接等）。不是到对端的连接失败。
+const handshakeReportFailed = "report handshake success"
+
+// connDomain 返回连接的域名：嗅探出的域名会写进目标地址而不是 md.Domain。
+func connDomain(md adapter.InboundContext) string {
+	if md.Domain != "" {
+		return md.Domain
+	}
+	if md.Destination.IsFqdn() {
+		return md.Destination.Fqdn
+	}
+	return ""
+}
+
 func (e *Engine) begin(ctx context.Context, network string, md adapter.InboundContext, rule adapter.Rule, ob adapter.Outbound) (*engine.Connection, *meter) {
 	c := &engine.Connection{Start: time.Now(), Network: network, Inbound: md.Inbound, Source: md.Source.String(),
-		Domain: md.Domain, Destination: md.Destination.String(), Sniffed: md.Protocol, RuleIndex: -1, FirstByteMS: -1}
+		Domain: connDomain(md), Destination: md.Destination.String(), Sniffed: md.Protocol, RuleIndex: -1, FirstByteMS: -1}
 	if id, ok := sblog.IDFromContext(ctx); ok {
 		c.ID = id.ID
 	}
@@ -435,6 +451,8 @@ func (e *Engine) finish(c *engine.Connection, m *meter, end time.Time) {
 	c.DurationMS = end.Sub(m.start).Milliseconds()
 	c.End = &end
 	c.Errors = append(c.Errors, e.errs[c.ID]...)
+	c.Canceled = e.canceled[c.ID]
+	delete(e.canceled, c.ID)
 	delete(e.errs, c.ID)
 	delete(e.live, c.ID)
 	delete(e.meters, c.ID)
@@ -524,6 +542,10 @@ func (w *logWriter) WriteMessage(level sblog.Level, msg string) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	if _, live := e.live[id]; live {
+		if strings.Contains(text, handshakeReportFailed) {
+			e.canceled[id] = true
+			return
+		}
 		if level <= sblog.LevelWarn {
 			e.errs[id] = append(e.errs[id], text)
 		}

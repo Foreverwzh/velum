@@ -130,6 +130,12 @@ struct ConnectionView: View {
                     ForEach(errs, id: \.self) { Label($0, systemImage: "xmark.circle.fill").labelStyle(TintedIcon(color: .err)).font(.subheadline) }
                 }
             }
+            if c.canceled == true {
+                Section {
+                    Text("连接建立前，发起它的 App 已经放弃了。这是正常现象，比如 App 同时发起多条连接，只用最快的一条。")
+                        .font(.subheadline).foregroundStyle(.secondary)
+                }
+            }
             Section("命中的规则") {
                 Text(c.provenance.text ?? c.rule).font(.subheadline.monospaced()).textSelection(.enabled)
                 LabeledContent("来源", value: c.provenance.location)

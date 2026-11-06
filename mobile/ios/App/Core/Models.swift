@@ -104,6 +104,7 @@ struct Connection: Codable, Hashable, Identifiable {
     var firstByteMs: Int
     var durationMs: Int
     var errors: [String]?
+    var canceled: Bool?
 
     var host: String { domain ?? destination }
     /// 按规则拦截是预期行为（如订阅拒绝 IPv6），即使带错误信息也不算失败。
@@ -115,7 +116,7 @@ extension Connection {
     // 内核可能给出 null 的出站链（连接还没选定出站）：解码为空数组，界面不用到处判断。
     init(from decoder: Decoder) throws {
         enum K: String, CodingKey {
-            case id, start, end, network, domain, destination, ruleIndex, rule, provenance, chain, upload, download, firstByteMs, durationMs, errors
+            case id, start, end, network, domain, destination, ruleIndex, rule, provenance, chain, upload, download, firstByteMs, durationMs, errors, canceled
         }
         let c = try decoder.container(keyedBy: K.self)
         self.init(id: try c.decode(Int.self, forKey: .id), start: try c.decode(Date.self, forKey: .start),
@@ -125,7 +126,8 @@ extension Connection {
                   provenance: try c.decode(Source.self, forKey: .provenance), chain: try c.decodeIfPresent([String].self, forKey: .chain) ?? [],
                   upload: try c.decode(Int64.self, forKey: .upload), download: try c.decode(Int64.self, forKey: .download),
                   firstByteMs: try c.decode(Int.self, forKey: .firstByteMs), durationMs: try c.decode(Int.self, forKey: .durationMs),
-                  errors: try c.decodeIfPresent([String].self, forKey: .errors))
+                  errors: try c.decodeIfPresent([String].self, forKey: .errors),
+                  canceled: try c.decodeIfPresent(Bool.self, forKey: .canceled))
     }
 }
 

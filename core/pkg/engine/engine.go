@@ -86,6 +86,8 @@ type Connection struct {
 	FirstByteMS int64      `json:"first_byte_ms"` // -1 表示没有收到下行数据
 	DurationMS  int64      `json:"duration_ms"`
 	Errors      []string   `json:"errors,omitempty"`
+	// Canceled 表示应用在握手完成前放弃了连接（对端其实连上了）：预期内的情况，不算失败。
+	Canceled bool `json:"canceled,omitempty"`
 	// Untracked 为 true 表示连接未经过 tracker（如被 reject 动作拦截），信息来自日志。
 	Untracked bool `json:"untracked,omitempty"`
 }
