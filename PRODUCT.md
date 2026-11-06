@@ -6,7 +6,7 @@
 
 web
 
-The desktop app is a Tauri 2 shell (macOS Apple silicon, Windows x64) rendering a React 19 + Tailwind 4 web UI in `desktop/src`. It ships alongside a tray / menu-bar menu (`desktop/src-tauri/src/tray.rs`). Android is a separate Flutter app (`mobile/`) and is out of scope for desktop design work.
+The desktop app is a Tauri 2 shell (macOS Apple silicon, Windows x64) rendering a React 19 + Tailwind 4 web UI in `desktop/src`. It ships alongside a tray / menu-bar menu (`desktop/src-tauri/src/tray.rs`). Android is a separate Flutter app (`mobile/`) and is out of scope for desktop design work. iOS is a SwiftUI app (`mobile/ios`); see the iOS section of DESIGN.md.
 
 ## Users
 

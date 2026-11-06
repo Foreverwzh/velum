@@ -1,0 +1,3 @@
+*.xcodeproj
+build/
+App/Info.plist

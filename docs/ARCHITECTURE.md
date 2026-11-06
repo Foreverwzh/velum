@@ -15,7 +15,7 @@
 | D3 | 移动 UI | **Flutter** | ✅ 已定 |
 | D4 | macOS TUN 方案 | **SMAppService 特权 helper 创建 utun + 配路由，`SCM_RIGHTS` 传 FD 给用户态 `velumd`**；不用 SystemExtension | ✅ 已定（理由见 §3.2） |
 | D5 | Windows TUN 方案 | `velumd` 以 Windows Service 运行，sing-box 原生 wintun + auto_route | ✅ 已定 |
-| D6 | 移动端分发（Ad Hoc / TestFlight / 其他） | 待定，M3 开始前决定。**前提：需要付费 Apple 开发者计划**（免费账号不能使用 Network Extension / App Groups，M0 的 iOS 两项也因此阻塞） | ⏳ 待定 |
+| D6 | 移动端分发 | iOS 先只给自己装（开发者配置文件）；TestFlight 和上架以后再评估（见 D8）。Android 待定 | ✅ iOS 已定（2026-11-06） |
 | D7 | Linux 支持方案 | **先做服务器**：`velumd` 以 systemd 系统服务运行，专用用户 `velum`，通过 `AmbientCapabilities` 获得网络权限（不以 root 运行）；桌面端排在之后，服务以安装用户运行。见 §3.7、[ML-PLAN](ML-PLAN.md) | ✅ 已定（2026-11-05） |
 | D8 | 开源许可证 | **GPL-3.0-or-later**。velumd、Android 核心静态链接 sing-box（GPL-3.0-or-later），发布产物整体须以 GPLv3 提供源码；sing-box 许可证另有条款：衍生作品未经许可不得使用其名称或暗示关联（Velum 只做事实性说明）。**影响 D6**：GPLv3 与 App Store 条款存在冲突（附加使用限制），iOS 上架前需评估（可能只能走 TestFlight 以外的分发方式，或取得 sing-box 作者授权） | ✅ 已定（2026-10-20） |
 
@@ -145,8 +145,8 @@ type PlatformHooks interface {
 ┌──────────────────────────────────────────────────────────────────────────────┐
 │                                   UI 层                                       │
 │  ┌──────────────────────────────────┐   ┌──────────────────────────────────┐  │
-│  │ 桌面: Tauri v2 (macOS / Windows) │   │ 移动: Flutter (iOS / Android)     │  │
-│  │ Rust 托盘 + React/TS/Tailwind    │   │ Dart UI                          │  │
+│  │ 桌面: Tauri v2 (macOS / Windows) │   │ Android: Flutter / iOS: SwiftUI  │  │
+│  │ Rust 托盘 + React/TS/Tailwind    │   │                                  │  │
 │  └───────────────┬──────────────────┘   └───────────────┬──────────────────┘  │
 └──────────────────┼──────────────────────────────────────┼─────────────────────┘
                    │ HTTP over UDS / Named Pipe            │ iOS: App↔NE IPC（见 §3.4）
@@ -226,6 +226,8 @@ type PlatformHooks interface {
 - 服务只在 `%ProgramData%\Velum`（SYSTEM / 管理员可写）中写自己的数据；用户目录中的配置以用户身份读写，避免 SYSTEM 在用户可控的位置操作文件。
 
 ### 3.4 iOS
+
+完整方案与步骤见 [IOS-PLAN](IOS-PLAN.md)。界面用 SwiftUI（修订：原计划与 Android 共用 Flutter）。
 
 - **内存预算**（待 M0 实测后填写真实数据）：扩展稳态目标 ≤ 35MB，通过 `libbox.SetMemoryLimit` 设置软上限。
 - **扩展内只运行**：engine、最小状态 RPC、连接/统计查询。订阅解析、Overlay 编译、Explain 静态仿真、RemoteSync 全部放在 **App 进程**，编译产物写入 App Group 容器，扩展只加载 JSON。
@@ -518,9 +520,9 @@ velum/
 ├── desktop/                        # Tauri v2
 │   ├── src-tauri/                  # Rust：托盘、进程管理、SMAppService 注册、Windows 系统代理
 │   └── src/                        # React + TypeScript + Tailwind（极简 / Pro 双视图）
-└── mobile/                         # Flutter
+└── mobile/                         # Android 为 Flutter，iOS 为原生
     ├── lib/
-    ├── ios/                        # App + PacketTunnel 扩展（Swift）
+    ├── ios/                        # SwiftUI App + PacketTunnel 扩展（XcodeGen）
     └── android/                    # VpnService（Kotlin）
 ```
 
@@ -569,7 +571,7 @@ velum/
 - [x] ~~RemoteSync（加密、签名、镜像、LKG 回滚）与配对流程~~：已取消，改为首次启动引导中填写订阅地址。
 - [ ] 自动更新与代码签名 / 公证（需付费 Apple 开发者账号）。
 
-### 🎯 M3：移动端 Flutter（Android + iOS）
+### 🎯 M3：移动端（Android：Flutter；iOS：SwiftUI）
 
 通用：
 
@@ -582,9 +584,10 @@ Android（详见 `docs/M3-PLAN.md`）：
 - [ ] 真机验收：真实节点、Wi-Fi ↔ 蜂窝切换、息屏 / 省电模式下保持、Android 10 / 11 的网络跟踪回退路径。
 - [ ] 正式发布签名（生成并保管密钥）。
 
-iOS（⛔ 阻塞：需要付费 Apple 开发者账号）：
+iOS（详见 `docs/IOS-PLAN.md`）：
 
-- [ ] 决定 D6（移动端分发方式）。
+- [x] 决定 D6（先只给自己装）。
+- [x] 界面与交互（SwiftUI，演示数据，模拟器验证）。
 - [ ] iOS App ↔ 扩展 IPC、App Group 配置下发。
 - [ ] `NEPacketTunnelProvider`（On-Demand、内存基线测试纳入 CI）。
 

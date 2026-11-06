@@ -50,3 +50,14 @@ Sidebar 208 px (status mark, ⌘K entry, seven pages with ⌘1–⌘7). Content 
 ## Motion
 
 150–200 ms colour transitions; switch knob uses an expo ease-out; the protected status mark pulses slowly. Nothing animates on page load. `prefers-reduced-motion` disables all of it.
+
+## iOS (`mobile/ios`)
+
+SwiftUI, system components and materials; the brand lives in the tint and the route chain. Same colour roles and meanings as desktop, defined in `App/Assets.xcassets` (`AccentColor`, `Warn`, `Err`, `Info`, plus `Teal`, the darker teal for text, because accent on white is under 4.5:1).
+
+- **Structure.** Three tabs (状态, 活动, 设置) with a persistent ask field above them (`tabViewBottomAccessory`), opening a search sheet with the field at the bottom. Inset grouped lists throughout, large titles on tabs, inline on pushed pages. See `docs/IOS-PLAN.md` for the interaction spec.
+- **RouteChain** (`Views/Components.swift`) is the iOS form of `Chain`: rule (info, mono), group (neutral), node (teal), direct, reject. Tinted chips in the regular form, plain text in the compact form used in list rows. Wraps instead of truncating, since node names are long.
+- **LatencyLabel** colour plus number; timeouts say 超时 with an icon.
+- **Status.** Symbol, title and detail together (`checkmark.shield.fill`, `pause.circle.fill`, `exclamationmark.triangle.fill`, `shield.slash`); the switch is teal when on, amber when on but paused.
+- **Type.** System text styles only, so Dynamic Type works; monospaced for rule text and addresses, monospaced digits for data. SF Symbols only; emoji appear only inside subscription-provided names.
+- **Motion.** System transitions, plus a slow breathing symbol while protected. Haptics on connect and node switch.

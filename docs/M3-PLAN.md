@@ -1,6 +1,6 @@
 # M3 实施计划：移动端（先做 Android）
 
-> 对应 ARCHITECTURE §3.5 / §7 M3。本计划先做 Android。iOS 的账号已具备，内存已在真机上验证不阻塞（`spikes/ios-memory/README.md`），实施计划待写；分发方式（D6）未定。
+> 对应 ARCHITECTURE §3.5 / §7 M3。本计划先做 Android。iOS 单独成篇，见 [IOS-PLAN](IOS-PLAN.md)。
 
 ## 原则
 

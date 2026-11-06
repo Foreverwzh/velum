@@ -1,0 +1,48 @@
+name: Velum
+options:
+  bundleIdPrefix: io.github.foreverwzh
+  deploymentTarget:
+    iOS: "26.1"
+settings:
+  base:
+    DEVELOPMENT_TEAM: H3H5ULV8KR
+    CODE_SIGN_STYLE: Automatic
+    SWIFT_VERSION: "5.0"
+    CURRENT_PROJECT_VERSION: 1
+    MARKETING_VERSION: "0.1"
+    TARGETED_DEVICE_FAMILY: "1"
+targets:
+  Velum:
+    type: application
+    platform: iOS
+    sources: [App]
+    info:
+      path: App/Info.plist
+      properties:
+        CFBundleDisplayName: Velum
+        CFBundleDevelopmentRegion: zh-Hans
+        UILaunchScreen: {}
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: io.github.foreverwzh.velum
+      ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+      ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+  VelumUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [UITests]
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: io.github.foreverwzh.velum.uitests
+      GENERATE_INFOPLIST_FILE: YES
+    dependencies:
+      - target: Velum
+schemes:
+  Velum:
+    build:
+      targets:
+        Velum: all
+        VelumUITests: [test]
+    test:
+      targets: [VelumUITests]
