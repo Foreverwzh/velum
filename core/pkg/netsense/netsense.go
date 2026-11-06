@@ -130,6 +130,8 @@ type Assessment struct {
 	// StaleDNS 是系统默认 DNS 中指向代理工具虚拟地址（198.18.0.0/15）的服务器，而当前没有隧道在接管：
 	// 多为其他代理工具退出时没有还原的设置，查询无人应答，域名解析会失败或很慢。
 	StaleDNS []string `json:"stale_dns,omitempty"`
+	// MDNS 表示系统声明 .local 由多播 DNS 解析（macOS 的 local 解析器，没有服务器地址）。
+	MDNS bool `json:"mdns,omitempty"`
 	// SplitDNS 是这些域名各自的 DNS 服务器（与 SplitDNSDomains 对应）。Velum 直接询问它们：
 	// sing-box 的系统解析器在 macOS 上只对 .local 使用 mDNSResponder，其余按默认解析器查询，
 	// 而接管系统 DNS 后默认解析器就是 Velum 自己，交给它会回环。
@@ -255,7 +257,9 @@ func Analyze(s Snapshot, own ...string) Assessment {
 	servers := map[string][]string{}
 	var split []string
 	splitNS := map[string][]string{}
+	mdns := false
 	for _, rv := range s.Resolvers {
+		mdns = mdns || strings.EqualFold(strings.TrimSuffix(rv.Domain, "."), "local")
 		// 系统 DNS 分流：带域名、有服务器的补充解析器（不限接口，含 /etc/resolver 与各类 VPN 下发的）
 		if d := normDomain(rv.Domain); d != "" && len(rv.Nameservers) > 0 && !rv.Scoped && !ownSet[rv.Iface] {
 			split = appendUnique(split, d)
@@ -274,7 +278,7 @@ func Analyze(s Snapshot, own ...string) Assessment {
 		}
 	}
 	sort.Strings(split)
-	out := Assessment{PrimaryInterface: s.PrimaryInterface, SplitDNSDomains: split, Bypass: s.Bypass}
+	out := Assessment{PrimaryInterface: s.PrimaryInterface, SplitDNSDomains: split, MDNS: mdns, Bypass: s.Bypass}
 	for _, d := range split {
 		out.SplitDNS = append(out.SplitDNS, SplitResolver{Domain: d, Nameservers: splitNS[d]})
 	}

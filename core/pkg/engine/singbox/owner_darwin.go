@@ -50,7 +50,9 @@ import "C"
 
 import (
 	"net/netip"
+	"os"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 	"unsafe"
@@ -68,6 +70,9 @@ type portKey struct {
 	port  uint16
 }
 
+// pcblistMisses 统计系统连接表连续漏掉别的进程的次数。读一次要拷贝整张表，读不到别的进程时就是白费 CPU。
+var pcblistMisses atomic.Int32
+
 var sockets struct {
 	sync.Mutex
 	at   time.Time // 最近一次列出的开始时间
@@ -75,9 +80,13 @@ var sockets struct {
 }
 
 const (
-	socketsTTL       = 500 * time.Millisecond
-	socketsMinRescan = 20 * time.Millisecond // 两次列出的最短间隔：同时建立的一批连接共用一次列出，root 进程等查不到的连接不会反复扫描
-	socketsCap       = 65536
+	socketsTTL = 500 * time.Millisecond
+	// 两次列出的最短间隔：同时建立的一批连接共用一次列出。一次列出要几毫秒，间隔太短时反复连接的程序能占掉大量 CPU；
+	// 太长则新连接等得久（规则匹配前要等归属结果），网页并发加载图片时能感觉到，所以不宜再加大。
+	socketsMinRescan = 50 * time.Millisecond
+	// 连续这么多次系统连接表查不到、列 socket 却查到别的进程，就认为系统连接表对我们无效，不再读它。
+	pcblistGiveUp = 16
+	socketsCap    = 65536
 )
 
 // nativeOwner 表示由 Velum 自己查询连接归属（见 platform.FindConnectionOwner）。
@@ -88,12 +97,20 @@ func findOwner(proto int, src netip.AddrPort, dst netip.AddrPort) (*adapter.Conn
 	if proto == syscall.IPPROTO_UDP {
 		network = "udp"
 	}
-	if o, err := process.FindDarwinConnectionOwner(network, src, dst); err == nil && o.ProcessPath != "" {
-		return o, nil
+	if pcblistMisses.Load() < pcblistGiveUp {
+		if o, err := process.FindDarwinConnectionOwner(network, src, dst); err == nil && o.ProcessPath != "" {
+			if int(o.ProcessID) != os.Getpid() { // 能看到自己不算：无效时也看得到
+				pcblistMisses.Store(0)
+			}
+			return o, nil
+		}
 	}
 	pid := socketOwner(portKey{proto, src.Port()})
 	if pid == 0 {
 		return nil, process.ErrNotFound
+	}
+	if pid != os.Getpid() {
+		pcblistMisses.Add(1)
 	}
 	path, err := pidPath(pid)
 	if err != nil {

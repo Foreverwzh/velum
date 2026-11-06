@@ -55,7 +55,9 @@ type Environment struct {
 	// SystemDNSDomains 是系统声明了专用解析器的域名（/etc/resolver、VPN 作用域 DNS 等）。
 	// SystemResolvers 给出其中各域名的 DNS 服务器时直接询问它们；没有给出的域名交给系统解析器。
 	SystemDNSDomains []string
-	SystemResolvers  []EnvResolver
+	// MDNS 表示系统声明 .local 由多播 DNS 解析：这类名称只能交给系统，问订阅的 DNS 一定是 NXDOMAIN。
+	MDNS            bool
+	SystemResolvers []EnvResolver
 	// PhysicalDNS 是物理网络（DHCP）的 DNS；接管系统 DNS 后，原本用「系统 DNS」的地方改用它，避免绕回 Velum。
 	PhysicalDNS []string
 	// Bypass 是不能进隧道的地址（如 WireGuard 对端）。
@@ -536,7 +538,7 @@ func vpnServing(vpns []EnvVPN, nameservers []string) string {
 //     只有回环地址时经回环网卡发出（macOS）；
 //   - 多个服务器并发竞速（与系统按序回落相比，任何一个可达即可应答）。
 //
-// 没有服务器信息的域名仍交给系统解析器。ifaceOutbound 返回绑定到某网卡的直连出站（按需创建）。
+// 没有服务器信息的域名仍交给系统解析器，系统声明了 mDNS 时 .local 也是（它在 macOS 上走 mDNSResponder，不会回环）。ifaceOutbound 返回绑定到某网卡的直连出站（按需创建）。
 func systemDNSSplit(cfg *ir.Config, opts Options, ifaceOutbound func(iface string) string) {
 	known := map[string]bool{}
 	groups := map[string][]string{} // 服务器组（逗号连接）→ 域名
@@ -607,6 +609,9 @@ func systemDNSSplit(cfg *ir.Config, opts Options, ifaceOutbound func(iface strin
 		if !known[d] {
 			rest = append(rest, d)
 		}
+	}
+	if opts.Env.MDNS {
+		rest = append(rest, "local")
 	}
 	if len(rest) > 0 {
 		cfg.DNS.Servers = append(cfg.DNS.Servers, ir.DNSServer{Tag: SystemResolverDNS, Type: "local", Source: velum(i18n.T("系统解析器"))})

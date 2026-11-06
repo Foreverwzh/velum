@@ -793,3 +793,32 @@ func TestSystemHosts(t *testing.T) {
 		}
 	}
 }
+
+// 系统声明 .local 由 mDNS 解析时交给系统解析器，且排在订阅的 DNS 规则之前；否则问公网 DNS 必然 NXDOMAIN。
+// 这是照系统的声明执行，不是内置策略：不增加路由规则，也不增加系统代理豁免。
+func TestMDNSFollowsSystem(t *testing.T) {
+	mk := func(mdns bool) *compiler.Plan {
+		sub := &ir.Config{DNS: ir.DNS{Rules: []ir.DNSRule{{Server: "sub"}}}}
+		p, err := compiler.Compile(sub, nil, compiler.Options{Mode: compiler.ModeSysProxy, Platform: "darwin",
+			Listen: netip.MustParseAddrPort("127.0.0.1:7899"), Env: &compiler.Environment{MDNS: mdns}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	isLocal := func(r ir.DNSRule) bool {
+		return r.Match.Cond != nil && slices.Equal(r.Match.Cond.DomainSuffix, []string{"local"}) && r.Server == compiler.SystemResolverDNS
+	}
+	p := mk(true)
+	at := slices.IndexFunc(p.IR.DNS.Rules, isLocal)
+	sub := slices.IndexFunc(p.IR.DNS.Rules, func(r ir.DNSRule) bool { return r.Server == "sub" })
+	if at < 0 || sub < 0 || at > sub {
+		t.Fatalf(".local 应在订阅规则之前交给系统解析器：%+v", p.IR.DNS.Rules)
+	}
+	if len(p.SysProxy.Exceptions) != 0 {
+		t.Errorf("不应增加系统代理豁免：%+v", p.SysProxy.Exceptions)
+	}
+	if slices.ContainsFunc(mk(false).IR.DNS.Rules, isLocal) {
+		t.Error("系统没有声明时不应有这条规则")
+	}
+}

@@ -252,6 +252,12 @@ func TestSplitDNSFromEtcResolver(t *testing.T) {
 	if len(a.VPNs) != 0 || strings.Join(a.SplitDNSDomains, ",") != "corp.example" {
 		t.Fatalf("%+v", a)
 	}
+	if !a.MDNS {
+		t.Fatal("系统声明了 local 解析器，应报告 mDNS")
+	}
+	if netsense.Analyze(netsense.Snapshot{PrimaryInterface: "en0"}).MDNS {
+		t.Fatal("系统没有声明时不应报告 mDNS")
+	}
 }
 
 func TestPhysicalDNS(t *testing.T) {

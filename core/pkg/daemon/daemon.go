@@ -300,6 +300,7 @@ func (d *Daemon) build(mode fetchMode) (*state, error) {
 		}
 		if ns.SystemSplitDNS {
 			e.SystemDNSDomains = env.SplitDNSDomains
+			e.MDNS = env.MDNS
 			for _, r := range env.SplitDNS {
 				e.SystemResolvers = append(e.SystemResolvers, compiler.EnvResolver{Domain: r.Domain, Nameservers: r.Nameservers})
 			}
