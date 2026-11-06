@@ -1276,3 +1276,16 @@ rules:
 		t.Fatalf("状态里应当有当前网络：%+v", st.Network)
 	}
 }
+
+// 运行中的 velumd 可以经本地接口做 CPU 剖析。
+func TestCPUProfileEndpoint(t *testing.T) {
+	_, _, c, done := setup(t)
+	defer done()
+	b, err := c.Raw(http.MethodGet, "/debug/pprof/profile?seconds=1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(b) < 2 || b[0] != 0x1f || b[1] != 0x8b {
+		t.Fatalf("应当返回 gzip 格式的 profile：%d 字节", len(b))
+	}
+}

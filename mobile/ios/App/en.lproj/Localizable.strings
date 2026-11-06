@@ -199,3 +199,4 @@
 "Wi-Fi（取不到名称）" = "Wi-Fi (name unavailable)";
 "其他网络" = "Other networks";
 "连接建立前，发起它的 App 已经放弃了。这是正常现象，比如 App 同时发起多条连接，只用最快的一条。" = "The app that started this gave up before it was established. This is normal, for example when an app opens several connections and only uses the fastest.";
+"连上对端" = "Connected to server";

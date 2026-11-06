@@ -143,6 +143,7 @@ struct ConnectionView: View {
             Section("流量") {
                 LabeledContent("下行", value: Fmt.bytes(c.download))
                 LabeledContent("上行", value: Fmt.bytes(c.upload))
+                if let ms = c.connectMs, ms >= 0 { LabeledContent("连上对端", value: "\(ms) ms") }
                 if c.firstByteMs > 0 { LabeledContent("首字节", value: "\(c.firstByteMs) ms") }
                 LabeledContent("目标", value: c.destination)
                 LabeledContent("协议", value: c.network.uppercased())

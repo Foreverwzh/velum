@@ -182,6 +182,7 @@ export default function Connections({ go, refresh, initialQuery }: { go: Go; ref
               [t("进程"), <span className="selectable break-all">{cur.process ?? "—"}</span>],
               [t("流量"), <span className="font-mono text-[12px] tnum">↑ {human(cur.upload)}　↓ {human(cur.download)}</span>],
               ...(!cur.end ? [[t("速率"), <span className="font-mono text-[12px] tnum">↑ {rate(speeds.get(cur.id)?.up ?? 0)}　↓ {rate(speeds.get(cur.id)?.down ?? 0)}</span>] as [string, React.ReactNode]] : []),
+              ...(cur.connect_ms != null && cur.connect_ms >= 0 ? [[t("连上对端"), <span className="font-mono text-[12px] tnum">{cur.connect_ms}ms</span>] as [string, React.ReactNode]] : []),
               [t("首包"), <span className="font-mono text-[12px] tnum">{cur.first_byte_ms >= 0 ? `${cur.first_byte_ms} ms` : t("无")}</span>],
               [t("时长"), <span className="font-mono text-[12px] tnum">{cur.end ? `${cur.duration_ms} ms` : t("进行中")}</span>],
               ...(cur.sniffed ? [[t("嗅探"), cur.sniffed] as [string, React.ReactNode]] : []),

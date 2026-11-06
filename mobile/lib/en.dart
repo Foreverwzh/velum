@@ -108,6 +108,7 @@ const en = <String, String>{
   '还没有订阅': 'No subscription yet',
   '还没有连接记录': 'No connections yet',
   '进行中': 'Active',
+  '连上对端': 'Connected to server',
   '连接': 'Connect',
   '连通性': 'Connectivity',
   '选择不经 Velum 的应用': 'Choose apps that skip Velum',

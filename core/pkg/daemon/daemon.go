@@ -13,6 +13,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/http/pprof"
 	"net/netip"
 	"net/url"
 	"os"
@@ -1112,6 +1113,8 @@ func (d *Daemon) handler() (h http.Handler) {
 	})
 	mux.HandleFunc("POST /v1/repair", d.repair)
 	mux.HandleFunc("POST /v1/switches", d.setSwitches)
+	// CPU 剖析：只有能访问本地接口的人才能用，平时没有开销。发布版没有符号表，系统调用也看不到调用方，只有它能定位。
+	mux.HandleFunc("GET /debug/pprof/profile", pprof.Profile)
 	mux.HandleFunc("PUT /v1/language", d.setLanguage)
 	mux.HandleFunc("PUT /v1/network-hint", d.setNetworkHint)
 	mux.HandleFunc("GET /v1/connections", func(w http.ResponseWriter, r *http.Request) {

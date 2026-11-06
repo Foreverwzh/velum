@@ -294,6 +294,7 @@ func (e *Engine) Connections(limit int) []engine.Connection {
 		cc := *c
 		if m := e.meters[id]; m != nil {
 			cc.Upload, cc.Download = m.up.Load(), m.down.Load()
+			cc.ConnectMS = m.connectMS()
 		}
 		out = append(out, cc)
 	}
@@ -397,7 +398,7 @@ func connDomain(md adapter.InboundContext) string {
 
 func (e *Engine) begin(ctx context.Context, network string, md adapter.InboundContext, rule adapter.Rule, ob adapter.Outbound) (*engine.Connection, *meter) {
 	c := &engine.Connection{Start: time.Now(), Network: network, Inbound: md.Inbound, Source: md.Source.String(),
-		Domain: connDomain(md), Destination: md.Destination.String(), Sniffed: md.Protocol, RuleIndex: -1, FirstByteMS: -1}
+		Domain: connDomain(md), Destination: md.Destination.String(), Sniffed: md.Protocol, RuleIndex: -1, ConnectMS: -1, FirstByteMS: -1}
 	if id, ok := sblog.IDFromContext(ctx); ok {
 		c.ID = id.ID
 	}
@@ -450,6 +451,7 @@ func (e *Engine) finish(c *engine.Connection, m *meter, end time.Time) {
 	}
 	c.DurationMS = end.Sub(m.start).Milliseconds()
 	c.End = &end
+	c.ConnectMS = m.connectMS()
 	c.Errors = append(c.Errors, e.errs[c.ID]...)
 	c.Canceled = e.canceled[c.ID]
 	delete(e.canceled, c.ID)
@@ -478,9 +480,16 @@ func (e *Engine) pushLocked(c engine.Connection) {
 // meter 是一个连接的实时计数（由计数连接在数据面更新）。
 type meter struct {
 	start               time.Time
+	connected           atomic.Int64 // 连上对端距开始的毫秒数 + 1，0 表示还没连上
 	up, down, firstByte atomic.Int64 // firstByte：首个下行字节距开始的毫秒数 + 1，0 表示尚未收到
 	proc                *counter     // 所属进程的累计
 	once                sync.Once
+}
+
+func (m *meter) connectMS() int64 { return m.connected.Load() - 1 } // -1 表示没有连上
+
+func (m *meter) markConnected() {
+	m.connected.CompareAndSwap(0, time.Since(m.start).Milliseconds()+1)
 }
 
 type trackedConn struct {
@@ -497,6 +506,12 @@ func (t *trackedConn) Close() error {
 }
 
 func (t *trackedConn) Upstream() any { return t.Conn }
+
+// ConnHandshakeSuccess 在内核连上对端后被调用：记下耗时，再转给入站（TUN 这时才回应应用）。
+func (c *trackedConn) ConnHandshakeSuccess(remote net.Conn) error {
+	c.m.markConnected()
+	return N.ReportConnHandshakeSuccess(c.Conn, remote)
+}
 
 type trackedPacketConn struct {
 	N.PacketConn // 计数连接
@@ -554,7 +569,7 @@ func (w *logWriter) WriteMessage(level sblog.Level, msg string) {
 	// 未经 tracker 的连接：reject 等动作。根据 match 日志还原规则下标与来源。
 	if mm := matchRe.FindStringSubmatch(text); mm != nil && (mm[3] == "reject" || strings.HasPrefix(mm[3], "reject(")) {
 		idx, _ := strconv.Atoi(mm[1])
-		c := engine.Connection{ID: id, Start: time.Now(), RuleIndex: e.toIR(idx), Rule: mm[2], Chain: []string{mm[3]}, Untracked: true, FirstByteMS: -1}
+		c := engine.Connection{ID: id, Start: time.Now(), ConnectMS: -1, RuleIndex: e.toIR(idx), Rule: mm[2], Chain: []string{mm[3]}, Untracked: true, FirstByteMS: -1}
 		if idx < len(e.sources) {
 			c.Provenance = e.sources[idx]
 		}

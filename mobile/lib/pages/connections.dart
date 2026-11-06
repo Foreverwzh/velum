@@ -121,6 +121,7 @@ class _ConnTile extends StatelessWidget {
             KV(t('规则来源'), SelectableText(srcText((c['provenance'] as Map?)?.cast<String, dynamic>()))),
             KV(t('出站链'), SelectableText(chain)),
             KV(t('流量'), Text('↑${human(c['upload'] as num)}  ↓${human(c['download'] as num)}')),
+            if (c['connect_ms'] is num && (c['connect_ms'] as num) >= 0) KV(t('连上对端'), Text('${c['connect_ms']}ms')),
             KV(t('首字节'), Text((c['first_byte_ms'] as num) < 0 ? t('无下行数据') : '${c['first_byte_ms']}ms')),
             KV(t('时长'), Text(live ? t('进行中') : '${c['duration_ms']}ms')),
             for (final e in errs) KV(t('错误'), SelectableText(e as String, style: TextStyle(color: Theme.of(ctx).colorScheme.error))),

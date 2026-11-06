@@ -47,7 +47,7 @@ export interface UpdateProgress { stage: "download" | "install" | "error"; downl
 export interface Connection {
   id: number; start: string; end?: string; network: string; inbound: string; source: string; process?: string;
   domain?: string; destination: string; resolved?: string[]; sniffed?: string; rule_index: number; rule: string;
-  provenance: Source; chain: string[]; upload: number; download: number; first_byte_ms: number; duration_ms: number;
+  provenance: Source; chain: string[]; upload: number; download: number; connect_ms?: number; first_byte_ms: number; duration_ms: number; canceled?: boolean;
   errors?: string[]; untracked?: boolean;
 }
 export interface RuleTrace { index: number; action: string; matched: boolean; unknown?: boolean; reason: string; source: Source }

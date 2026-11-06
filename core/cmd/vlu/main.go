@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"github.com/Foreverwzh/velum/core/pkg/i18n"
 	"net"
+	"net/http"
 	"net/netip"
 	"os"
 	"os/exec"
@@ -139,6 +140,8 @@ func main() {
 		if s, err = c.Status(); err == nil {
 			fmt.Print(proxyEnv(s.Listen, runtime.GOOS))
 		}
+	case "debug-cpu":
+		err = debugCPU(c, args)
 	case "repair":
 		var r *rpc.RepairResponse
 		if r, err = c.Repair(); err == nil {
@@ -934,4 +937,27 @@ func profileCmd(c *rpc.Client, args []string) error {
 		}
 	}
 	return err
+}
+
+// debugCPU 采样 velumd 的 CPU，写到文件后用 go tool pprof 查看。用法：vlu debug-cpu [秒数] [文件]。
+func debugCPU(c *rpc.Client, args []string) error {
+	seconds, file := "30", "velumd-cpu.pprof"
+	if len(args) > 0 {
+		seconds = args[0]
+	}
+	if len(args) > 1 {
+		file = args[1]
+	}
+	if _, err := strconv.Atoi(seconds); err != nil {
+		return i18n.Errorf("用法：vlu debug-cpu [秒数] [文件]")
+	}
+	b, err := c.Raw(http.MethodGet, "/debug/pprof/profile?seconds="+seconds, nil)
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(file, b, 0o600); err != nil {
+		return err
+	}
+	i18n.Printf("已写入 %s\n", file)
+	return nil
 }

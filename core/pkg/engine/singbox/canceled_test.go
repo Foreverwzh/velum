@@ -1,12 +1,16 @@
 package singbox
 
 import (
+	"errors"
+	"net"
+	"syscall"
 	"testing"
 	"time"
 
 	"github.com/sagernet/sing-box/adapter"
 	sblog "github.com/sagernet/sing-box/log"
 	M "github.com/sagernet/sing/common/metadata"
+	N "github.com/sagernet/sing/common/network"
 
 	"github.com/Foreverwzh/velum/core/pkg/engine"
 )
@@ -47,3 +51,33 @@ func TestConnDomain(t *testing.T) {
 		t.Errorf("目标是 IP 时没有域名：%q", got)
 	}
 }
+
+// 连上对端的耗时：报告握手成功时记下；应用已放弃时（转发给入站失败）也要留下，才能看出它等了多久。
+func TestConnectTimeRecorded(t *testing.T) {
+	e := New(Options{History: 10})
+	a, b := net.Pipe()
+	defer a.Close()
+	defer b.Close()
+	m := &meter{start: time.Now().Add(-120 * time.Millisecond)}
+	c := &engine.Connection{ID: 9, ConnectMS: -1, FirstByteMS: -1}
+	e.mu.Lock()
+	e.live[9] = c
+	e.mu.Unlock()
+	tc := &trackedConn{Conn: refusingConn{a}, e: e, c: c, m: m}
+	if err := N.ReportConnHandshakeSuccess(tc, b); !errors.Is(err, syscall.ECONNREFUSED) {
+		t.Fatalf("应当转给入站并返回它的错误：%v", err)
+	}
+	e.finish(c, m, time.Now())
+	if c.ConnectMS < 120 || c.ConnectMS > 5000 {
+		t.Fatalf("连接耗时不对：%d", c.ConnectMS)
+	}
+	// 没走到这一步的连接
+	if got := (&meter{}).connectMS(); got != -1 {
+		t.Fatalf("没连上应为 -1：%d", got)
+	}
+}
+
+// refusingConn 模拟 gVisor 延迟握手时应用已经放弃。
+type refusingConn struct{ net.Conn }
+
+func (refusingConn) HandshakeSuccess() error { return syscall.ECONNREFUSED }

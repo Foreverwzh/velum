@@ -311,6 +311,7 @@ export const en = {
   "进程": "Process",
   "进行中": "Active",
   "远程拉取失败，正在使用缓存：": "Remote fetch failed, using cache: ",
+  "连上对端": "Connected to server",
   "连接": "Connections",
   "速率": "Rate",
   "遵守系统代理的应用：直接连接，不经 Velum": "Apps honoring the system proxy connect directly, skipping Velum",
