@@ -251,7 +251,7 @@ func (d *Daemon) build(mode fetchMode) (*state, error) {
 	if d.LoopbackListenOnly && !cfg.ListenAddr().Addr().IsLoopback() {
 		return nil, i18n.Errorf("拒绝 listen %s：该入口没有认证，对外监听就是开放代理；改回 127.0.0.1，对外提供请用带用户名和密码的 listen_public", cfg.Listen)
 	}
-	opts := compiler.Options{Mode: compiler.ModeProxy, Listen: cfg.ListenAddr(), Platform: runtime.GOOS}
+	opts := compiler.Options{Mode: compiler.ModeProxy, Listen: cfg.ListenAddr(), Platform: runtime.GOOS, DomainFirst: cfg.Rules.DomainFirst}
 	if a, ok := cfg.PublicListenAddr(); ok {
 		opts.Public = &compiler.PublicInbound{Listen: a, Username: cfg.ListenPublic.Username, Password: cfg.ListenPublic.Password}
 	}
@@ -1117,6 +1117,7 @@ func (d *Daemon) handler() (h http.Handler) {
 	// CPU 剖析：只有能访问本地接口的人才能用，平时没有开销。发布版没有符号表，系统调用也看不到调用方，只有它能定位。
 	mux.HandleFunc("GET /debug/pprof/profile", pprof.Profile)
 	mux.HandleFunc("PUT /v1/language", d.setLanguage)
+	mux.HandleFunc("PUT /v1/rules/domain-first", d.setDomainFirst)
 	mux.HandleFunc("PUT /v1/network-hint", d.setNetworkHint)
 	mux.HandleFunc("GET /v1/connections", func(w http.ResponseWriter, r *http.Request) {
 		limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
@@ -1228,6 +1229,7 @@ func (d *Daemon) status() rpc.Status {
 	}
 	if st := d.st; st != nil {
 		s.Listen, s.LoadedAt, s.Subscription, s.Profiles = st.cfg.Listen, st.loadedAt, st.sub, st.profiles
+		s.DomainFirst = st.cfg.Rules.DomainFirst
 		// 平台没有系统代理后端（如 Linux）时，要求开启也不会生效
 		s.SystemProxyOn, s.TUNOn, s.WantSystemProxy, s.WantTUN = st.sysOn && d.SysProxy != nil, st.tunOn, st.wantSys, st.wantTUN
 		s.Mode = modeName(st.sysOn, st.tunOn)
@@ -1548,6 +1550,35 @@ func (d *Daemon) setLanguage(w http.ResponseWriter, r *http.Request) {
 		if err := d.Reload(r.Context()); err != nil {
 			d.Logger.Printf("切换语言后重新加载失败：%v", err)
 		}
+	}
+	writeJSON(w, d.status())
+}
+
+// setDomainFirst 写入 config.yaml 的 rules.domain_first 并重新加载；失败时改回原配置。
+func (d *Daemon) setDomainFirst(w http.ResponseWriter, r *http.Request) {
+	var req rpc.DomainFirstRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	old, err := userfs.ReadFile(d.Paths.Config)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	data, err := config.SetBool(old, "rules", "domain_first", req.Enabled)
+	if err == nil {
+		err = userfs.WriteFileAtomic(d.Paths.Config, data, 0o600)
+	}
+	if err != nil {
+		writeErr(w, http.StatusUnprocessableEntity, err)
+		return
+	}
+	if err := d.Reload(r.Context()); err != nil {
+		_ = userfs.WriteFileAtomic(d.Paths.Config, old, 0o600)
+		_ = d.Reload(r.Context())
+		writeErr(w, http.StatusUnprocessableEntity, i18n.Errorf("应用失败，已改回原配置：%w", err))
+		return
 	}
 	writeJSON(w, d.status())
 }

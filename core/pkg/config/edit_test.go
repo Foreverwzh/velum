@@ -137,3 +137,22 @@ func TestListenPublicValidation(t *testing.T) {
 		})
 	}
 }
+
+// 布尔值不能带引号，否则读回时解析失败。
+func TestSetBool(t *testing.T) {
+	src := "listen: 127.0.0.1:7899\nrules:\n  # 说明\n  domain_first: false\n"
+	out, err := config.SetBool([]byte(src), "rules", "domain_first", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "listen: 127.0.0.1:7899\nrules:\n  # 说明\n  domain_first: true\n"; string(out) != want {
+		t.Fatalf("%q", out)
+	}
+	out, err = config.SetBool([]byte("listen: x\n"), "rules", "domain_first", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(out), "rules:\n  domain_first: true") {
+		t.Fatalf("节不存在时应追加：%q", out)
+	}
+}

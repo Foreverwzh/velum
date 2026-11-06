@@ -81,6 +81,7 @@ class Api {
 
   Future<Json> status() => _call('GET', '/v1/status');
   Future<Json> reload() => _call('POST', '/v1/reload');
+  Future<Json> setDomainFirst(bool enabled) => _call('PUT', '/v1/rules/domain-first', {'enabled': enabled});
   Future<Json> update() => _call('POST', '/v1/update');
 
   /// 运行时切换开关（保存到 state.json，不写 config.yaml）：on / off / config。

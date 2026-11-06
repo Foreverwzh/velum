@@ -90,6 +90,10 @@ final class AppModel {
         }
     }
 
+    func setDomainFirst(_ on: Bool) async {
+        do { status = try await core.setDomainFirst(on) } catch { actionError = error.localizedDescription }
+    }
+
     func setTunnel(_ on: Bool) async {
         toggling = true
         actionError = nil

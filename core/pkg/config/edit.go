@@ -22,6 +22,11 @@ func SetFields(data []byte, section string, fields map[string]string, order []st
 	return setFields(data, section, vals, order)
 }
 
+// SetBool 修改 section 下的布尔字段，规则同 SetFields（SetFields 写字符串，true 会带引号）。
+func SetBool(data []byte, section, field string, v bool) ([]byte, error) {
+	return setFields(data, section, map[string]value{field: {text: fmt.Sprint(v)}}, []string{field})
+}
+
 // SetLists 修改 section 下的若干字符串列表字段（写为单行 [a, b]）。原有的多行写法（- a）会被改写为单行，
 // 其间的注释不保留。
 func SetLists(data []byte, section string, lists map[string][]string, order []string) ([]byte, error) {

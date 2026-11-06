@@ -93,6 +93,12 @@ final class DemoCore: VelumCore, @unchecked Sendable {
         ]
     }
 
+    func setDomainFirst(_ on: Bool) async throws -> Status {
+        var s = try await status()
+        s.domainFirst = on
+        return s
+    }
+
     func setTunnel(on: Bool) async throws -> Status {
         let slow = UserDefaults.standard.bool(forKey: "slowConnect")
         try await Task.sleep(for: .milliseconds(on ? (slow ? 6000 : 1200) : 400))

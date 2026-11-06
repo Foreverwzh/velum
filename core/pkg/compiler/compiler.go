@@ -41,6 +41,9 @@ type Options struct {
 	Env *Environment
 	// Selections 是用户为 select 组选择的成员（组 → 成员），引擎重启后保持。
 	Selections map[string]string
+	// DomainFirst 让带域名的连接先匹配所有域名规则，都没命中才解析并匹配 IP 规则（默认按规则顺序，与 Clash 相同）。
+	// 代价是排在前面的 IP 规则不再优先于后面的域名规则，所以由用户选择。
+	DomainFirst bool
 }
 
 // PublicInbound 是对外提供的代理入口，必须带用户名和密码。
@@ -359,14 +362,19 @@ func Compile(sub *ir.Config, ov *overlay.Overlay, opts Options) (*Plan, error) {
 	for _, rs := range cfg.RuleSets {
 		sets[rs.Tag] = rs
 	}
-	resolved := false
-	for _, r := range sub.Rules {
-		if !resolved && NeedsResolve(r.Match, sets) {
-			rules = append(rules, ir.Rule{Action: ir.Action{Kind: ir.ActionResolve},
-				Source: velum(i18n.T("解析域名（模拟 Clash 对未标 no-resolve 的 IP 规则按需解析）"))})
-			resolved = true
+	resolve := ir.Rule{Action: ir.Action{Kind: ir.ActionResolve},
+		Source: velum(i18n.T("解析域名（模拟 Clash 对未标 no-resolve 的 IP 规则按需解析）"))}
+	if opts.DomainFirst {
+		rules = append(rules, domainFirstRules(sub.Rules, sets, resolve)...)
+	} else {
+		resolved := false
+		for _, r := range sub.Rules {
+			if !resolved && NeedsResolve(r.Match, sets) {
+				rules = append(rules, resolve)
+				resolved = true
+			}
+			rules = append(rules, r)
 		}
-		rules = append(rules, r)
 	}
 	cfg.Rules = rules
 	cfg.DNS.Rules = append(cfg.DNS.Rules, sub.DNS.Rules...)
@@ -617,6 +625,28 @@ func systemDNSSplit(cfg *ir.Config, opts Options, ifaceOutbound func(iface strin
 		cfg.DNS.Servers = append(cfg.DNS.Servers, ir.DNSServer{Tag: SystemResolverDNS, Type: "local", Source: velum(i18n.T("系统解析器"))})
 		cfg.DNS.Rules = append(cfg.DNS.Rules, ir.DNSRule{Match: ir.Leaf(ir.Cond{DomainSuffix: rest, NoResolve: true}), Server: SystemResolverDNS, Source: src})
 	}
+}
+
+// domainFirstRules 把规则排成两遍：第一遍保持原顺序、不解析，域名只能命中域名条件，IP 只能命中 IP 条件；
+// 都没命中才解析，第二遍只放需要解析的规则，顺序不变。规则集不用拆开：它的域名部分在第一遍命中，IP 部分在第二遍命中。
+// 组合条件带 IP 时只放第二遍：还没解析时 IP 条件不成立，NOT 会误判为命中。
+func domainFirstRules(in []ir.Rule, sets map[string]ir.RuleSet, resolve ir.Rule) []ir.Rule {
+	resolve.Source = velum(i18n.T("解析域名（rules.domain_first：域名规则都没命中，解析后再匹配 IP 规则）"))
+	var first, second []ir.Rule
+	for _, r := range in {
+		if !NeedsResolve(r.Match, sets) {
+			first = append(first, r)
+			continue
+		}
+		second = append(second, r)
+		if r.Match.Cond != nil && !r.Match.Invert {
+			first = append(first, r)
+		}
+	}
+	if len(second) == 0 {
+		return first
+	}
+	return append(append(first, resolve), second...)
 }
 
 // linuxDefaultExclude 是 Linux 服务器上默认不进隧道的网段：云元数据、同 VPC 的其他子网（见 spikes/ml-linux/README.md F7）。

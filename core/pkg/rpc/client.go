@@ -233,6 +233,11 @@ func (c *Client) SetTUNApps(req TUNApps) (*Status, error) {
 	return &s, c.do(http.MethodPut, "/v1/tun/apps", req, &s)
 }
 
+func (c *Client) SetDomainFirst(enabled bool) (*Status, error) {
+	var s Status
+	return &s, c.do(http.MethodPut, "/v1/rules/domain-first", DomainFirstRequest{Enabled: enabled}, &s)
+}
+
 func (c *Client) SetSubscription(req SetSubscriptionRequest) (*Status, error) {
 	var s Status
 	return &s, c.doSlow(http.MethodPut, "/v1/subscription", req, &s)

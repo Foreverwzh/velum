@@ -71,6 +71,13 @@ type Config struct {
 	LogLevel     string       `yaml:"log_level"`
 	Subscription Subscription `yaml:"subscription"`
 	Overlay      string       `yaml:"overlay"`
+	Rules        Rules        `yaml:"rules"`
+}
+
+// Rules 是规则匹配方式的设置。
+type Rules struct {
+	// DomainFirst：带域名的连接先匹配所有域名规则，都没命中才解析并匹配 IP 规则（compiler.Options.DomainFirst）。
+	DomainFirst bool `yaml:"domain_first"`
 }
 
 // Template 是首次运行写入的配置（带注释）。修改默认值请改这里，保证用户能看到。
@@ -135,6 +142,12 @@ subscription:
 
 # 本地覆盖层（开发直连、hosts 覆盖、系统代理豁免），相对路径基于 Velum 目录
 overlay: overlay.yaml
+
+# 规则匹配方式
+rules:
+  # 打开后，带域名的连接先匹配所有域名规则，都没命中才解析 DNS 并匹配 IP 规则，可以少查 DNS。
+  # 与 Clash 的区别：排在前面的 IP 规则不再优先于后面的域名规则。默认关闭，即按规则顺序匹配
+  domain_first: false
 
 # 网络环境感知
 network_sense:

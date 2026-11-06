@@ -822,3 +822,53 @@ func TestMDNSFollowsSystem(t *testing.T) {
 		t.Error("系统没有声明时不应有这条规则")
 	}
 }
+
+// domain_first：第一遍不解析、保持原顺序；都没命中才解析；第二遍只放需要解析的规则，顺序不变。带 IP 的组合条件只在第二遍。
+func TestDomainFirstRuleOrder(t *testing.T) {
+	sub, err := subscription.Parse([]byte(`
+rules:
+  - IP-CIDR,10.0.0.0/8,REJECT
+  - DOMAIN,a.test,DIRECT
+  - IP-CIDR,172.16.0.0/12,DIRECT,no-resolve
+  - AND,((DOMAIN-SUFFIX,x.test),(IP-CIDR,192.0.2.0/24)),REJECT
+  - DOMAIN,b.test,REJECT
+  - GEOIP,CN,DIRECT
+  - MATCH,DIRECT
+`), subscription.Options{File: "sub.yaml"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	order := func(domainFirst bool) []string {
+		p, err := compiler.Compile(sub, &overlay.Overlay{}, compiler.Options{Mode: compiler.ModeProxy, Listen: netip.MustParseAddrPort("127.0.0.1:7899"), DomainFirst: domainFirst})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []string
+		for _, r := range p.IR.Rules {
+			switch {
+			case r.Action.Kind == ir.ActionResolve:
+				out = append(out, "resolve")
+			case r.Source.Kind == ir.SourceVelum:
+			case strings.Contains(r.Source.Text, "10.0.0.0"):
+				out = append(out, "ip10")
+			case strings.Contains(r.Source.Text, "a.test"):
+				out = append(out, "a")
+			case strings.Contains(r.Source.Text, "172.16"):
+				out = append(out, "ip172")
+			case strings.Contains(r.Source.Text, "x.test"):
+				out = append(out, "and")
+			case strings.Contains(r.Source.Text, "b.test"):
+				out = append(out, "b")
+			case strings.Contains(r.Source.Text, "GEOIP"):
+				out = append(out, "geoip")
+			}
+		}
+		return out
+	}
+	if got, want := strings.Join(order(false), " "), "resolve ip10 a ip172 and b geoip"; got != want {
+		t.Errorf("默认应按规则顺序：%s", got)
+	}
+	if got, want := strings.Join(order(true), " "), "ip10 a ip172 b geoip resolve ip10 and geoip"; got != want {
+		t.Errorf("domain_first：got %s，want %s", got, want)
+	}
+}

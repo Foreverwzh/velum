@@ -226,7 +226,14 @@ type ClientTraffic struct {
 	Active   int    `json:"active"`
 }
 
+// DomainFirstRequest 是 PUT /v1/rules/domain-first 的请求。
+type DomainFirstRequest struct {
+	Enabled bool `json:"enabled"`
+}
+
 type Status struct {
+	// DomainFirst 是 config.yaml 的 rules.domain_first。
+	DomainFirst   bool   `json:"domain_first,omitempty"`
 	PID           int    `json:"pid"`
 	Version       string `json:"version"`
 	Running       bool   `json:"running"`

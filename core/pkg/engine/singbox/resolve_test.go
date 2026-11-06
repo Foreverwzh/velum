@@ -26,6 +26,15 @@ import (
 // fakeDNS 按域名前缀应答：nx 返回 NXDOMAIN，sf 返回 SERVFAIL，to 不应答，其余返回 answers 里的地址。
 func fakeDNS(t *testing.T, answers map[string]string) int {
 	t.Helper()
+	port, _ := fakeDNSLog(t, answers)
+	return port
+}
+
+// fakeDNSLog 同 fakeDNS，并返回到目前为止查询过的域名。
+func fakeDNSLog(t *testing.T, answers map[string]string) (int, func() []string) {
+	t.Helper()
+	var mu sync.Mutex
+	var asked []string
 	pc, err := net.ListenPacket("udp4", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -45,6 +54,9 @@ func fakeDNS(t *testing.T, answers map[string]string) int {
 				i += int(m[i]) + 1
 			}
 			name := strings.Join(labels, ".")
+			mu.Lock()
+			asked = append(asked, name)
+			mu.Unlock()
 			qtype := binary.BigEndian.Uint16(m[i+1:])
 			question := m[12 : i+5]
 			rcode, answer := uint16(0), []byte(nil)
@@ -73,7 +85,11 @@ func fakeDNS(t *testing.T, answers map[string]string) int {
 			_, _ = pc.WriteTo(resp, addr)
 		}
 	}()
-	return pc.LocalAddr().(*net.UDPAddr).Port
+	return pc.LocalAddr().(*net.UDPAddr).Port, func() []string {
+		mu.Lock()
+		defer mu.Unlock()
+		return slices.Clone(asked)
+	}
 }
 
 // fakeNode 是一个 SOCKS5 节点：记录收到的目标，并以 200 应答任何请求。
@@ -231,5 +247,69 @@ rules:
 		if seen == "direct.test" || seen == "viagroup.test" || seen == "blockedip.test" || net.ParseIP(seen) != nil {
 			t.Errorf("节点不该收到 %s（已收到 %v）", seen, node.targets())
 		}
+	}
+}
+
+// domain_first：命中域名规则的连接不查 DNS，且不受排在前面的 IP 规则影响；没命中才解析，IP 规则仍然有效。
+func TestDomainFirstSkipsDNS(t *testing.T) {
+	port, asked := fakeDNSLog(t, map[string]string{"listed.test": "10.99.0.1", "unlisted.test": "10.99.0.1", "other.test": "203.0.113.9"})
+	node := startFakeNode(t)
+	sub, err := subscription.Parse([]byte(fmt.Sprintf(`
+proxies:
+  - {name: node, type: socks5, server: 127.0.0.1, port: %d}
+proxy-groups:
+  - {name: PROXY, type: select, proxies: [node]}
+dns:
+  enable: true
+  ipv6: false
+  nameserver: [udp://127.0.0.1:%d]
+rules:
+  - IP-CIDR,10.99.0.0/16,REJECT
+  - DOMAIN,listed.test,PROXY
+  - MATCH,PROXY
+`, node.port, port)), subscription.Options{File: "sub.yaml"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	listen := freePort(t)
+	plan, err := compiler.Compile(sub, &overlay.Overlay{}, compiler.Options{Mode: compiler.ModeProxy, Listen: listen, DomainFirst: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := render.Render(plan, render.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	eng := singbox.New(singbox.Options{})
+	if err := eng.Start(context.Background(), engine.Config{JSON: r.JSON, RuleSources: r.RuleSources, RuleIndex: r.RuleIndex}); err != nil {
+		t.Fatal(err)
+	}
+	defer eng.Stop()
+	proxyURL, _ := url.Parse("http://" + listen.String())
+	client := &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(proxyURL), DisableKeepAlives: true}, Timeout: 8 * time.Second}
+	get := func(host string) string {
+		resp, err := client.Get("http://" + host + "/")
+		if err != nil {
+			return ""
+		}
+		defer resp.Body.Close()
+		body, _ := io.ReadAll(resp.Body)
+		return string(body)
+	}
+	// listed.test 解析出来会命中前面的 IP 规则，但域名规则优先
+	if body := get("listed.test"); body != "node" {
+		t.Errorf("listed.test 应当命中域名规则走节点：%q", body)
+	}
+	if slices.Contains(asked(), "listed.test") {
+		t.Errorf("命中域名规则不该查 DNS：%v", asked())
+	}
+	if body := get("other.test"); body != "node" {
+		t.Errorf("other.test 应当解析后落到 MATCH：%q", body)
+	}
+	if !slices.Contains(asked(), "other.test") {
+		t.Errorf("没命中域名规则时应当解析：%v", asked())
+	}
+	if body := get("unlisted.test"); body == "node" {
+		t.Error("unlisted.test 解析后应当命中 IP 规则被拒绝")
 	}
 }

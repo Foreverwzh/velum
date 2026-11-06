@@ -1289,3 +1289,25 @@ func TestCPUProfileEndpoint(t *testing.T) {
 		t.Fatalf("应当返回 gzip 格式的 profile：%d 字节", len(b))
 	}
 }
+
+// 切换 domain_first：写入 config.yaml（重启后保持）、重新加载并反映在状态里。
+func TestDaemonSetDomainFirst(t *testing.T) {
+	paths, _, c, cleanup := setup(t)
+	defer cleanup()
+	for _, on := range []bool{true, false} {
+		st, err := c.SetDomainFirst(on)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if st.DomainFirst != on {
+			t.Fatalf("状态应为 %v：%+v", on, st.DomainFirst)
+		}
+		cfg, err := config.Load(paths)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.Rules.DomainFirst != on {
+			t.Fatalf("config.yaml 应为 %v", on)
+		}
+	}
+}

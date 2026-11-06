@@ -74,6 +74,7 @@ struct Status: Codable, Hashable {
     var tunOn: Bool
     var wantTun: Bool
     var starting: Bool?
+    var domainFirst: Bool?
     var warnings: Int
     var lastError: String?
     var groups: [GroupStatus]?
@@ -207,6 +208,7 @@ protocol VelumCore: AnyObject, Sendable {
     func connections() async throws -> [Connection]
     func warnings() async throws -> [Warning]
     func setTunnel(on: Bool) async throws -> Status
+    func setDomainFirst(_ on: Bool) async throws -> Status
     func select(group: String, member: String) async throws -> Status
     func test(group: String) async throws -> [String: Int]
     func why(target: String) async throws -> WhyResponse

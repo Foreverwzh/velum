@@ -21,6 +21,7 @@ export interface Profile { id: string; name: string; source: string; kind: "url"
 
 export interface Status {
   pid: number; version: string; running: boolean; mode: string; listen: string; home: string;
+  domain_first?: boolean;
   system_proxy_on: boolean; tun_on: boolean; want_system_proxy: boolean; want_tun: boolean; overridden?: boolean;
   /** 首次加载配置、启动引擎尚未完成（其余字段可能为空）。 */
   starting?: boolean;
@@ -99,6 +100,7 @@ export const api = {
   reload: () => call<Status>("POST", "/v1/reload"),
   /** 核心返回的错误、告警跟随界面语言。 */
   setLanguage: (language: string) => call<Status>("PUT", "/v1/language", { language }),
+  setDomainFirst: (enabled: boolean) => call<Status>("PUT", "/v1/rules/domain-first", { enabled }),
   update: () => call<Status>("POST", "/v1/update"),
   /** 运行时切换开关（不写入 config.yaml）：on / off / config（回到配置文件的设置）。两个开关相互独立。 */
   setSwitch: (which: "system_proxy" | "tun", value: "on" | "off" | "config") => call<Status>("POST", "/v1/switches", { [which]: value }),

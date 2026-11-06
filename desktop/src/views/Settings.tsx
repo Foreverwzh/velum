@@ -17,6 +17,7 @@ export default function Settings({ status: s, refresh }: { status: Status; refre
         <div className="mx-auto flex max-w-[720px] flex-col gap-7 px-6 py-5">
           <Subscription status={s} refresh={refresh} />
           <Components status={s} refresh={refresh} />
+          <RulesSection status={s} refresh={refresh} />
           <LanguageSection />
           <Section title={t("关于")}>
             <Release status={s} refresh={refresh} />
@@ -266,6 +267,34 @@ function Components({ status: s, refresh }: { status: Status; refresh: Refresh }
             <Switch label={t("登录时启动")} checked={auto} disabled={!!busy} onChange={(v) => run("auto", () => native.autostartSet(v))} />
           </Row>
         )}
+      </Panel>
+      {error && <div className="mt-2"><Notice tone="err">{error}</Notice></div>}
+    </Section>
+  );
+}
+
+/** 规则匹配方式。 */
+function RulesSection({ status, refresh }: { status: Status; refresh: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string>();
+  const change = async (v: boolean) => {
+    setBusy(true);
+    setError(undefined);
+    try {
+      await api.setDomainFirst(v);
+      refresh();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Section title={t("规则")}>
+      <Panel>
+        <Row label={t("域名规则优先")} hint={t("先匹配所有域名规则，都没命中才解析 DNS 并匹配 IP 规则，可以少查 DNS。排在前面的 IP 规则不再优先于后面的域名规则。")}>
+          <Switch label={t("域名规则优先")} checked={!!status.domain_first} disabled={busy} pending={busy} onChange={change} />
+        </Row>
       </Panel>
       {error && <div className="mt-2"><Notice tone="err">{error}</Notice></div>}
     </Section>

@@ -88,6 +88,7 @@ final class RealCore: VelumCore, @unchecked Sendable {
     private struct Steps: Decodable { var steps: [RepairStep]? }
 
     func status() async throws -> Status { try await get("/v1/status") }
+    func setDomainFirst(_ on: Bool) async throws -> Status { try await send("PUT", "/v1/rules/domain-first", ["enabled": on]) }
     func traffic() async throws -> Traffic { try await get("/v1/traffic") }
     func connections() async throws -> [Connection] { (try await get("/v1/connections?limit=200") as ConnectionList).connections ?? [] }
     func warnings() async throws -> [Warning] { (try await get("/v1/warnings") as WarningList).warnings ?? [] }

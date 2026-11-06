@@ -77,6 +77,24 @@ class SettingsPage extends StatelessWidget {
       Section(
         padding: EdgeInsets.zero,
         child: SwitchListTile(
+          secondary: const Icon(Icons.swap_vert),
+          title: Text(t('域名规则优先')),
+          subtitle: Text(t('先匹配所有域名规则，都没命中才解析 DNS 并匹配 IP 规则，可以少查 DNS。排在前面的 IP 规则不再优先于后面的域名规则。')),
+          value: s?['domain_first'] == true,
+          onChanged: s == null
+              ? null
+              : (on) async {
+                  try {
+                    await v.run(() => v.api.setDomainFirst(on));
+                  } catch (e) {
+                    if (context.mounted) toast(context, errText(e));
+                  }
+                },
+        ),
+      ),
+      Section(
+        padding: EdgeInsets.zero,
+        child: SwitchListTile(
           secondary: const Icon(Icons.tune),
           title: Text(t('专业模式')),
           subtitle: Text(t('显示连接与诊断页面')),

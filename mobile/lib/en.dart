@@ -92,6 +92,8 @@ const en = <String, String>{
   '网络环境': 'Network',
   '节点': 'Nodes',
   '规则': 'Rules',
+  '域名规则优先': 'Prefer domain rules',
+  '先匹配所有域名规则，都没命中才解析 DNS 并匹配 IP 规则，可以少查 DNS。排在前面的 IP 规则不再优先于后面的域名规则。': 'Try all domain rules first, and only resolve DNS and try IP rules if none match, for fewer DNS lookups. An earlier IP rule no longer takes priority over a later domain rule.',
   '规则来源': 'Rule source',
   '规则集': 'Rule sets',
   '解析为': 'Resolved to',

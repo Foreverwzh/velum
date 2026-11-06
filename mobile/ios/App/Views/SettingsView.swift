@@ -21,7 +21,7 @@ struct SettingsView: View {
                         }
                     }
                 }
-                Section("规则") {
+                Section {
                     NavigationLink(value: Route.rules) { Label("本地规则", systemImage: "text.badge.plus") }
                     NavigationLink(value: Route.warnings) {
                         LabeledContent {
@@ -30,6 +30,14 @@ struct SettingsView: View {
                             Label("转换提醒", systemImage: "exclamationmark.triangle")
                         }
                     }
+                    Toggle(isOn: Binding(get: { model.status?.domainFirst ?? false },
+                                         set: { v in Task { await model.setDomainFirst(v) } })) {
+                        Label("域名规则优先", systemImage: "arrow.up.arrow.down")
+                    }
+                } header: {
+                    Text("规则")
+                } footer: {
+                    Text("先匹配所有域名规则，都没命中才解析 DNS 并匹配 IP 规则，可以少查 DNS。排在前面的 IP 规则不再优先于后面的域名规则。")
                 }
                 Section {
                     Button {
