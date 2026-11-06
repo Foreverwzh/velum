@@ -1,0 +1,1 @@
+"NSLocalNetworkUsageDescription" = "未连接时，Velum 要用当前网络的 DNS（通常是路由器）来解析地址。";

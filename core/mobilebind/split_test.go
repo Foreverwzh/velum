@@ -3,11 +3,19 @@ package mobilebind
 import (
 	"context"
 	"encoding/json"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
+	"github.com/Foreverwzh/velum/core/pkg/config"
 	"github.com/Foreverwzh/velum/core/pkg/engine"
 	"github.com/Foreverwzh/velum/core/pkg/engine/singbox"
 	"github.com/Foreverwzh/velum/core/pkg/engine/tunnelproto"
+	"github.com/Foreverwzh/velum/core/pkg/netsense"
+	"github.com/Foreverwzh/velum/core/pkg/rpc"
 )
 
 type fakeTunnel struct {
@@ -169,4 +177,98 @@ func TestSplitEngineReportsStartFailure(t *testing.T) {
 	if e.Running() {
 		t.Fatal("隧道没起来不应显示运行中")
 	}
+}
+
+// iOS 在 App 挂起时回收监听端口：回到前台后，界面的调用不能依赖端口。
+func TestCallSurvivesLostListener(t *testing.T) {
+	socket = ""
+	defer func() { socket = "" }()
+	if err := StartSplit(t.TempDir(), &fakeTunnel{}); err != nil {
+		t.Fatal(err)
+	}
+	defer Stop()
+	// 让所有经端口的访问都失败：地址改到没有人监听的端口
+	mu.Lock()
+	cur.d.Paths.Socket = "tcp://127.0.0.1:1?token=x"
+	mu.Unlock()
+	b, err := Call(http.MethodGet, "/v1/status", nil)
+	if err != nil {
+		t.Fatalf("端口不可用时调用失败：%v", err)
+	}
+	var st rpc.Status
+	if err := json.Unmarshal(b, &st); err != nil || st.Version == "" {
+		t.Fatalf("状态不对：%v %s", err, b)
+	}
+	// 接口报错要原样返回，界面才能显示
+	if _, err := Call(http.MethodPost, "/v1/groups/select", []byte(`{"group":"不存在","member":"x"}`)); err == nil {
+		t.Fatal("应当返回错误")
+	}
+}
+
+type netTunnel struct {
+	fakeTunnel
+	network string
+}
+
+func (n *netTunnel) Network() string { return n.network }
+
+// iOS 上连通性由系统判断：有物理网络就在线，不做探测（路由器做 DNS 时探测会被本地网络权限拦住，误报网络不通）。
+func TestSplitReportsConnectivityFromSystem(t *testing.T) {
+	socket = ""
+	defer func() { socket = "" }()
+	host := &netTunnel{network: `{"iface":"en0","dns":["192.168.1.1"]}`}
+	// 有订阅才有配置，网络感知才运行
+	home := t.TempDir()
+	sub := filepath.Join(home, "sub.yaml")
+	if err := os.WriteFile(sub, []byte("proxies:\n  - {name: n, type: ss, server: 192.0.2.1, port: 8388, cipher: aes-128-gcm, password: x}\nrules:\n  - MATCH,DIRECT\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := strings.Replace(config.Template(), `  file: ""`, `  file: '`+sub+`'`, 1)
+	cfg = strings.Replace(cfg, "listen: 127.0.0.1:7899", "listen: 127.0.0.1:17991", 1)
+	if err := os.WriteFile(filepath.Join(home, "config.yaml"), []byte(cfg), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := StartSplit(home, host); err != nil {
+		t.Fatal(err)
+	}
+	defer Stop()
+	mu.Lock()
+	d := cur.d
+	mu.Unlock()
+	if !d.SystemConnectivity {
+		t.Fatal("iOS 入口应当交给系统判断连通性")
+	}
+	if d.CaptiveCheck != nil {
+		t.Fatal("不应注入探测")
+	}
+	d.CaptiveCheck = func(context.Context, []netsense.Probe, netsense.PhysicalPath) (netsense.CaptiveState, string) {
+		t.Error("不应当发起探测")
+		return netsense.Offline, ""
+	}
+	captive := func() string {
+		b, err := Call(http.MethodGet, "/v1/status", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var st rpc.Status
+		_ = json.Unmarshal(b, &st)
+		if st.Network == nil {
+			return ""
+		}
+		return string(st.Network.Captive)
+	}
+	wait := func(want string) {
+		t.Helper()
+		for i := 0; i < 100; i++ {
+			if captive() == want {
+				return
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+		t.Fatalf("连通性应为 %q，实际 %q", want, captive())
+	}
+	wait(string(netsense.Online))
+	// 没有物理网络时才是离线
+	host.network = ""
+	wait(string(netsense.Offline))
 }

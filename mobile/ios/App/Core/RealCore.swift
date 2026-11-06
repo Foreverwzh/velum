@@ -52,6 +52,13 @@ final class RealCore: VelumCore, @unchecked Sendable {
         return (c, p, l)
     }
 
+    /// 隧道扩展看到的网络：类型（wifi / cellular / 空）和 Wi-Fi 名称。
+    func tunnelNetwork() -> (kind: String, ssid: String)? {
+        guard let text = try? String(contentsOf: Self.home().appendingPathComponent("tunnel/network.txt"), encoding: .utf8) else { return nil }
+        let lines = text.components(separatedBy: "\n")
+        return (lines.first ?? "", lines.count > 1 ? lines[1] : "")
+    }
+
     private func raw(_ method: String, _ path: String, _ body: [String: Any]?) async throws -> Data {
         try await started.value
         let data = try body.map { try JSONSerialization.data(withJSONObject: $0) }

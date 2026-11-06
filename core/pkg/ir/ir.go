@@ -101,7 +101,48 @@ type Group struct {
 	Tolerance    int
 	OriginalType string // 订阅中的原始类型（fallback / load-balance 等降级前的类型）
 	Default      string // select 组的默认成员（用户上次的选择）
-	Source       Source
+	// Policy 是按网络自动切换的策略（订阅的 ssid-policy）；为空表示只手动切换。
+	Policy *NetPolicy
+	Source Source
+}
+
+// NetPolicy 按当前网络选择 select 组的成员（Stash 的 ssid-policy）。
+type NetPolicy struct {
+	SSID     map[string]string `json:"ssid,omitempty"`     // Wi-Fi 名称 → 成员
+	Cellular string            `json:"cellular,omitempty"` // 蜂窝网络时的成员
+	Default  string            `json:"default,omitempty"`  // 名称没有匹配时的成员；没写 Cellular 时蜂窝也用它
+}
+
+// 网络类型。
+const (
+	NetWiFi     = "wifi"
+	NetCellular = "cellular"
+)
+
+// Pick 返回当前网络应选的成员；ok 为 false 表示不切换。
+// 在 Wi-Fi 上但不知道名称（系统没给）时不切换：不能把家里的网络当成「其他网络」处理。
+func (p *NetPolicy) Pick(kind, ssid string) (member string, ok bool) {
+	if p == nil {
+		return "", false
+	}
+	switch kind {
+	case NetCellular:
+		// 没写 cellular 时用 default：订阅写「家里直连、其他走节点」时，用户的意思就是不在家都走节点。
+		// 比 Stash 文档的字面意思宽（文档说没有 cellular 就不切换），否则离家用蜂窝时会一直留在家里的选择。
+		if p.Cellular != "" {
+			return p.Cellular, true
+		}
+		return p.Default, p.Default != ""
+	case NetWiFi:
+		if ssid == "" {
+			return "", false
+		}
+		if m, found := p.SSID[ssid]; found {
+			return m, true
+		}
+		return p.Default, p.Default != ""
+	}
+	return "", false
 }
 
 // ---------- 规则 ----------

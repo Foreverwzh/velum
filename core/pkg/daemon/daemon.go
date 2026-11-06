@@ -72,10 +72,14 @@ type SysProxy interface {
 }
 
 type Daemon struct {
-	Paths    config.Paths
-	Engine   engine.Engine
-	Logger   *log.Logger
-	SysProxy SysProxy
+	// SystemConnectivity 表示连通性和网页认证由系统处理（iOS），核心不做 Captive 探测。
+	SystemConnectivity bool
+	handlerOnce        sync.Once
+	inproc             http.Handler
+	Paths              config.Paths
+	Engine             engine.Engine
+	Logger             *log.Logger
+	SysProxy           SysProxy
 	// TUNUnavailable 非空时 TUN 不可用（如 Windows 上未以服务运行），开启 TUN 会显示为暂停并给出此原因。
 	TUNUnavailable string
 	// TUNTrials 允许试运行 TUN（Linux 服务）；TUNRevertMarker 是回退定时器留下的记录，用于在状态里说明原因。
@@ -346,6 +350,14 @@ func (d *Daemon) build(mode fetchMode) (*state, error) {
 func (d *Daemon) engineConfig(st *state) engine.Config {
 	c := engine.Config{JSON: st.rendered.JSON, RuleSources: st.rendered.RuleSources, RuleIndex: st.rendered.RuleIndex, LogLevel: st.cfg.LogLevel,
 		CachePath: filepath.Join(d.Paths.Cache, "singbox.db")}
+	for _, g := range st.plan.IR.Groups {
+		if g.Policy != nil {
+			if c.Policies == nil {
+				c.Policies = map[string]*ir.NetPolicy{}
+			}
+			c.Policies[g.Tag] = g.Policy
+		}
+	}
 	if st.plan.Route.Enabled {
 		opener := d.TUNOpener
 		if opener == nil && runtime.GOOS == "darwin" { // Windows 上由内核自建 wintun
@@ -709,6 +721,15 @@ func (d *Daemon) senseOnce(ctx context.Context, ns config.NetworkSense, tr *prob
 	physChanged := strings.Join(phys, ",") != strings.Join(d.physDNS, ",") && len(phys) > 0
 	d.mu.RUnlock()
 	captive, detail := prevCaptive, ""
+	if d.SystemConnectivity {
+		// 平台自己判断连通性、处理网页认证（iOS）：有可用的物理网络就是在线。
+		// 不能自己探测：iOS 不允许未声明的 App 访问局域网，路由器做 DNS 时探测会失败，被误判成网络不通。
+		captive = netsense.Offline
+		if snap.PhysicalInterface() != "" {
+			captive = netsense.Online
+		}
+		ns.CaptivePortal = false
+	}
 	id := snap.NetworkID()
 	changed := id != tr.networkID || a.Key() != tr.key
 	tr.networkID, tr.key = id, a.Key()
@@ -1005,6 +1026,13 @@ func (d *Daemon) clearOwnSysProxy(st *state) {
 
 // ---------------- 本地接口 ----------------
 
+// Handler 返回本地接口的处理函数，供同一进程里的界面直接调用。
+// iOS 在 App 挂起时会回收监听端口，回到前台后连不上；直接调用不依赖端口。
+func (d *Daemon) Handler() http.Handler {
+	d.handlerOnce.Do(func() { d.inproc = d.handler() })
+	return d.inproc
+}
+
 func (d *Daemon) handler() (h http.Handler) {
 	mux := http.NewServeMux()
 	defer func() { h = d.whileStarting(mux) }()
@@ -1208,7 +1236,7 @@ func (d *Daemon) status() rpc.Status {
 		}
 		delayer, _ := d.Engine.(interface{ Delay(string) int })
 		for _, g := range st.plan.IR.Groups {
-			gs := rpc.GroupStatus{Tag: g.Tag, Type: g.Type, Selected: d.Engine.Selected(g.Tag), Members: g.Members}
+			gs := rpc.GroupStatus{Tag: g.Tag, Type: g.Type, Selected: d.Engine.Selected(g.Tag), Members: g.Members, Policy: g.Policy}
 			if delayer != nil {
 				for _, m := range g.Members {
 					if v := delayer.Delay(m); v > 0 {

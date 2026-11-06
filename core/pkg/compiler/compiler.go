@@ -400,6 +400,13 @@ func Compile(sub *ir.Config, ov *overlay.Overlay, opts Options) (*Plan, error) {
 			}
 		}
 	}
+	if opts.Platform != "ios" {
+		for _, g := range cfg.Groups {
+			if g.Policy != nil {
+				warn("group", ir.Degraded, i18n.T("按网络自动切换（ssid-policy）目前只在 iOS 上生效，这里需要手动切换"), g.Tag, g.Source)
+			}
+		}
+	}
 	if opts.Platform == "android" || opts.Platform == "ios" {
 		// 移动端没有 /etc/resolv.conf，内核的系统解析器不可用：始终使用平台层报告的当前网络 DNS
 		if len(phys) == 0 {

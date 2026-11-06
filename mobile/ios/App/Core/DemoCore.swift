@@ -29,6 +29,8 @@ final class DemoCore: VelumCore, @unchecked Sendable {
             GroupStatus(tag: "Proxy", type: "select", selected: sc == .attention ? "🇺🇸 美国 03" : "🇭🇰 香港 02", members: ["自动选择", "DIRECT"] + nodes, delays: delays),
             GroupStatus(tag: "自动选择", type: "urltest", selected: "🇭🇰 香港 03 IEPL 专线", members: nodes, delays: delays),
             GroupStatus(tag: "流媒体", type: "select", selected: "🇸🇬 新加坡 01", members: ["Proxy", "DIRECT"] + nodes, delays: delays),
+            GroupStatus(tag: "家", type: "select", selected: "DIRECT", members: ["DIRECT", "🇭🇰 香港 01"], delays: delays,
+                        policy: NetPolicy(ssid: ["我的家": "DIRECT"], cellular: "🇭🇰 香港 01", default: "🇭🇰 香港 01")),
             GroupStatus(tag: "AI", type: "select", selected: "🇺🇸 美国 01", members: ["Proxy"] + nodes, delays: delays),
             GroupStatus(tag: "苹果服务", type: "select", selected: "DIRECT", members: ["DIRECT", "Proxy"], delays: delays),
             GroupStatus(tag: "兜底", type: "select", selected: "Proxy", members: ["Proxy", "DIRECT"], delays: delays),

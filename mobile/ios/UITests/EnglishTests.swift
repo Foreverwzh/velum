@@ -3,7 +3,7 @@ import XCTest
 
 final class EnglishTests: XCTestCase {
     /// 演示核心的虚构数据，真实使用时来自订阅或核心。
-    private let demo = ["香港", "日本", "新加坡", "美国", "流媒体", "自动选择", "苹果服务", "兜底", "我的订阅", "备用", "演示数据",
+    private let demo = ["香港", "日本", "新加坡", "美国", "流媒体", "我的家", "家", "自动选择", "苹果服务", "兜底", "我的订阅", "备用", "演示数据",
                         "订阅服务返回", "另一个 VPN", "iOS 不能识别", "不支持 smux"]
 
     private func assertNoChinese(_ app: XCUIApplication, _ page: String, file: StaticString = #filePath, line: UInt = #line) {

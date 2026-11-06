@@ -6,6 +6,7 @@ import (
 
 	"github.com/Foreverwzh/velum/core/pkg/engine"
 	"github.com/Foreverwzh/velum/core/pkg/engine/tunnelproto"
+	"github.com/Foreverwzh/velum/core/pkg/ir"
 )
 
 type noHost struct{}
@@ -74,4 +75,50 @@ func TestTunnelWithoutConfigExplainsWhat(t *testing.T) {
 		t.Fatal("没有配置时应当报错")
 	}
 	Stop()
+}
+
+// 换网时扩展自己切换策略组：回家走直连，在外走节点；手动切换保持到下一次换网。
+func TestTunnelSwitchesGroupByNetwork(t *testing.T) {
+	home := t.TempDir()
+	cfg := engine.Config{JSON: []byte(cfgJSON), TUN: &engine.TUNConfig{},
+		Policies: map[string]*ir.NetPolicy{"Proxy": {SSID: map[string]string{"家": "乙"}, Cellular: "甲", Default: "甲"}}}
+	if _, err := tunnelproto.Save(home, cfg); err != nil {
+		t.Fatal(err)
+	}
+	netKind, netSSID = "", ""
+	if err := Start(home, noHost{}); err != nil {
+		t.Fatal(err)
+	}
+	defer Stop()
+	selected := func() string { return ask(t, tunnelproto.Request{Op: tunnelproto.OpState}).State.Selected["Proxy"] }
+
+	NetworkChanged(ir.NetWiFi, "家")
+	if got := selected(); got != "乙" {
+		t.Fatalf("在家应当走乙：%q", got)
+	}
+	NetworkChanged(ir.NetCellular, "")
+	if got := selected(); got != "甲" {
+		t.Fatalf("蜂窝应当走甲：%q", got)
+	}
+	// 手动切换保持
+	if got := ask(t, tunnelproto.Request{Op: tunnelproto.OpSelect, Group: "Proxy", Member: "乙"}); got.Error != "" {
+		t.Fatal(got.Error)
+	}
+	NetworkChanged(ir.NetCellular, "")
+	if got := selected(); got != "乙" {
+		t.Fatalf("网络没变不应改回手动选择：%q", got)
+	}
+	// 下一次换网恢复按策略
+	NetworkChanged(ir.NetWiFi, "别处")
+	if got := selected(); got != "甲" {
+		t.Fatalf("其他 Wi-Fi 应当走 default：%q", got)
+	}
+	// 重新加载后仍按当前网络
+	NetworkChanged(ir.NetWiFi, "家")
+	if got := ask(t, tunnelproto.Request{Op: tunnelproto.OpReload}); got.Error != "" {
+		t.Fatal(got.Error)
+	}
+	if got := selected(); got != "乙" {
+		t.Fatalf("重新加载后应当还按策略：%q", got)
+	}
 }

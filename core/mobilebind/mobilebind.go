@@ -7,14 +7,17 @@
 package mobilebind
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"github.com/Foreverwzh/velum/core/pkg/i18n"
 	"io"
 	"log"
 	"net"
+	"net/http"
 	"net/netip"
 	"path/filepath"
 	"sync"
@@ -142,6 +145,7 @@ func StartSplit(home string, host TunnelHost) error {
 		se := newSplitEngine(home, host, singbox.New(singbox.Options{Log: lf}))
 		se.onAdopt = TunRequested
 		d := daemon.New(paths, se, logger)
+		d.SystemConnectivity = true
 		d.NetSnapshot = func() (netsense.Snapshot, error) { return snapshot(host.Network()) }
 		return d
 	})
@@ -155,8 +159,37 @@ func Call(method, path string, body []byte) ([]byte, error) {
 	if inst == nil {
 		return nil, i18n.New("核心未运行")
 	}
-	return rpc.NewClient(inst.d.Paths.Socket).Raw(method, path, body)
+	return inst.call(method, path, body)
 }
+
+// call 在进程内调用本地接口，不经过端口：App 挂起时系统会回收监听端口。
+func (i *instance) call(method, path string, body []byte) ([]byte, error) {
+	req, err := http.NewRequest(method, "http://velumd"+path, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	w := &recorder{header: http.Header{}, code: http.StatusOK}
+	i.d.Handler().ServeHTTP(w, req)
+	if w.code != http.StatusOK {
+		var e rpc.ErrorResponse
+		_ = json.Unmarshal(w.body.Bytes(), &e)
+		if e.Error == "" {
+			e.Error = http.StatusText(w.code)
+		}
+		return nil, errors.New(e.Error)
+	}
+	return w.body.Bytes(), nil
+}
+
+type recorder struct {
+	header http.Header
+	body   bytes.Buffer
+	code   int
+}
+
+func (r *recorder) Header() http.Header         { return r.header }
+func (r *recorder) Write(b []byte) (int, error) { return r.body.Write(b) }
+func (r *recorder) WriteHeader(code int)        { r.code = code }
 
 func loopbackAddr() (string, error) {
 	l, err := net.Listen("tcp", "127.0.0.1:0")
@@ -260,7 +293,8 @@ func switchTUN(v, why string) {
 		if inst == nil {
 			return
 		}
-		if _, err := rpc.NewClient(inst.d.Paths.Socket).Switch(rpc.SwitchRequest{TUN: v}); err != nil {
+		body, _ := json.Marshal(rpc.SwitchRequest{TUN: v})
+		if _, err := inst.call(http.MethodPost, "/v1/switches", body); err != nil {
 			inst.d.Logger.Printf("%s，切换 TUN 失败：%v", why, err)
 		} else {
 			inst.d.Logger.Printf("%s，TUN 已切换为 %s", why, v)

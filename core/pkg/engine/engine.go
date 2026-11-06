@@ -21,6 +21,8 @@ type Config struct {
 	// CachePath 是内核缓存文件路径（每次启动前清空）；为空时使用临时目录。
 	// 注意：sing-box 在设置了 PlatformLogWriter 时会强制启用缓存文件，默认写到工作目录下的 cache.db。
 	CachePath string
+	// Policies 是按网络自动切换的策略组（组 → 策略）。iOS 上由隧道扩展执行：换网时 App 通常不在前台。
+	Policies map[string]*ir.NetPolicy
 	// TUN 非空且 Opener 非空时由 Opener（velum-helper）创建 utun，配置中的 tun 入站经平台接口取得其 FD；
 	// Opener 为空（Windows）时由内核按配置自建 TUN 与路由。
 	TUN *TUNConfig

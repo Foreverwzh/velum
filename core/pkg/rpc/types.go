@@ -17,6 +17,7 @@ type GroupStatus struct {
 	Selected string         `json:"selected"`
 	Members  []string       `json:"members"`
 	Delays   map[string]int `json:"delays,omitempty"` // 成员最近一次测速（毫秒）
+	Policy   *ir.NetPolicy  `json:"policy,omitempty"` // 按网络自动切换的策略
 }
 
 type SelectRequest struct {

@@ -24,6 +24,7 @@ targets:
         CFBundleDisplayName: Velum
         CFBundleDevelopmentRegion: zh-Hans
         CFBundleLocalizations: [zh-Hans, en]
+        NSLocalNetworkUsageDescription: Velum uses your network's DNS server, often your router, to resolve addresses when it is not connected.
         UILaunchScreen: {}
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
@@ -37,6 +38,7 @@ targets:
       path: App/App.entitlements
       properties:
         com.apple.developer.networking.networkextension: [packet-tunnel-provider]
+        com.apple.developer.networking.wifi-info: true
         com.apple.security.application-groups: [group.io.github.foreverwzh.velum]
     dependencies:
       - target: VelumTunnel
@@ -63,6 +65,7 @@ targets:
       path: Tunnel/Tunnel.entitlements
       properties:
         com.apple.developer.networking.networkextension: [packet-tunnel-provider]
+        com.apple.developer.networking.wifi-info: true
         com.apple.security.application-groups: [group.io.github.foreverwzh.velum]
     settings:
       PRODUCT_BUNDLE_IDENTIFIER: io.github.foreverwzh.velum.tunnel

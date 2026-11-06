@@ -263,3 +263,53 @@ rules:
 		}
 	}
 }
+
+// Stash 的 ssid-policy：SSID、cellular、default；指向不存在的成员要提醒，不能静默丢掉。
+func TestSSIDPolicy(t *testing.T) {
+	cfg, err := subscription.Parse([]byte(`
+proxies:
+  - {name: wg, type: ss, server: 192.0.2.1, port: 8388, cipher: aes-128-gcm, password: x}
+proxy-groups:
+  - name: home
+    type: select
+    proxies: [wg, DIRECT]
+    ssid-policy:
+      我的家: DIRECT
+      cellular: wg
+      default: wg
+      咖啡馆: 不存在
+  - name: auto
+    type: url-test
+    proxies: [wg]
+    ssid-policy: {x: wg}
+rules:
+  - MATCH,home
+`), subscription.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var p *ir.NetPolicy
+	for _, g := range cfg.Groups {
+		if g.Tag == "home" {
+			p = g.Policy
+		}
+		if g.Tag == "auto" && g.Policy != nil {
+			t.Error("自动测速组不应有 ssid-policy")
+		}
+	}
+	if p == nil || p.SSID["我的家"] != "DIRECT" || p.Cellular != "wg" || p.Default != "wg" {
+		t.Fatalf("解析不对：%+v", p)
+	}
+	if _, ok := p.SSID["咖啡馆"]; ok {
+		t.Error("不存在的成员不应保留")
+	}
+	warned := 0
+	for _, w := range cfg.Warnings {
+		if w.Kind == "ssid-policy" {
+			warned++
+		}
+	}
+	if warned != 2 {
+		t.Errorf("应当有 2 条提醒，实际 %d：%+v", warned, cfg.Warnings)
+	}
+}

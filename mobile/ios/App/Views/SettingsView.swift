@@ -72,6 +72,9 @@ struct SettingsView: View {
                         let text = String(format: "%.0f / %.0f / %.0f MB", m.current, m.peak, m.limit)
                         LabeledContent("隧道内存（当前 / 峰值 / 上限）", value: text).monospacedDigit()
                     }
+                    if model.status?.tunOn == true, let n = (model.core as? RealCore)?.tunnelNetwork() {
+                        LabeledContent("隧道看到的网络", value: networkText(n))
+                    }
                     Link(destination: URL(string: "https://github.com/Foreverwzh/velum")!) {
                         LabeledContent("源代码", value: "GPL-3.0-or-later")
                     }
@@ -83,6 +86,14 @@ struct SettingsView: View {
             .navigationTitle("设置")
             .velumRoutes()
         }
+    }
+}
+
+private func networkText(_ n: (kind: String, ssid: String)) -> String {
+    switch n.kind {
+    case "cellular": String(localized: "蜂窝网络")
+    case "wifi": n.ssid.isEmpty ? String(localized: "Wi-Fi（取不到名称）") : "Wi-Fi：\(n.ssid)"
+    default: String(localized: "未知")
     }
 }
 

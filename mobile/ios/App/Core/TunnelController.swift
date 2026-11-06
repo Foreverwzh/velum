@@ -45,13 +45,22 @@ final class TunnelController: NSObject, MobilebindTunnelHostProtocol, @unchecked
     /// App 回到前台时调用：在后台期间隧道可能已被用户或系统断开。
     func reconcile() {
         DispatchQueue.global().async { [self] in
-            reload()
+            // 旧版本建立的隧道还在运行、配置里没有按需连接：补上，不用重新连接
+            if let m = reload(), m.connection.status == .connected, !m.isOnDemandEnabled {
+                let rule = NEOnDemandRuleConnect()
+                rule.interfaceTypeMatch = .any
+                m.onDemandRules = [rule]
+                m.isOnDemandEnabled = true
+                _ = save(m)
+            }
             statusChanged()
         }
     }
 
     private func statusChanged() {
         let active = tunnelActive()
+        // 隧道断了但按需连接还开着：是被系统结束，系统马上会拉起来，不算用户断开
+        if !active, lock.withLock({ wasActive }), let m = reload(), m.isOnDemandEnabled { return }
         let notify = lock.withLock { () -> Bool in
             defer { wasActive = active }
             return wasActive && !active && !transitioning
@@ -86,14 +95,23 @@ final class TunnelController: NSObject, MobilebindTunnelHostProtocol, @unchecked
         m.protocolConfiguration = proto
         m.localizedDescription = "Velum"
         m.isEnabled = true
-        let sem = DispatchSemaphore(value: 0)
-        var saveErr: Error?
-        m.saveToPreferences { saveErr = $0; sem.signal() }
-        sem.wait()
-        if let saveErr { throw Self.describe(saveErr) }
+        // 按需连接：隧道被系统结束（如内存超限）后自动恢复。用户在系统设置里断开时，系统会自己关掉它
+        let rule = NEOnDemandRuleConnect()
+        rule.interfaceTypeMatch = .any
+        m.onDemandRules = [rule]
+        m.isOnDemandEnabled = true
+        if let saveErr = save(m) { throw Self.describe(saveErr) }
         // 保存后必须重新加载，否则启动时报配置无效
         guard let fresh = reload() else { throw CoreError.message(String(localized: "没有 VPN 配置：再次连接时，在系统弹窗中点“允许”")) }
         return fresh
+    }
+
+    private func save(_ m: NETunnelProviderManager) -> Error? {
+        let sem = DispatchSemaphore(value: 0)
+        var out: Error?
+        m.saveToPreferences { out = $0; sem.signal() }
+        sem.wait()
+        return out
     }
 
     private static func describe(_ e: Error) -> Error {
@@ -144,6 +162,11 @@ final class TunnelController: NSObject, MobilebindTunnelHostProtocol, @unchecked
         guard let m = current() else { return }
         lock.withLock { transitioning = true; wasActive = false }
         defer { lock.withLock { transitioning = false } }
+        // 先关掉按需连接，否则系统会立刻把隧道拉起来
+        if m.isOnDemandEnabled {
+            m.isOnDemandEnabled = false
+            _ = save(m)
+        }
         m.connection.stopVPNTunnel()
         let deadline = Date().addingTimeInterval(10)
         while Date() < deadline, m.connection.status != .disconnected, m.connection.status != .invalid {

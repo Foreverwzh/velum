@@ -3,6 +3,7 @@
 import Darwin
 import Foundation
 import Iostunnel
+import Network
 import NetworkExtension
 import os
 
@@ -25,6 +26,52 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
     var stopping = false
     private var memTimer: DispatchSourceTimer?
     private var peak = 0.0
+    private let pathMonitor = NWPathMonitor()
+    private let netQueue = DispatchQueue(label: "velum.net")
+
+    /// 按网络切换策略组（ssid-policy）。在扩展里做：换网时 App 通常不在前台。
+    private func watchNetwork() {
+        pathMonitor.pathUpdateHandler = { [weak self] path in
+            self?.reportNetwork(path, retries: 3)
+        }
+        pathMonitor.start(queue: netQueue)
+    }
+
+    private func reportNetwork(_ path: Network.NWPath, retries: Int) {
+        guard path.status == .satisfied, let iface = path.availableInterfaces.first(where: { $0.type != .other }) else {
+            report("", "")
+            return
+        }
+        switch iface.type {
+        case .cellular:
+            report("cellular", "")
+        case .wifi:
+            // 连上 Wi-Fi 后名称可能要等一会儿才取得到；取不到时核心不会切换，避免把家里当成其他网络
+            NEHotspotNetwork.fetchCurrent { [weak self] net in
+                guard let self else { return }
+                report("wifi", net?.ssid ?? "")
+                if net?.ssid == nil, retries > 0 {
+                    netQueue.asyncAfter(deadline: .now() + 2) { self.reportNetwork(self.pathMonitor.currentPath, retries: retries - 1) }
+                }
+            }
+        default:
+            report("", "")
+        }
+    }
+
+    /// 交给核心，并记下来给设置页显示：切换不对时要能看出隧道认为自己在什么网络。
+    private func report(_ kind: String, _ ssid: String) {
+        IostunnelNetworkChanged(kind, ssid)
+        guard let group = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroup) else { return }
+        try? "\(kind)\n\(ssid)\n".write(to: group.appendingPathComponent("velum/tunnel/network.txt"), atomically: true, encoding: .utf8)
+    }
+
+    override func wake() {
+        netQueue.async { [weak self] in
+            guard let self else { return }
+            reportNetwork(pathMonitor.currentPath, retries: 3)
+        }
+    }
 
     /// 每 2 秒把内存读数写到共享目录（一行，覆盖写）：被系统杀掉后还能看到最后的峰值。
     private func recordMemory(_ home: URL) {
@@ -53,7 +100,10 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
             var err: NSError?
             IostunnelStart(home.path, TunHost(provider: self), &err)
             if let err { log.error("内核启动失败：\(err, privacy: .public)") }
-            else { self.recordMemory(home) }
+            else {
+                self.recordMemory(home)
+                self.watchNetwork()
+            }
             completionHandler(err)
         }
     }
@@ -62,6 +112,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         log.notice("停止隧道，原因 \(reason.rawValue)")
         stopping = true
         memTimer?.cancel()
+        pathMonitor.cancel()
         DispatchQueue.global().async {
             IostunnelStop()
             completionHandler()

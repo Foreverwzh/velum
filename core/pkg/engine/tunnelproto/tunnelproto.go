@@ -30,18 +30,21 @@ func LogPath(home string) string { return filepath.Join(Dir(home), "tunnel.log")
 
 // meta 是引擎配置中内核 JSON 以外的部分。
 type meta struct {
-	RuleSources []ir.Source `json:"rule_sources,omitempty"`
-	RuleIndex   []int       `json:"rule_index,omitempty"`
-	LogLevel    string      `json:"log_level,omitempty"`
-	Routes      []string    `json:"routes,omitempty"`
-	SystemDNS   []string    `json:"system_dns,omitempty"`
-	Hash        string      `json:"hash"`
+	RuleSources []ir.Source              `json:"rule_sources,omitempty"`
+	RuleIndex   []int                    `json:"rule_index,omitempty"`
+	LogLevel    string                   `json:"log_level,omitempty"`
+	Routes      []string                 `json:"routes,omitempty"`
+	SystemDNS   []string                 `json:"system_dns,omitempty"`
+	Policies    map[string]*ir.NetPolicy `json:"policies,omitempty"`
+	Hash        string                   `json:"hash"`
 }
 
 func hashOf(c engine.Config, routes, dns []string) string {
 	h := sha256.New()
 	h.Write(c.JSON)
 	b, _ := json.Marshal([][]string{routes, dns})
+	h.Write(b)
+	b, _ = json.Marshal(c.Policies)
 	h.Write(b)
 	return hex.EncodeToString(h.Sum(nil))
 }
@@ -56,7 +59,7 @@ func Save(home string, c engine.Config) (string, error) {
 	if c.TUN != nil {
 		routes, dns = c.TUN.Routes, c.TUN.SystemDNS
 	}
-	m := meta{RuleSources: c.RuleSources, RuleIndex: c.RuleIndex, LogLevel: c.LogLevel, Routes: routes, SystemDNS: dns, Hash: hashOf(c, routes, dns)}
+	m := meta{RuleSources: c.RuleSources, RuleIndex: c.RuleIndex, LogLevel: c.LogLevel, Routes: routes, SystemDNS: dns, Policies: c.Policies, Hash: hashOf(c, routes, dns)}
 	b, err := json.Marshal(m)
 	if err != nil {
 		return "", err
@@ -92,7 +95,7 @@ func Load(home string, opener engine.TUNOpener) (engine.Config, error) {
 	if c.JSON, err = os.ReadFile(filepath.Join(dir, configFile)); err != nil {
 		return c, err
 	}
-	c.RuleSources, c.RuleIndex, c.LogLevel, c.CachePath = m.RuleSources, m.RuleIndex, m.LogLevel, CachePath(home)
+	c.RuleSources, c.RuleIndex, c.LogLevel, c.CachePath, c.Policies = m.RuleSources, m.RuleIndex, m.LogLevel, CachePath(home), m.Policies
 	c.TUN = &engine.TUNConfig{Routes: m.Routes, SystemDNS: m.SystemDNS, Opener: opener}
 	return c, nil
 }

@@ -14,6 +14,7 @@ import (
 	"github.com/Foreverwzh/velum/core/pkg/engine"
 	"github.com/Foreverwzh/velum/core/pkg/engine/singbox"
 	"github.com/Foreverwzh/velum/core/pkg/engine/tunnelproto"
+	"github.com/Foreverwzh/velum/core/pkg/ir"
 	"github.com/Foreverwzh/velum/core/pkg/logfile"
 )
 
@@ -53,6 +54,10 @@ var (
 	home string
 	host Host
 	tags []string
+	// 当前配置的网络策略，以及最近一次报告的网络
+	policies map[string]*ir.NetPolicy
+	netKind  string
+	netSSID  string
 )
 
 // Start 按共享目录里的配置启动内核。内存参数来自真机实测（高速下载峰值 30MB → 25MB）。
@@ -86,7 +91,32 @@ func startLocked() error {
 	for g, m := range tunnelproto.LoadSelected(home) {
 		_ = e.SelectMember(g, m) // 成员可能已不在新订阅里：保持配置中的默认
 	}
+	policies = cfg.Policies
+	applyPoliciesLocked()
 	return nil
+}
+
+// applyPoliciesLocked 按当前网络切换策略组。手动切换不会被改回来，直到下一次换网或重新加载。
+func applyPoliciesLocked() {
+	if eng == nil {
+		return
+	}
+	for g, p := range policies {
+		if m, ok := p.Pick(netKind, netSSID); ok {
+			_ = eng.SelectMember(g, m)
+		}
+	}
+}
+
+// NetworkChanged 由扩展在网络变化时调用：kind 为 wifi / cellular，其他情况传空字符串；ssid 是 Wi-Fi 名称（取不到时为空）。
+func NetworkChanged(kind, ssid string) {
+	mu.Lock()
+	defer mu.Unlock()
+	if kind == netKind && ssid == netSSID {
+		return
+	}
+	netKind, netSSID = kind, ssid
+	applyPoliciesLocked()
 }
 
 func stopLocked() {

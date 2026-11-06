@@ -15,12 +15,20 @@ struct Source: Codable, Hashable {
     }
 }
 
+/// 按网络自动切换的策略（订阅的 ssid-policy）。
+struct NetPolicy: Codable, Hashable {
+    var ssid: [String: String]?
+    var cellular: String?
+    var `default`: String?
+}
+
 struct GroupStatus: Codable, Hashable, Identifiable {
     var tag: String
     var type: String
     var selected: String?
     var members: [String]
     var delays: [String: Int]?
+    var policy: NetPolicy?
     var id: String { tag }
     var isSelectable: Bool { type == "select" }
 }

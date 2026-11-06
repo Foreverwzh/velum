@@ -57,6 +57,7 @@ struct MembersView: View {
                     Text("这个组按测速结果自动选择，不能手动切换。").font(.footnote).foregroundStyle(.secondary)
                 }
             }
+            if let p = g?.policy { policySection(p) }
             ForEach(members(g), id: \.self) { m in
                 row(m, group: g)
             }
@@ -78,6 +79,40 @@ struct MembersView: View {
         }
         .sensoryFeedback(.selection, trigger: picked)
     }
+
+    /// 这个组会随网络自动切换：说清楚规则，手动选择只保持到下一次换网。
+    private func policySection(_ p: NetPolicy) -> some View {
+        Section {
+            ForEach((p.ssid ?? [:]).sorted { $0.key < $1.key }, id: \.key) { ssid, member in
+                LabeledContent {
+                    Text(memberName(member))
+                } label: {
+                    Label(ssid, systemImage: "wifi")
+                }
+            }
+            if let m = p.default {
+                LabeledContent {
+                    Text(memberName(m))
+                } label: {
+                    // 没写蜂窝时，蜂窝也走这一条
+                    Label(p.cellular == nil ? String(localized: "其他网络") : String(localized: "其他 Wi-Fi"), systemImage: "wifi")
+                }
+            }
+            if let m = p.cellular {
+                LabeledContent {
+                    Text(memberName(m))
+                } label: {
+                    Label("蜂窝网络", systemImage: "antenna.radiowaves.left.and.right")
+                }
+            }
+        } header: {
+            Text("按网络自动切换")
+        } footer: {
+            Text("手动选择保持到下一次换网。")
+        }
+    }
+
+    private func memberName(_ m: String) -> String { m == "DIRECT" ? String(localized: "直连") : m }
 
     private func members(_ g: GroupStatus?) -> [String] {
         var list = g?.members ?? []

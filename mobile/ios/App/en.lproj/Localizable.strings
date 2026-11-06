@@ -192,3 +192,9 @@
 "全局" = "General";
 "本地覆盖" = "Local overlay";
 "规则与出站" = "Rules and outbound";
+"其他 Wi-Fi" = "Other Wi-Fi";
+"按网络自动切换" = "Switches by network";
+"手动选择保持到下一次换网。" = "A manual choice lasts until the network changes.";
+"隧道看到的网络" = "Network seen by the tunnel";
+"Wi-Fi（取不到名称）" = "Wi-Fi (name unavailable)";
+"其他网络" = "Other networks";

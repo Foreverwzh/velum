@@ -53,6 +53,7 @@ final class AppModel {
 
     func delay(of tag: String) -> Int? {
         let leaf = chain(from: tag).last ?? tag
+        if leaf == "DIRECT" { return nil } // 直连不经过节点，这个数字没有意义
         if let d = delays[leaf] { return d }
         for g in groups { if let d = g.delays?[leaf] { return d } }
         return nil
@@ -133,10 +134,10 @@ final class AppModel {
         if recentQueries.count > 6 { recentQueries.removeLast() }
     }
 
-    /// 最近失败的主机（去重），搜索页的起点。
+    /// 最近一分钟内失败的主机（去重）。更早的失败已经不用处理，留着只会一直误报。
     var failedHosts: [String] {
         var seen = Set<String>()
-        return connections.filter(\.failed).map(\.host).filter { seen.insert($0).inserted }.prefix(3).map { $0 }
+        return connections.filter { $0.failed && Date.now.timeIntervalSince($0.end ?? $0.start) < 60 }.map(\.host).filter { seen.insert($0).inserted }.prefix(3).map { $0 }
     }
 
     /// 需要留意的事项；为空时状态页不显示这一节。

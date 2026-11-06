@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -373,9 +374,6 @@ func (c *converter) group(g obj, src ir.Source) bool {
 			}
 		}
 	}
-	if _, ok := g["ssid-policy"]; ok {
-		c.warn("group", "ssid-policy", ir.Degraded, i18n.T("Stash 私有（按 Wi-Fi 切换），将由 NetworkSense 场景触发实现"), name, src)
-	}
 	for _, k := range sortedKeys(g) {
 		if !knownGroupFields[k] {
 			c.warn("group", typ, ir.Degraded, i18n.T("字段 ")+k+i18n.T(" 未映射"), name, src)
@@ -410,8 +408,38 @@ func (c *converter) group(g obj, src ir.Source) bool {
 		c.warn("group", typ, ir.Unsupported, i18n.T("类型无对应"), name, src)
 		return false
 	}
+	out.Policy = c.netPolicy(g, out, name, src)
 	c.cfg.Groups = append(c.cfg.Groups, out)
 	return true
+}
+
+// netPolicy 解析 Stash 的 ssid-policy：Wi-Fi 名称 → 成员，另有 cellular、default 两个保留键。只对 select 组有效。
+func (c *converter) netPolicy(g map[string]any, out ir.Group, name string, src ir.Source) *ir.NetPolicy {
+	raw, ok := g["ssid-policy"].(map[string]any)
+	if !ok {
+		return nil
+	}
+	if out.Type != ir.GroupSelect {
+		c.warn("group", "ssid-policy", ir.Degraded, i18n.T("ssid-policy 只对 select 组有效，已忽略"), name, src)
+		return nil
+	}
+	p := &ir.NetPolicy{SSID: map[string]string{}}
+	for _, k := range sortedKeys(raw) {
+		m, _ := raw[k].(string)
+		if !slices.Contains(out.Members, m) {
+			c.warn("group", "ssid-policy", ir.Degraded, i18n.T("ssid-policy 指向的 %q 不是这个组的成员，已忽略", m), name, src)
+			continue
+		}
+		switch k {
+		case "cellular":
+			p.Cellular = m
+		case "default":
+			p.Default = m
+		default:
+			p.SSID[k] = m
+		}
+	}
+	return p
 }
 
 // relay [A, B, C]：本机 → A → B → C → 目标。克隆 B、C 并挂 detour：B'.Detour = A，C'.Detour = B'，C' 以组名为 tag。
