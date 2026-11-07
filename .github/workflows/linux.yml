@@ -38,9 +38,8 @@ jobs:
         with:
           go-version-file: core/go.mod
           cache-dependency-path: core/go.sum
-      - uses: actions/setup-node@v6
-        with:
-          node-version: 22
+      # bun 版本由 mise.toml 固定
+      - uses: jdx/mise-action@v5
       - name: build web ui
         run: sh core/scripts/webui.sh
       - name: build
