@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState, useEffect } from "react";
-import { ArrowDownWideNarrow, Check, Gauge, Layers, ListOrdered } from "lucide-react";
+import { ArrowDownWideNarrow, ArrowLeft, Check, Gauge, Layers, ListOrdered } from "lucide-react";
 import { api, type GroupStatus, type NetPolicy, type Status } from "../api";
 import { delayOf, leafOf, pathOf, useAction } from "../hooks";
 import type { Refresh } from "../App";
@@ -12,11 +12,16 @@ export default function Groups({ status, refresh, focus }: { status: Status; ref
   const [q, setQ] = useState("");
   const [sel, setSel] = useState<string | undefined>(() => (focus && groups.some((g) => g.tag === focus) ? focus : groups[0]?.tag));
   const [byDelay, setByDelay] = useState(false);
+  // 手机上一次只显示一层：组列表或组内成员
+  const [open, setOpen] = useState(() => !!focus);
   const { busy, error, run } = useAction(refresh);
   const search = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (focus && groups.some((g) => g.tag === focus)) setSel(focus);
+    if (focus && groups.some((g) => g.tag === focus)) {
+      setSel(focus);
+      setOpen(true);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focus]);
   useEffect(() => {
@@ -43,7 +48,7 @@ export default function Groups({ status, refresh, focus }: { status: Status; ref
 
   return (
     <div className="flex min-h-0 flex-1">
-      <div className="flex w-[264px] shrink-0 flex-col border-r border-line">
+      <div className={cx("flex w-[264px] shrink-0 flex-col border-r border-line phone:w-full phone:border-r-0", open && "phone:hidden")}>
         <div className="px-3 pt-1 pb-2">
           <SearchInput ref={search} value={q} onChange={(e) => setQ(e.target.value)} placeholder={t("搜索策略组或节点")} shortcut={`${/Mac/.test(navigator.userAgent) ? "⌘" : "Ctrl+"}F`} />
         </div>
@@ -53,8 +58,8 @@ export default function Groups({ status, refresh, focus }: { status: Status; ref
             const on = current?.tag === g.tag;
             const leaf = leafOf(groups, g.tag);
             return (
-              <button key={g.tag} onClick={() => setSel(g.tag)}
-                className={cx("flex w-full flex-col gap-0.5 rounded-md px-2.5 py-1.5 text-left transition-colors", on ? "bg-active" : "hover:bg-hover")}>
+              <button key={g.tag} onClick={() => { setSel(g.tag); setOpen(true); }}
+                className={cx("flex w-full flex-col gap-0.5 rounded-md px-2.5 py-1.5 text-left transition-colors phone:py-2.5", on ? "bg-active" : "hover:bg-hover")}>
                 <span className="flex w-full items-center gap-2">
                   <span className={cx("min-w-0 flex-1 truncate", on && "font-medium")}>{g.tag}</span>
                   {g.type !== "select" && <Tag>{t("自动")}</Tag>}
@@ -73,6 +78,8 @@ export default function Groups({ status, refresh, focus }: { status: Status; ref
         <GroupDetail
           key={current.tag}
           group={current}
+          className={open ? undefined : "phone:hidden"}
+          onBack={() => setOpen(false)}
           hint={status.network?.hint}
           groups={groups}
           filter={keys.length && !hit(current.tag) ? hit : undefined}
@@ -88,8 +95,8 @@ export default function Groups({ status, refresh, focus }: { status: Status; ref
   );
 }
 
-function GroupDetail({ group: g, groups, hint, filter, byDelay, setByDelay, busy, error, onTest, onSelect }: {
-  group: GroupStatus; groups: GroupStatus[]; hint?: { kind: string; ssid?: string }; filter?: (s: string) => boolean; byDelay: boolean; setByDelay: (v: boolean) => void;
+function GroupDetail({ className, onBack, group: g, groups, hint, filter, byDelay, setByDelay, busy, error, onTest, onSelect }: {
+  className?: string; onBack: () => void; group: GroupStatus; groups: GroupStatus[]; hint?: { kind: string; ssid?: string }; filter?: (s: string) => boolean; byDelay: boolean; setByDelay: (v: boolean) => void;
   busy?: string; error?: string; onTest: () => void; onSelect: (m: string) => void;
 }) {
   const manual = g.type === "select";
@@ -107,9 +114,10 @@ function GroupDetail({ group: g, groups, hint, filter, byDelay, setByDelay, busy
   const tested = g.members.filter((m) => delayOf(groups, groupTags.has(m) ? leafOf(groups, m) : m) !== undefined).length;
 
   return (
-    <div className="flex min-w-0 flex-1 flex-col">
-      <header className="flex items-start justify-between gap-4 border-b border-line px-6 pt-1 pb-3">
-        <div className="min-w-0">
+    <div className={cx("flex min-w-0 flex-1 flex-col", className)}>
+      <header className="flex items-start justify-between gap-4 border-b border-line px-6 pt-1 pb-3 phone:gap-2 phone:px-2">
+        <IconButton icon={ArrowLeft} label={t("返回")} onClick={onBack} className="hidden shrink-0 phone:inline-flex" />
+        <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <h1 className="truncate text-[15px] font-semibold tracking-[-0.01em]">{g.tag}</h1>
             <Tag tone={manual ? "neutral" : "info"}>{manual ? t("手动选择") : t("自动选择")}</Tag>
@@ -125,7 +133,7 @@ function GroupDetail({ group: g, groups, hint, filter, byDelay, setByDelay, busy
           <Button icon={Gauge} loading={busy === "test"} onClick={onTest}>{t("测速")}</Button>
         </div>
       </header>
-      {error && <div className="px-6 pt-3"><Notice tone="err">{error}</Notice></div>}
+      {error && <div className="px-6 pt-3 phone:px-4"><Notice tone="err">{error}</Notice></div>}
       <div className="min-h-0 flex-1 overflow-y-auto px-3 py-2">
         {!manual && <div className="px-3 pb-2 text-[12px] text-fg-3">{t("自动选择延迟最低的成员，不能手动切换。")}</div>}
         {g.policy && <PolicyNote policy={g.policy} hint={hint} />}
@@ -135,7 +143,7 @@ function GroupDetail({ group: g, groups, hint, filter, byDelay, setByDelay, busy
           return (
             <button key={m} disabled={!manual || !!busy} onClick={() => !on && onSelect(m)}
               className={cx(
-                "group grid h-9 w-full grid-cols-[20px_1fr_auto] items-center gap-2 rounded-md px-3 text-left transition-colors",
+                "group grid h-9 w-full grid-cols-[20px_1fr_auto] items-center gap-2 rounded-md px-3 text-left transition-colors phone:h-12",
                 on ? "bg-accent-soft" : manual && "hover:bg-hover",
                 !manual && "cursor-default",
               )}>
@@ -149,7 +157,7 @@ function GroupDetail({ group: g, groups, hint, filter, byDelay, setByDelay, busy
           );
         })}
       </div>
-      <footer className="border-t border-line px-6 py-2 text-[11.5px] text-fg-3 tnum">
+      <footer className="border-t border-line px-6 py-2 phone:px-4 text-[11.5px] text-fg-3 tnum">
         {g.members.length}{" "}{t("个成员 ·")}{" "}{tested}{" "}{t("个有测速结果")}{filter && t(" · 已按搜索过滤")}
       </footer>
     </div>

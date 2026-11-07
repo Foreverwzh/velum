@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/Foreverwzh/velum/core/pkg/i18n"
+	"github.com/Foreverwzh/velum/core/pkg/webui"
 	"io"
 	"io/fs"
 	"log"
@@ -73,6 +74,11 @@ type SysProxy interface {
 }
 
 type Daemon struct {
+	// WebAssets 是网页界面的文件；为空表示这个平台不提供网页界面。
+	WebAssets fs.FS
+	webListen string
+	webErr    string
+
 	netHint rpc.NetworkHint // 桌面 App 报告的当前网络
 	// SystemConnectivity 表示连通性和网页认证由系统处理（iOS），核心不做 Captive 探测。
 	SystemConnectivity bool
@@ -571,6 +577,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 	// 先开始响应本地接口：首次加载（拉取订阅、规则集，启动引擎）可能需要十几秒，期间界面应显示「正在启动」而不是「无法连接」
 	srv := &http.Server{Handler: d.handler(), ReadHeaderTimeout: 10 * time.Second}
 	go func() { _ = srv.Serve(ln) }()
+	web := d.startWeb()
 	d.loadState()
 	if d.SysProxy != nil {
 		// 上次未正常退出（如 kill -9）时，系统代理可能仍指向已不存在的端口：先自愈。
@@ -616,6 +623,9 @@ func (d *Daemon) Run(ctx context.Context) error {
 	}
 	sctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
+	if web != nil {
+		_ = web.Close() // 不等待：网页的连接流不会自己结束
+	}
 	_ = srv.Shutdown(sctx)
 	// 先还原系统代理再停引擎，避免系统代理指向已关闭的端口
 	if d.SysProxy != nil && d.SysProxy.HasSnapshot() {
@@ -1199,7 +1209,7 @@ func (d *Daemon) status() rpc.Status {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 	s := rpc.Status{Traffic: traffic, Update: upd, PID: os.Getpid(), Version: Version, Running: d.Engine.Running(), Home: d.Paths.Home, StartedAt: d.startedAt, Starting: d.starting, LastError: d.lastErr,
-		Overridden: d.sysOverride != nil || d.tunOverride != nil}
+		Overridden: d.sysOverride != nil || d.tunOverride != nil, WebListen: d.webListen, WebError: d.webErr}
 	if d.trial != nil {
 		s.TUNTrial = &rpc.TUNTrial{Deadline: d.trial.deadline}
 	}
@@ -1581,6 +1591,35 @@ func (d *Daemon) setDomainFirst(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, d.status())
+}
+
+// startWeb 按配置启动网页界面。启动失败不影响 Velum 本身：记录下来，vlu status 能看到。
+func (d *Daemon) startWeb() *http.Server {
+	cfg, err := config.Load(d.Paths)
+	if err != nil || !cfg.Web.Enabled {
+		return nil // 配置有误时 build 会报告
+	}
+	fail := func(err error) *http.Server {
+		d.Logger.Printf("网页界面没有启动：%v", err)
+		d.mu.Lock()
+		d.webErr = err.Error()
+		d.mu.Unlock()
+		return nil
+	}
+	if d.WebAssets == nil {
+		return fail(i18n.New("网页界面只在 Linux 上提供"))
+	}
+	ln, err := net.Listen("tcp", cfg.Web.Listen)
+	if err != nil {
+		return fail(err)
+	}
+	d.mu.Lock()
+	d.webListen = cfg.Web.Listen
+	d.mu.Unlock()
+	srv := &http.Server{Handler: webui.Handler(d.handler(), d.WebAssets, cfg.Web.Password), ReadHeaderTimeout: 10 * time.Second}
+	go func() { _ = srv.Serve(ln) }()
+	d.Logger.Printf("网页界面：http://%s", cfg.Web.Listen)
+	return srv
 }
 
 func (d *Daemon) setSwitches(w http.ResponseWriter, r *http.Request) {

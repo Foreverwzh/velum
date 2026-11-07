@@ -4,7 +4,7 @@ name: linux
 on:
   push:
     branches: ["**"] # 只按分支触发；推送版本标签由 release.yml 调用
-    paths: ["core/**", ".github/workflows/linux.yml"]
+    paths: ["core/**", "desktop/**", ".github/workflows/linux.yml"]
   workflow_dispatch:
     inputs:
       version:
@@ -38,11 +38,16 @@ jobs:
         with:
           go-version-file: core/go.mod
           cache-dependency-path: core/go.sum
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - name: build web ui
+        run: sh core/scripts/webui.sh
       - name: build
         run: |
           v="${VELUM_VERSION:-dev}"
           name="Velum-$v-linux-${{ matrix.arch }}"
-          tags="$(sed -n 's/^TAGS ?= //p' core/Makefile)"
+          tags="$(sed -n 's/^TAGS ?= //p' core/Makefile),webui"
           ldflags="-s -w"
           [ -z "$VELUM_VERSION" ] || ldflags="$ldflags -X github.com/Foreverwzh/velum/core/pkg/daemon.Version=$VELUM_VERSION"
           mkdir -p "dist-pkg/$name"

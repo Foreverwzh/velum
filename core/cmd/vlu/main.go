@@ -385,6 +385,11 @@ func printStatus(s *rpc.Status) error {
 		if s.Overridden {
 			extra = i18n.T("（由界面 / vlu 设置，覆盖 config.yaml）")
 		}
+		if s.WebListen != "" {
+			i18n.Printf("网页界面  http://%s\n", s.WebListen)
+		} else if s.WebError != "" {
+			i18n.Printf("网页界面  没有启动：%s\n", s.WebError)
+		}
 		i18n.Printf("入口      %s；系统代理 %s，TUN %s%s\n", s.Listen, onoff(s.SystemProxyOn, s.WantSystemProxy), onoff(s.TUNOn, s.WantTUN), extra)
 	}
 	if n := s.Network; n != nil {

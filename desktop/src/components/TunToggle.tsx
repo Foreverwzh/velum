@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { ShieldCheck } from "lucide-react";
-import { api, componentStatus, componentText, errText, native, type HelperStatus, type Status } from "../api";
+import { api, componentStatus, componentText, errText, isWeb, native, type HelperStatus, type Status } from "../api";
 import { Button, Row, Switch, Tag } from "./ui";
 import { t } from "../i18n";
 
@@ -50,7 +50,7 @@ export function SwitchRows({ status, disabled, onDone }: { status: Status; disab
     setWant({ tun: v });
     act("tun", async () => {
       setPrompt(undefined);
-      if (v) {
+      if (v && native.available) { // 网页界面没有组件可装，是否允许由核心回答
         const h = await componentStatus();
         if (!h.reachable) return setPrompt(h);
       }
@@ -67,6 +67,7 @@ export function SwitchRows({ status, disabled, onDone }: { status: Status; disab
   const pausedHint = (want: boolean, on: boolean) => (want && !on && paused ? <span className="text-warn">{t("已暂停：")}{paused}</span> : undefined);
   return (
     <>
+      {!isWeb && (
       <Row
         label={<span className="flex items-center gap-2">{t("系统代理")}{status.want_system_proxy && !status.system_proxy_on && <Tag tone="warn">{t("已暂停")}</Tag>}</span>}
         hint={pausedHint(status.want_system_proxy, status.system_proxy_on) ?? t("浏览器等遵守系统代理设置的应用经过 Velum")}
@@ -74,12 +75,13 @@ export function SwitchRows({ status, disabled, onDone }: { status: Status; disab
         <Switch label={t("系统代理")} checked={want.sys ?? status.want_system_proxy} paused={want.sys === undefined && status.want_system_proxy && !status.system_proxy_on}
           disabled={disabled} pending={busy === "sys"} busy={!!busy} onChange={setSys} />
       </Row>
+      )}
       <Row
         label={<span className="flex items-center gap-2">TUN{status.want_tun && !status.tun_on && <Tag tone="warn">{t("已暂停")}</Tag>}</span>}
-        hint={pausedHint(status.want_tun, status.tun_on) ?? t("接管所有应用的流量{0}；可与系统代理同时开启", status.tun?.system_dns?.length ? t("，并接管系统 DNS") : "")}
+        hint={pausedHint(status.want_tun, status.tun_on) ?? (isWeb && !status.want_tun ? t("开启 TUN 可能断开 SSH 和这个网页，请在服务器上执行 sudo vlu tun on --try") : t("接管所有应用的流量{0}；可与系统代理同时开启", status.tun?.system_dns?.length ? t("，并接管系统 DNS") : ""))}
       >
         <Switch label="TUN" checked={want.tun ?? status.want_tun} paused={want.tun === undefined && status.want_tun && !status.tun_on}
-          disabled={disabled} pending={busy === "tun"} busy={!!busy} onChange={setTun} />
+          disabled={disabled || (isWeb && !status.want_tun)} pending={busy === "tun"} busy={!!busy} onChange={setTun} />
       </Row>
       {prompt && (
         <div className="flex items-start gap-3 border-t border-line bg-info-soft px-3.5 py-3">

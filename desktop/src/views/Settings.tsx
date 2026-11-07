@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Download, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
-import { api, componentStatus, componentText, isWindows, native, onUpdateProgress, type CliStatus, type HelperStatus, type NetextStatus, type Profile, type Status, type UpdateProgress } from "../api";
+import { api, componentStatus, componentText, isWeb, isWindows, native, onUpdateProgress, type CliStatus, type HelperStatus, type NetextStatus, type Profile, type Status, type UpdateProgress } from "../api";
 import { useAction } from "../hooks";
 import type { Refresh } from "../App";
 import { Button, cx, IconButton, KV, Notice, PageHeader, Panel, Row, Section, Switch, Tag, TextInput } from "../components/ui";
@@ -14,13 +14,13 @@ export default function Settings({ status: s, refresh }: { status: Status; refre
     <div className="flex min-h-0 flex-1 flex-col">
       <PageHeader title={t("设置")} />
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto flex max-w-[720px] flex-col gap-7 px-6 py-5">
+        <div className="mx-auto flex max-w-[720px] flex-col gap-7 px-6 py-5 phone:px-4 phone:py-3">
           <Subscription status={s} refresh={refresh} />
-          <Components status={s} refresh={refresh} />
+          {!isWeb && <Components status={s} refresh={refresh} />}
           <RulesSection status={s} refresh={refresh} />
           <LanguageSection />
           <Section title={t("关于")}>
-            <Release status={s} refresh={refresh} />
+            {!isWeb && <Release status={s} refresh={refresh} />}
             <Panel className="mt-2 px-3.5 py-3">
               <KV rows={[
                 [t("核心"), <span className="font-mono text-[12px]">velumd {s.version} · pid {s.pid}</span>],

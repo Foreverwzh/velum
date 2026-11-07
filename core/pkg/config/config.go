@@ -72,6 +72,14 @@ type Config struct {
 	Subscription Subscription `yaml:"subscription"`
 	Overlay      string       `yaml:"overlay"`
 	Rules        Rules        `yaml:"rules"`
+	Web          Web          `yaml:"web"`
+}
+
+// Web 是网页管理界面（Linux 服务器；默认关闭）。任何监听地址都要密码：回环地址也能被本机其他用户访问。
+type Web struct {
+	Enabled  bool   `yaml:"enabled"`
+	Listen   string `yaml:"listen"`
+	Password string `yaml:"password"`
 }
 
 // Rules 是规则匹配方式的设置。
@@ -148,6 +156,14 @@ rules:
   # 打开后，带域名的连接先匹配所有域名规则，都没命中才解析 DNS 并匹配 IP 规则，可以少查 DNS。
   # 与 Clash 的区别：排在前面的 IP 规则不再优先于后面的域名规则。默认关闭，即按规则顺序匹配
   domain_first: false
+
+# 网页管理界面（只在 Linux 上提供；默认关闭）。修改后需要重启 Velum
+web:
+  enabled: false
+  # 默认只听本机，可经 SSH 隧道访问。开放到局域网时改为 0.0.0.0:9090；没有 HTTPS，不要直接暴露到公网
+  listen: 127.0.0.1:9090
+  # 必须设置。用户名随意填
+  password: ""
 
 # 网络环境感知
 network_sense:
@@ -296,6 +312,18 @@ func Load(p Paths) (*Config, error) {
 	}
 	if _, err := netip.ParseAddrPort(c.Listen); err != nil {
 		return nil, i18n.Errorf("listen 无效：%q", c.Listen)
+	}
+	if web := c.Web; web.Enabled {
+		a, err := netip.ParseAddrPort(web.Listen)
+		if err != nil {
+			return nil, i18n.Errorf("web.listen 无效：%q", web.Listen)
+		}
+		if web.Password == "" {
+			return nil, i18n.Errorf("开启 web 必须设置 web.password")
+		}
+		if a.Port() == c.ListenAddr().Port() {
+			return nil, i18n.Errorf("web.listen 不能与 listen 使用同一端口（%d）", a.Port())
+		}
 	}
 	if pub := c.ListenPublic; pub.Address != "" {
 		a, err := netip.ParseAddrPort(pub.Address)

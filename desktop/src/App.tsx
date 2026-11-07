@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { language } from "./i18n";
-import { ArrowLeftRight, CircleGauge, FileCode2, Search, Settings as SettingsIcon, TriangleAlert, Waypoints, ScanSearch, X, type LucideIcon } from "lucide-react";
+import { ArrowLeftRight, CircleGauge, Ellipsis, FileCode2, Search, Settings as SettingsIcon, TriangleAlert, Waypoints, ScanSearch, X, type LucideIcon } from "lucide-react";
 import { api, native, type Status } from "./api";
 import { health } from "./health";
 import { IconButton, Kbd, Notice, StatusMark, cx, isMac, modKey, titlebarOverlay } from "./components/ui";
@@ -28,6 +28,9 @@ const nav: { id: Page; label: string; icon: LucideIcon }[] = [
   { id: "warnings", label: t("告警"), icon: TriangleAlert },
   { id: "settings", label: t("设置"), icon: SettingsIcon },
 ];
+
+// 手机底部的标签：常用的四页，其余收进「更多」
+const phoneTabs: Page[] = ["overview", "groups", "connections", "diagnose"];
 
 // App 打开后这段时间内连不上 velumd 视为仍在启动（App 正在拉起它），不显示错误
 const BOOT_GRACE_MS = 20_000;
@@ -117,9 +120,15 @@ export default function App() {
   const ready = !!status && !status.starting;
 
   return (
-    <div className="flex h-full">
+    <div className="flex h-full phone:flex-col">
       {titlebarOverlay && <div data-tauri-drag-region className="fixed inset-x-0 top-0 z-40 h-7" />}
-      <aside className={cx("flex w-[208px] shrink-0 flex-col border-r border-line bg-sidebar px-2.5 pb-3", titlebarOverlay ? "pt-10" : "pt-3")}>
+      <header className="hidden h-12 shrink-0 items-center gap-2.5 border-b border-line bg-sidebar pr-1.5 pl-4 phone:flex">
+        <StatusMark tone={h.tone} />
+        {/* 概览页自己写着状态，这里不重复 */}
+        <div className="min-w-0 flex-1 truncate text-[13.5px] font-semibold tracking-[-0.01em]">{page === "overview" ? "Velum" : h.title}</div>
+        <IconButton icon={Search} label={t("切换节点、执行操作")} onClick={() => setPalette(true)} />
+      </header>
+      <aside className={cx("flex w-[208px] shrink-0 flex-col border-r border-line bg-sidebar px-2.5 pb-3 phone:hidden", titlebarOverlay ? "pt-10" : "pt-3")}>
         <div className="mb-3 flex items-center gap-2.5 px-2">
           <StatusMark tone={h.tone} />
           <div className="min-w-0">
@@ -162,7 +171,7 @@ export default function App() {
         </div>
       </aside>
 
-      <main className={cx("flex min-w-0 flex-1 flex-col", titlebarOverlay ? "pt-7" : "pt-3")}>
+      <main className={cx("flex min-h-0 min-w-0 flex-1 flex-col phone:pt-2", titlebarOverlay ? "pt-7" : "pt-3")}>
         {notice && (
           <div className="px-6 pb-2">
             <Notice tone="warn" icon={TriangleAlert} action={<IconButton icon={X} label={t("关闭")} onClick={() => setNotice(undefined)} />}>{notice}</Notice>
@@ -183,8 +192,47 @@ export default function App() {
         )}
       </main>
 
+      <PhoneTabs page={page} status={status} go={go} />
+
       {palette && <CommandPalette status={status} refresh={refresh} go={go} onClose={() => setPalette(false)} />}
     </div>
+  );
+}
+
+/** 手机底部导航。 */
+function PhoneTabs({ page, status, go }: { page: Page; status: Status | null; go: Go }) {
+  const [more, setMore] = useState(false);
+  const rest = nav.filter((n) => !phoneTabs.includes(n.id));
+  const alert = !!status?.warnings || !!status?.update?.available;
+  const tab = (label: string, Icon: LucideIcon, on: boolean, onClick: () => void, dot = false) => (
+    <button key={label} onClick={onClick} aria-current={on ? "page" : undefined}
+      className={cx("relative flex h-14 flex-col items-center justify-center gap-0.5 text-[11px] transition-colors", on ? "font-medium text-fg" : "text-fg-3")}>
+      <Icon className="size-5" strokeWidth={on ? 2 : 1.8} />
+      {label}
+      {dot && <span className="absolute top-2 left-1/2 ml-2 size-1.5 rounded-full bg-accent" />}
+    </button>
+  );
+  return (
+    <>
+      <nav className="hidden shrink-0 grid-cols-5 border-t border-line bg-sidebar pb-[env(safe-area-inset-bottom)] phone:grid">
+        {nav.filter((n) => phoneTabs.includes(n.id)).map((n) => tab(n.label, n.icon, page === n.id && !more, () => { setMore(false); go(n.id); }))}
+        {tab(t("更多"), Ellipsis, more || rest.some((n) => n.id === page), () => setMore(!more), alert)}
+      </nav>
+      {more && (
+        <div className="fixed inset-x-0 top-0 bottom-[calc(3.5rem+env(safe-area-inset-bottom))] z-40 hidden flex-col justify-end bg-black/25 phone:flex" onClick={() => setMore(false)}>
+          <div className="border-t border-line bg-panel">
+            {rest.map((n) => (
+              <button key={n.id} onClick={() => { setMore(false); go(n.id); }}
+                className={cx("flex h-12 w-full items-center gap-3 border-b border-line px-4 text-left text-[14px] last:border-0", page === n.id && "font-medium")}>
+                <n.icon className="size-[18px] text-fg-3" strokeWidth={1.8} />
+                <span className="flex-1">{n.label}</span>
+                {n.id === "warnings" && !!status?.warnings && <span className="font-mono text-[12px] text-fg-3 tnum">{status.warnings}</span>}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 

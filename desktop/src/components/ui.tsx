@@ -61,7 +61,7 @@ export function IconButton({ icon: Icon, label, className, ...rest }: ButtonHTML
       {...rest}
       aria-label={label}
       title={label}
-      className={cx("inline-flex size-7 items-center justify-center rounded-md text-fg-3 transition-colors hover:bg-hover hover:text-fg disabled:opacity-40", className)}
+      className={cx("inline-flex size-7 items-center justify-center rounded-md text-fg-3 transition-colors hover:bg-hover hover:text-fg disabled:opacity-40 phone:size-10", className)}
     >
       <Icon className="size-4" strokeWidth={1.8} />
     </button>
@@ -203,10 +203,10 @@ export const SearchInput = forwardRef<HTMLInputElement, InputHTMLAttributes<HTML
   ref,
 ) {
   return (
-    <label className={cx("flex h-7 items-center gap-2 rounded-md border border-line bg-panel px-2 transition-colors focus-within:border-accent", className)}>
+    <label className={cx("flex h-7 items-center gap-2 rounded-md border border-line bg-panel px-2 phone:h-10 transition-colors focus-within:border-accent", className)}>
       <Search className="size-3.5 shrink-0 text-fg-3" strokeWidth={2} />
       <input ref={ref} {...rest} spellCheck={false} className="min-w-0 flex-1 bg-transparent text-[12.5px] outline-none placeholder:text-fg-3" />
-      {shortcut && <Kbd>{shortcut}</Kbd>}
+      {shortcut && <span className="phone:hidden"><Kbd>{shortcut}</Kbd></span>}
     </label>
   );
 });
@@ -233,7 +233,7 @@ export function Kbd({ children }: { children: ReactNode }) {
 
 export function PageHeader({ title, description, actions }: { title: string; description?: ReactNode; actions?: ReactNode }) {
   return (
-    <header className="flex min-h-[52px] items-center justify-between gap-4 border-b border-line px-6 pb-3">
+    <header className="flex min-h-[52px] items-center justify-between gap-4 border-b border-line px-6 pb-3 phone:min-h-0 phone:flex-wrap phone:gap-2 phone:px-4">
       <div className="min-w-0">
         <h1 className="text-[15px] font-semibold tracking-[-0.01em]">{title}</h1>
         {description && <p className="mt-0.5 truncate text-[12px] text-fg-3">{description}</p>}

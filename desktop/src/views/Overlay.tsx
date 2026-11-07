@@ -43,7 +43,7 @@ export default function Overlay({ status, refresh }: { status: Status; refresh: 
         <TextEditor refresh={refresh} />
       ) : (
         <div className="min-h-0 flex-1 overflow-y-auto">
-          <div className="mx-auto flex max-w-[820px] flex-col gap-6 px-6 py-5">
+          <div className="mx-auto flex max-w-[820px] flex-col gap-6 px-6 py-5 phone:px-4 phone:py-3">
             {err && <Notice tone="err">{err}</Notice>}
             {items && <RuleList items={items} status={status} refresh={refresh} reload={load} onAdd={() => setAdding(true)} />}
           </div>
@@ -161,10 +161,10 @@ function EntryRow({ entry: e, hits, warnings, busy, onRemove }: { entry: Overlay
   const d = e.kind === "domain" ? parseDomain(e.value) : undefined;
   return (
     <div className="group border-b border-line px-3.5 py-2.5 last:border-0">
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-3 phone:flex-wrap phone:gap-x-2 phone:gap-y-1">
         <meta.icon className="size-4 shrink-0 text-fg-3" strokeWidth={1.8} />
-        <div className="min-w-0 flex-1">
-          <span className="selectable font-mono text-[12.5px]">{d ? d.name : e.value}</span>
+        <div className="min-w-0 flex-1 phone:basis-[calc(100%-1.5rem)]">
+          <span className="selectable font-mono text-[12.5px] phone:break-all">{d ? d.name : e.value}</span>
           {d && <span className="ml-2 text-[11.5px] text-fg-3">{scopeText[d.scope]}</span>}
           {e.kind === "process" && <span className="ml-2 text-[11.5px] text-fg-3">{t("进程")}</span>}
         </div>
@@ -172,11 +172,11 @@ function EntryRow({ entry: e, hits, warnings, busy, onRemove }: { entry: Overlay
         <span className="min-min-w-[72px] whitespace-nowrap whitespace-nowrap text-right font-mono text-[11.5px] text-fg-3 tnum" title={hits === undefined ? t("豁免的请求不经过 Velum，无法统计") : t("最近 500 条连接中命中的次数")}>
           {hits === undefined ? "—" : hits ? t("{0} 次", hits) : t("未命中")}
         </span>
-        <span className="w-[52px] text-right font-mono text-[11px] text-fg-3 tnum">{e.line ? `L${e.line}` : ""}</span>
+        <span className="w-[52px] text-right font-mono text-[11px] text-fg-3 tnum phone:hidden">{e.line ? `L${e.line}` : ""}</span>
         {confirm ? (
           <Button size="sm" variant="danger" loading={busy} onClick={onRemove}>{t("确认删除")}</Button>
         ) : (
-          <IconButton icon={Trash2} label={t("删除")} onClick={() => setConfirm(true)} className="opacity-60 group-hover:opacity-100" />
+          <IconButton icon={Trash2} label={t("删除")} onClick={() => setConfirm(true)} className="phone:ml-auto opacity-60 group-hover:opacity-100" />
         )}
       </div>
       {warnings.map((w) => (
@@ -193,13 +193,13 @@ function AutoRow({ icon: Icon, title, detail, action, hits }: { icon: typeof Glo
     <div className="flex items-center gap-3 border-b border-line px-3.5 py-2.5 last:border-0">
       <Icon className="size-4 shrink-0 text-fg-3" strokeWidth={1.8} />
       <div className="min-w-0 flex-1">
-        <div className="text-[12.5px]">{title}</div>
+        <div className="text-[12.5px] phone:break-all">{title}</div>
         <div className="selectable truncate font-mono text-[11.5px] text-fg-3" title={detail}>{detail}</div>
       </div>
       {action}
-      <span className="min-w-[72px] whitespace-nowrap text-right font-mono text-[11.5px] text-fg-3 tnum">{hits === undefined ? "" : hits ? t("{0} 次", hits) : t("未命中")}</span>
-      <span className="w-[52px]" />
-      <span className="w-7" />
+      <span className="min-w-[72px] whitespace-nowrap text-right font-mono text-[11.5px] text-fg-3 tnum phone:min-w-0">{hits === undefined ? "" : hits ? t("{0} 次", hits) : t("未命中")}</span>
+      <span className="w-[52px] phone:hidden" />
+      <span className="w-7 phone:hidden" />
     </div>
   );
 }

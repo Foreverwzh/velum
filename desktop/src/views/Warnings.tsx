@@ -19,7 +19,7 @@ export default function Warnings() {
     <div className="flex min-h-0 flex-1 flex-col">
       <PageHeader title={t("告警")} description={ws && ws.length ? t("{0} 项无法完全等价转换{1}；降级项通常不影响使用", ws.length, unsupported ? t("，其中 {0} 项不支持", unsupported) : "") : t("订阅中无法完全等价转换的配置会列在这里")} />
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto flex max-w-[780px] flex-col gap-6 px-6 py-5">
+        <div className="mx-auto flex max-w-[780px] flex-col gap-6 px-6 py-5 phone:px-4 phone:py-3">
           {err && <Notice tone="err">{err}</Notice>}
           {ws && !ws.length && <Empty icon={CircleCheck} title={t("没有告警")} hint={t("订阅中的配置都已完整转换")} />}
           {Object.entries(groups).map(([cat, list]) => (

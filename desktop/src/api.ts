@@ -226,6 +226,9 @@ export function onUpdateProgress(fn: (p: UpdateProgress | null) => void): () => 
   };
 }
 
+/** 在浏览器里打开（Linux 服务器的网页界面）：没有系统代理和需要安装的组件，升级用 vlu upgrade。 */
+export const isWeb = !inTauri;
+
 export const isWindows = typeof navigator !== "undefined" && /Windows/.test(navigator.userAgent);
 
 /** TUN 组件状态：macOS 为 velum-helper（velumd 查询），Windows 为 Velum 服务（App 查询服务状态）。 */

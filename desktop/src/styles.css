@@ -1,5 +1,14 @@
 @import "tailwindcss";
 
+/* 手机布局：只用于网页界面（Linux 服务器），App 窗口不受影响。 */
+@custom-variant phone {
+  @media (max-width: 639px) {
+    html[data-web] & {
+      @slot;
+    }
+  }
+}
+
 /*
  * Velum 设计令牌：界面颜色只经这些变量取用，深浅色各写一套（跟随系统）。
  * 基调克制，强调色是 Velum 青（受保护 = 青色）；琥珀表示暂停 / 降级，红色表示错误 / 超时。
@@ -124,3 +133,14 @@ input, textarea { caret-color: var(--accent); }
 }
 
 @keyframes fade { from { opacity: 0; } }
+
+@media (max-width: 639px) {
+  /* 地址栏收起时跟着变化；输入框小于 16px 时 iOS 会在聚焦时放大页面 */
+  html[data-web] #root {
+    height: 100dvh;
+  }
+  html[data-web] input,
+  html[data-web] textarea {
+    font-size: 16px;
+  }
+}

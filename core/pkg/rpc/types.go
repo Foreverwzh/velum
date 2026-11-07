@@ -233,7 +233,10 @@ type DomainFirstRequest struct {
 
 type Status struct {
 	// DomainFirst 是 config.yaml 的 rules.domain_first。
-	DomainFirst   bool   `json:"domain_first,omitempty"`
+	DomainFirst bool `json:"domain_first,omitempty"`
+	// WebListen 是网页界面实际监听的地址，WebError 是它没有启动的原因。
+	WebListen     string `json:"web_listen,omitempty"`
+	WebError      string `json:"web_error,omitempty"`
 	PID           int    `json:"pid"`
 	Version       string `json:"version"`
 	Running       bool   `json:"running"`

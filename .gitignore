@@ -3,3 +3,6 @@ cache.db
 
 # 设计过程中的草图与临时文件
 .impeccable/
+
+# 网页界面：构建时从 desktop/dist 复制（core/scripts/webui.sh）
+core/pkg/webui/dist/

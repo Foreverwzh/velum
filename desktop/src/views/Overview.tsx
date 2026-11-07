@@ -19,7 +19,7 @@ export default function Overview({ status: s, refresh, go }: { status: Status; r
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
-      <div className="mx-auto flex max-w-[760px] flex-col gap-7 px-6 pt-5 pb-10">
+      <div className="mx-auto flex max-w-[760px] flex-col gap-7 px-6 pt-5 pb-10 phone:px-4 phone:pt-2">
         <header className="flex items-start gap-4">
           <div className="mt-[7px]"><StatusMark tone={h.tone} size={12} /></div>
           <div className="min-w-0 flex-1">
@@ -153,7 +153,7 @@ function GroupSummary({ status: s, go, busy, onTest }: { status: Status; go: Go;
           const path = pathOf(groups, g.tag).slice(1);
           return (
             <button key={g.tag} onClick={() => go("groups", g.tag)}
-              className="grid h-10 w-full grid-cols-[140px_1fr_76px] items-center gap-3 border-b border-line px-3.5 text-left transition-colors last:border-0 hover:bg-hover">
+              className="grid h-10 w-full grid-cols-[140px_1fr_76px] items-center gap-3 border-b border-line px-3.5 phone:h-auto phone:grid-cols-[minmax(0,1fr)_auto] phone:gap-y-1 phone:py-2.5 [&>*:nth-child(2)]:phone:order-last [&>*:nth-child(2)]:phone:col-span-2 text-left transition-colors last:border-0 hover:bg-hover">
               <span className="truncate font-medium" title={g.tag}>{g.tag}</span>
               <Chain size="sm" steps={path.map((p, i) => ({ label: p, kind: p === "DIRECT" ? "direct" : i === path.length - 1 ? "node" : "group" }))} />
               <Latency ms={delayOf(groups, leafOf(groups, g.tag))} className="justify-self-end" />
@@ -178,7 +178,7 @@ function RecentConnections({ go }: { go: Go }) {
         {!list.length && <div className="px-3.5 py-6 text-center text-[12.5px] text-fg-3">{t("经 Velum 访问任意网站后，这里会实时显示它走了哪条规则、哪个节点")}</div>}
         {list.map((c) => (
           <button key={c.id} onClick={() => go("diagnose", c.domain || c.destination)} title={t("诊断这个目标")}
-            className="grid h-10 w-full grid-cols-[minmax(120px,200px)_1fr_64px] items-center gap-3 border-b border-line px-3.5 text-left transition-colors last:border-0 hover:bg-hover">
+            className="grid h-10 w-full grid-cols-[minmax(120px,200px)_1fr_64px] items-center gap-3 border-b border-line px-3.5 phone:h-auto phone:grid-cols-[minmax(0,1fr)_auto] phone:gap-y-1 phone:py-2.5 [&>*:nth-child(2)]:phone:order-last [&>*:nth-child(2)]:phone:col-span-2 text-left transition-colors last:border-0 hover:bg-hover">
             <span className="truncate font-medium">{c.domain || c.destination}</span>
             <Chain size="sm" steps={chainSteps(c.chain, { label: c.rule_index >= 0 ? `#${c.rule_index}` : "final", title: c.provenance.text })} />
             <span className="justify-self-end font-mono text-[11.5px] text-fg-3 tnum">{c.first_byte_ms >= 0 ? `${c.first_byte_ms} ms` : "—"}</span>

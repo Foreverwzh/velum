@@ -88,8 +88,8 @@ export default function Connections({ go, refresh, initialQuery }: { go: Go; ref
   return (
     <div className="flex min-h-0 flex-1">
       <div className="flex min-w-0 flex-1 flex-col">
-        <div className="flex items-center gap-2 border-b border-line px-4 pt-1 pb-2.5">
-          <SearchInput value={q} onChange={(e) => setQ(e.target.value)} placeholder={t("按域名、进程、节点或规则过滤")} className="min-w-[140px] max-w-[320px] flex-1" />
+        <div className="flex items-center gap-2 border-b border-line px-4 pt-1 pb-2.5 phone:flex-wrap">
+          <SearchInput value={q} onChange={(e) => setQ(e.target.value)} placeholder={t("按域名、进程、节点或规则过滤")} className="min-w-[140px] max-w-[320px] flex-1 phone:w-full phone:max-w-none phone:basis-full" />
           <button onClick={() => setOnlyErr(!onlyErr)}
             className={cx("inline-flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md border px-2.5 text-[12px] transition-colors",
               onlyErr ? "border-err/40 bg-err-soft text-err" : "border-line text-fg-2 hover:bg-hover")}>
@@ -118,7 +118,23 @@ export default function Connections({ go, refresh, initialQuery }: { go: Go; ref
             <Empty icon={ArrowLeftRight} title={all.length ? t("没有匹配的连接") : onlyActive ? t("当前没有活动连接") : t("还没有连接")}
               hint={all.length ? t("换个关键词，或关闭「出错」「隐藏拦截」筛选") : t("经 Velum 访问任意网站后，连接会实时出现在这里")} />
           ) : (
-            <table className="w-full table-fixed text-[12.5px]">
+            <>
+            <div className="hidden phone:block">
+              {shown.map((c) => {
+                const bad = !!c.errors?.length && !isRejected(c);
+                const sp = speeds.get(c.id);
+                return (
+                  <button key={c.id} onClick={() => setSel(c)} className="flex w-full flex-col gap-1 border-b border-line px-4 py-2.5 text-left">
+                    <span className="flex w-full items-center gap-2">
+                      <span className={cx("min-w-0 flex-1 truncate font-medium", bad && "text-err")}>{c.domain || c.destination}</span>
+                      <span className="shrink-0 font-mono text-[11.5px] text-fg-3 tnum">{!c.end && sp && sp.down + sp.up >= 1 ? rate(Math.max(sp.down, sp.up)) : human(c.download)}</span>
+                    </span>
+                    <Chain size="sm" className="w-full overflow-hidden" steps={chainSteps(c.chain, { label: ruleLabel(c) })} />
+                  </button>
+                );
+              })}
+            </div>
+            <table className="w-full table-fixed text-[12.5px] phone:hidden">
               <thead className="sticky top-0 z-10 bg-bg text-left text-[11.5px] text-fg-3">
                 <tr className="[&>th]:h-8 [&>th]:border-b [&>th]:border-line [&>th]:px-3 [&>th]:font-medium">
                   <th className="w-[88px] !pl-4">{t("时间")}</th>
@@ -157,12 +173,13 @@ export default function Connections({ go, refresh, initialQuery }: { go: Go; ref
                 })}
               </tbody>
             </table>
+            </>
           )}
         </div>
       </div>
 
       {cur && (
-        <aside className="flex w-[340px] shrink-0 flex-col border-l border-line bg-panel">
+        <aside className="flex w-[340px] shrink-0 flex-col border-l border-line bg-panel phone:fixed phone:inset-0 phone:z-30 phone:w-full phone:border-l-0 phone:pt-2 phone:pb-[env(safe-area-inset-bottom)]">
           <div className="flex items-start gap-2 border-b border-line px-4 pt-1 pb-3">
             <div className="min-w-0 flex-1">
               <div className="selectable truncate text-[14px] font-semibold" title={cur.domain || cur.destination}>{cur.domain || cur.destination}</div>

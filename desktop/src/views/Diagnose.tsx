@@ -54,7 +54,7 @@ export default function Diagnose({ initialTarget, refresh }: { initialTarget?: s
       </form>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-[780px] px-6 py-5">
+        <div className="mx-auto max-w-[780px] px-6 py-5 phone:px-4 phone:py-3">
           {err && <Notice tone="err">{err}</Notice>}
           {!r && !err && (
             <Empty icon={Route} title={t("这个地址会怎么走？")} hint={t("Velum 会逐步推演系统代理豁免、DNS、规则匹配，给出最终出站，并标明每一步来自订阅或本地覆盖的哪一行。")}
