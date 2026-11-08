@@ -35,6 +35,8 @@ struct RootView: View {
         .task(id: phase) {
             guard phase == .active else { return }
             (model.core as? RealCore)?.tunnel.reconcile()
+            (model.core as? RealCore)?.syncTunnelMetrics()
+            (model.core as? RealCore)?.syncLogs()
             await model.poll()
         }
         .onAppear(perform: applyDemo)

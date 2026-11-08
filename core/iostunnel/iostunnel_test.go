@@ -122,3 +122,26 @@ func TestTunnelSwitchesGroupByNetwork(t *testing.T) {
 		t.Fatalf("重新加载后应当还按策略：%q", got)
 	}
 }
+
+// 重新加载后的新内核要沿用休眠状态，否则休眠期间又会恢复测速。
+func TestReloadKeepsSleeping(t *testing.T) {
+	home := t.TempDir()
+	if _, err := tunnelproto.Save(home, engine.Config{JSON: []byte(cfgJSON), TUN: &engine.TUNConfig{}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := Start(home, noHost{}); err != nil {
+		t.Fatal(err)
+	}
+	defer Stop()
+	SetSleeping(true)
+	if got := ask(t, tunnelproto.Request{Op: tunnelproto.OpReload}); got.Error != "" {
+		t.Fatal(got.Error)
+	}
+	if !eng.DeviceSleeping() {
+		t.Error("重新加载后应仍处于休眠状态")
+	}
+	SetSleeping(false)
+	if eng.DeviceSleeping() {
+		t.Error("唤醒后应恢复")
+	}
+}

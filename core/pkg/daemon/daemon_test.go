@@ -303,7 +303,7 @@ func TestDaemonSysProxyLifecycle(t *testing.T) {
 	if !st.SysProxy.Overridden || st.SysProxy.Effective != "127.0.0.1:7890" || st.SysProxy.PrimaryInterface != "utun9" {
 		t.Fatalf("应报告被覆盖：%+v", st.SysProxy)
 	}
-	if p := sp.applied[0]; p.Port != 7899 || len(p.Exceptions) != 1 || p.Exceptions[0].Pattern != "localhost" {
+	if p := sp.applied[0]; p.Port != 7899 || len(p.Exceptions) != 3 || p.Exceptions[0].Pattern != "localhost" || p.Exceptions[1].Pattern != "*.local" {
 		t.Fatalf("接管计划：%+v", p)
 	}
 	if _, err := c.Reload(); err != nil || len(sp.applied) != 2 {

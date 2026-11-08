@@ -58,6 +58,8 @@ var (
 	policies map[string]*ir.NetPolicy
 	netKind  string
 	netSSID  string
+	// 设备是否在休眠。重新加载配置时新内核要沿用这个状态
+	sleeping bool
 )
 
 // Start 按共享目录里的配置启动内核。内存参数来自真机实测（高速下载峰值 30MB → 25MB）。
@@ -93,7 +95,20 @@ func startLocked() error {
 	}
 	policies = cfg.Policies
 	applyPoliciesLocked()
+	if sleeping {
+		e.SetDeviceSleeping(true)
+	}
 	return nil
+}
+
+// SetSleeping 由扩展在设备休眠和唤醒时调用。
+func SetSleeping(v bool) {
+	mu.Lock()
+	defer mu.Unlock()
+	sleeping = v
+	if eng != nil {
+		eng.SetDeviceSleeping(v)
+	}
 }
 
 // applyPoliciesLocked 按当前网络切换策略组。手动切换不会被改回来，直到下一次换网或重新加载。
@@ -134,6 +149,7 @@ func Stop() {
 	mu.Lock()
 	defer mu.Unlock()
 	stopLocked()
+	sleeping = false
 }
 
 // outboundTags 取配置中的全部出站，用于批量查询选择和延迟。

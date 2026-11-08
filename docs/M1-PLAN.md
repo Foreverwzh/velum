@@ -24,7 +24,7 @@
 - **Cond 组合**：同一个 `Cond` 内，地址类条件（domain / domain_suffix / domain_keyword / domain_regex / ip_cidr / ip_private）之间为「或」；其余类别（端口、网络、进程、源 IP、规则集）之间及与地址类之间为「与」。规则集由多个 `Cond` 组成，彼此为「或」。
 - **未标 no-resolve 的 IP 条件**：编译器在首条此类规则前插入 `resolve` 动作。
 - **REJECT**：渲染为拦截出站（而不是 `reject` 动作），保证动态实录可见（M0 F1）。
-- **不内置策略**：编译器不注入任何路由 / DNS / 系统代理豁免条目，策略一律来自订阅与 Overlay（`TestNoBuiltinPolicy` 守护）。GeoIP / GeoSite 规则集地址可配置（`GeoRuleSetURL`）。
+- **不内置策略**：编译器不注入任何路由 / DNS / 系统代理豁免条目（链路本地 `*.local`、`169.254/16` 除外），策略一律来自订阅与 Overlay（`TestNoBuiltinPolicy` 守护）。GeoIP / GeoSite 规则集地址可配置（`GeoRuleSetURL`）。
 
 ## 进度
 

@@ -10,7 +10,7 @@
 //	  processes:          # 进程名（iOS 不支持；Android 为包名）
 //	    - SomeVPNClient
 //	system_proxy:
-//	  bypass:             # 系统代理豁免（原样写入系统设置；Velum 不内置任何条目）
+//	  bypass:             # 系统代理豁免（原样写入系统设置；Velum 只内置 *.local 与 169.254/16）
 //	    - localhost
 //	    - 192.168.0.0/16
 package overlay

@@ -35,6 +35,7 @@ import (
 	"github.com/sagernet/sing/common/json"
 	N "github.com/sagernet/sing/common/network"
 	"github.com/sagernet/sing/service"
+	"github.com/sagernet/sing/service/pause"
 )
 
 const (
@@ -261,6 +262,35 @@ func (e *Engine) Pause() error {
 	e.lmu.Lock()
 	defer e.lmu.Unlock()
 	return e.closeLocked()
+}
+
+// SetDeviceSleeping 告诉内核设备是否在休眠：休眠时暂停自动测速和规则集更新，现有连接不受影响。
+func (e *Engine) SetDeviceSleeping(sleeping bool) {
+	e.lmu.Lock()
+	defer e.lmu.Unlock()
+	if e.bctx == nil {
+		return
+	}
+	m := service.FromContext[pause.Manager](e.bctx)
+	if m == nil {
+		return
+	}
+	if sleeping {
+		m.DevicePause()
+	} else {
+		m.DeviceWake()
+	}
+}
+
+// DeviceSleeping 返回内核当前是否按设备休眠暂停。
+func (e *Engine) DeviceSleeping() bool {
+	e.lmu.Lock()
+	defer e.lmu.Unlock()
+	if e.bctx == nil {
+		return false
+	}
+	m := service.FromContext[pause.Manager](e.bctx)
+	return m != nil && m.IsDevicePaused()
 }
 
 func (e *Engine) Running() bool {

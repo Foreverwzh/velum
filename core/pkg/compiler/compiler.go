@@ -386,7 +386,7 @@ func Compile(sub *ir.Config, ov *overlay.Overlay, opts Options) (*Plan, error) {
 	p.SysProxy.Enabled = opts.SystemProxy
 	p.SysProxy.Host = opts.Listen.Addr().String()
 	p.SysProxy.Port = opts.Listen.Port()
-	// 用户显式配置的豁免（system_proxy.bypass）排在前面；Velum 不内置任何豁免条目。
+	// 用户显式配置的豁免（system_proxy.bypass）排在前面，内置的链路本地豁免排在最后。
 	var user []Exception
 	for _, b := range ov.SysProxyBypass {
 		src := ovSrc(b.Line, "system_proxy.bypass: "+b.Value)
@@ -397,16 +397,26 @@ func Compile(sub *ir.Config, ov *overlay.Overlay, opts Options) (*Plan, error) {
 		user = append(user, Exception{b.Value, src})
 	}
 	p.SysProxy.Exceptions = append(user, p.SysProxy.Exceptions...)
+	// 链路本地是机制性豁免：mDNS 主机名（*.local）和 169.254/16 只在本地链路上可达，经代理一定连不上。
+	// macOS 开启代理时默认就豁免这两项；漏掉它们时，Mac 经 Wi-Fi 连接 iPhone 的配对连接会进代理、失败后不停重试。
+	// 私有网段（192.168/16 等）不内置：有人经代理节点（如 WireGuard）访问远端内网。
+	for _, pat := range LinkLocalBypass {
+		if slices.ContainsFunc(p.SysProxy.Exceptions, func(e Exception) bool { return e.Pattern == pat }) || coveredHost(pat, hostDomains) != "" {
+			continue
+		}
+		p.SysProxy.Exceptions = append(p.SysProxy.Exceptions, Exception{pat, velum(i18n.T("链路本地地址不经代理"))})
+	}
 	var phys []string
 	if opts.Env != nil {
 		phys = opts.Env.PhysicalDNS
 	}
 	// usePhys 把经系统解析器（local）的解析改为直接询问物理网络的 DNS
 	usePhys := func(why string) {
+		addr := pickPhysicalDNS(phys)
 		for i := range cfg.DNS.Servers {
 			if sv := &cfg.DNS.Servers[i]; sv.Type == "local" && sv.Tag != SystemResolverDNS {
-				sv.Type, sv.Address = "udp", phys[0]
-				sv.Source.Text += "（" + why + i18n.T("，改用物理网络 DNS ") + phys[0] + "）"
+				sv.Type, sv.Address = "udp", addr
+				sv.Source.Text += "（" + why + i18n.T("，改用物理网络 DNS ") + addr + "）"
 			}
 		}
 	}
@@ -812,4 +822,30 @@ func coveredHost(pattern string, hosts map[string]bool) string {
 		}
 	}
 	return ""
+}
+
+// LinkLocalBypass 是始终写入系统代理豁免的链路本地地址：mDNS 主机名与 IPv4 链路本地网段。
+var LinkLocalBypass = []string{"*.local", "169.254.0.0/16"}
+
+// pickPhysicalDNS 从物理网络的 DNS 列表里挑一个能直接用的：优先 IPv4，其次非链路本地的 IPv6。
+// 路由器常经 RA 下发 fe80:: 链路本地 DNS 并排在最前，而平台层（如 iOS 的 res_getservers）拿到的地址不带网卡标识，
+// 这样的地址发不出去，查询会一直等到超时。都不合适时退回第一个。
+func pickPhysicalDNS(phys []string) string {
+	var v6 string
+	for _, s := range phys {
+		a, err := netip.ParseAddr(s)
+		if err != nil {
+			continue
+		}
+		switch {
+		case a.Is4() || a.Is4In6():
+			return s
+		case v6 == "" && !a.IsLinkLocalUnicast():
+			v6 = s
+		}
+	}
+	if v6 != "" {
+		return v6
+	}
+	return phys[0]
 }

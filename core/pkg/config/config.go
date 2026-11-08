@@ -201,7 +201,7 @@ func OverlayTemplate() string {
 #     - SomeVPNClient
 #
 # system_proxy:
-#   bypass:              # 系统代理豁免，原样写入系统设置
+#   bypass:              # 系统代理豁免，原样写入系统设置（*.local 与 169.254/16 已内置）
 #     - localhost
 #     - 127.0.0.1
 `)

@@ -52,6 +52,13 @@ func newSplitEngine(home string, host TunnelHost, local *singbox.Engine) *splitE
 	return &splitEngine{home: home, host: host, local: local, selected: tunnelproto.LoadSelected(home)}
 }
 
+// localConfig 是 App 内本地引擎的配置。缓存文件（bbolt）运行时一直持有文件锁，而 home 在 App Group 里：
+// App 挂起时还占着共享目录的文件锁，会被系统杀掉（0xdead10cc）。留空后缓存放在 App 自己的临时目录。
+func localConfig(cfg engine.Config) engine.Config {
+	cfg.CachePath = ""
+	return cfg
+}
+
 func (e *splitEngine) Start(ctx context.Context, cfg engine.Config) error { return e.apply(ctx, cfg) }
 
 func (e *splitEngine) Restart(ctx context.Context, cfg engine.Config) error { return e.apply(ctx, cfg) }
@@ -71,7 +78,7 @@ func (e *splitEngine) apply(ctx context.Context, cfg engine.Config) error {
 			e.host.StopTunnel()
 		}
 		e.setRemote(false)
-		return e.local.Restart(ctx, cfg)
+		return e.local.Restart(ctx, localConfig(cfg))
 	}
 
 	if e.local.Running() {

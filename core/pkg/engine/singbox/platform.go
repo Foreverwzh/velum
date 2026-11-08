@@ -10,6 +10,7 @@ import (
 
 	"github.com/Foreverwzh/velum/core/pkg/engine"
 	"github.com/sagernet/sing-box/adapter"
+	C "github.com/sagernet/sing-box/constant"
 	"github.com/sagernet/sing-box/option"
 	tun "github.com/sagernet/sing-tun"
 	"github.com/sagernet/sing/common/logger"
@@ -90,7 +91,11 @@ func (p *platform) UsePlatformNetworkInterfaces() bool { return false }
 func (p *platform) NetworkInterfaces() ([]adapter.NetworkInterface, error) {
 	return nil, os.ErrInvalid
 }
-func (p *platform) UnderNetworkExtension() bool                     { return false }
+
+// UnderNetworkExtension：iOS 上由 Packet Tunnel 交来 TUN 时为 true（与上游 libbox 一致）。
+// 为 false 时 sing-box 取路由表里第一条默认路由的网卡作出站网卡，在 iOS 上常是蜂窝（pdp_ip0），
+// 连着 Wi-Fi 也全部走蜂窝；为 true 时改为询问系统当前实际选用的网卡。
+func (p *platform) UnderNetworkExtension() bool                     { return C.IsIos && p.opensTUN() }
 func (p *platform) NetworkExtensionIncludeAllNetworks() bool        { return false }
 func (p *platform) ClearDNSCache()                                  {}
 func (p *platform) RequestPermissionForWIFIState() error            { return nil }

@@ -180,7 +180,7 @@ func TestSysProxyPlan(t *testing.T) {
 	}
 }
 
-// 编译器不注入任何策略：订阅与 Overlay 均为空时，只有机制性规则（嗅探），豁免为空。
+// 编译器不注入任何策略：订阅与 Overlay 均为空时，只有机制性规则（嗅探）和链路本地豁免。
 func TestNoBuiltinPolicy(t *testing.T) {
 	p, err := compiler.Compile(nil, nil, compiler.Options{Mode: compiler.ModeSysProxy, Listen: netip.MustParseAddrPort("127.0.0.1:7899")})
 	if err != nil {
@@ -191,8 +191,13 @@ func TestNoBuiltinPolicy(t *testing.T) {
 			t.Errorf("编译器注入了策略规则：%+v（来源 %+v）", r, r.Source)
 		}
 	}
-	if len(p.SysProxy.Exceptions) != 0 {
-		t.Errorf("编译器注入了系统代理豁免：%+v", p.SysProxy.Exceptions)
+	// 只有链路本地这类机制性豁免
+	var pats []string
+	for _, e := range p.SysProxy.Exceptions {
+		pats = append(pats, e.Pattern)
+	}
+	if !slices.Equal(pats, compiler.LinkLocalBypass) {
+		t.Errorf("系统代理豁免=%v，期望只有 %v", pats, compiler.LinkLocalBypass)
 	}
 	if p.IR.Final.Kind != ir.ActionRoute || p.IR.Final.Outbound != ir.OutboundDirect {
 		t.Errorf("final=%+v", p.IR.Final)
@@ -815,8 +820,8 @@ func TestMDNSFollowsSystem(t *testing.T) {
 	if at < 0 || sub < 0 || at > sub {
 		t.Fatalf(".local 应在订阅规则之前交给系统解析器：%+v", p.IR.DNS.Rules)
 	}
-	if len(p.SysProxy.Exceptions) != 0 {
-		t.Errorf("不应增加系统代理豁免：%+v", p.SysProxy.Exceptions)
+	if len(p.SysProxy.Exceptions) != len(compiler.LinkLocalBypass) {
+		t.Errorf("除内置链路本地豁免外不应增加系统代理豁免：%+v", p.SysProxy.Exceptions)
 	}
 	if slices.ContainsFunc(mk(false).IR.DNS.Rules, isLocal) {
 		t.Error("系统没有声明时不应有这条规则")
@@ -870,5 +875,57 @@ rules:
 	}
 	if got, want := strings.Join(order(true), " "), "ip10 a ip172 b geoip resolve ip10 and geoip"; got != want {
 		t.Errorf("domain_first：got %s，want %s", got, want)
+	}
+}
+
+// 用户已写过的链路本地豁免不重复；用户的豁免排在内置条目前面。
+func TestLinkLocalBypassNotDuplicated(t *testing.T) {
+	ov, err := overlay.Parse([]byte("system_proxy:\n  bypass:\n    - \"*.local\"\n    - localhost\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := compiler.Compile(nil, ov, compiler.Options{Mode: compiler.ModeSysProxy, Listen: netip.MustParseAddrPort("127.0.0.1:7899")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var pats []string
+	for _, e := range p.SysProxy.Exceptions {
+		pats = append(pats, e.Pattern)
+	}
+	if want := []string{"*.local", "localhost", "169.254.0.0/16"}; !slices.Equal(pats, want) {
+		t.Errorf("豁免=%v，期望 %v", pats, want)
+	}
+}
+
+func TestPhysicalDNSSkipsLinkLocal(t *testing.T) {
+	s, _ := subscription.Parse([]byte("dns:\n  nameserver: [system]\nrules:\n  - MATCH,DIRECT\n"), subscription.Options{})
+	for _, c := range []struct {
+		phys []string
+		want string
+	}{
+		// iOS Wi-Fi：路由器的链路本地 IPv6 DNS 排在最前，且不带网卡标识
+		{[]string{"fe80::fa20:a9ff:fe47:fa88", "192.168.3.1"}, "192.168.3.1"},
+		// 蜂窝：IPv6 在前，仍优先 IPv4
+		{[]string{"2409:8020:2000::66", "2409:8020:2000::6", "112.4.1.36"}, "112.4.1.36"},
+		{[]string{"fe80::1", "2409:8020:2000::66"}, "2409:8020:2000::66"},
+		{[]string{"fe80::1"}, "fe80::1"},
+	} {
+		p, err := compiler.Compile(s, nil, compiler.Options{Mode: compiler.ModeTUN, Listen: netip.MustParseAddrPort("127.0.0.1:7899"), Platform: "ios",
+			TUN: compiler.TUNOptions{Address: netip.MustParsePrefix("172.19.0.1/30")}, Env: &compiler.Environment{PhysicalDNS: c.phys}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		n := 0
+		for _, sv := range p.IR.DNS.Servers {
+			if sv.Type == "udp" && strings.Contains(sv.Source.Text, "物理网络 DNS") {
+				n++
+				if sv.Address != c.want {
+					t.Errorf("phys=%v：%s 应使用 %s，实际 %s", c.phys, sv.Tag, c.want, sv.Address)
+				}
+			}
+		}
+		if n == 0 {
+			t.Errorf("phys=%v：没有改用物理网络 DNS 的服务器", c.phys)
+		}
 	}
 }

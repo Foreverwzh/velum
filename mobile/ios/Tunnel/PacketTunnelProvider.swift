@@ -11,7 +11,8 @@ let log = Logger(subsystem: "io.github.foreverwzh.velum.tunnel", category: "tunn
 let appGroup = "group.io.github.foreverwzh.velum"
 
 /// 系统判定内存超限用的指标。
-func footprintMiB() -> Double {
+/// 当前内存和进程启动以来的峰值。峰值由系统记录，采样之间的尖峰也算在内。
+func footprintMiB() -> (current: Double, peak: Double) {
     var info = task_vm_info_data_t()
     var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<integer_t>.size)
     let kr = withUnsafeMutablePointer(to: &info) {
@@ -19,13 +20,17 @@ func footprintMiB() -> Double {
             task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count)
         }
     }
-    return kr == KERN_SUCCESS ? Double(info.phys_footprint) / 1048576 : -1
+    guard kr == KERN_SUCCESS else { return (-1, -1) }
+    return (Double(info.phys_footprint) / 1048576, Double(info.ledger_phys_footprint_peak) / 1048576)
 }
 
 class PacketTunnelProvider: NEPacketTunnelProvider {
     var stopping = false
     private var memTimer: DispatchSourceTimer?
-    private var peak = 0.0
+    private var memPath: URL?
+    private let memQueue = DispatchQueue(label: "velum.memory", qos: .utility)
+    private var writtenPeak = 0.0
+    private var writtenAt = Date.distantPast
     private let pathMonitor = NWPathMonitor()
     private let netQueue = DispatchQueue(label: "velum.net")
 
@@ -67,27 +72,47 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
     }
 
     override func wake() {
+        log.notice("设备唤醒")
+        IostunnelSetSleeping(false)
+        memQueue.async { [weak self] in self?.startMemoryTimer() }
         netQueue.async { [weak self] in
             guard let self else { return }
             reportNetwork(pathMonitor.currentPath, retries: 3)
         }
     }
 
-    /// 每 2 秒把内存读数写到共享目录（一行，覆盖写）：被系统杀掉后还能看到最后的峰值。
-    private func recordMemory(_ home: URL) {
-        let path = home.appendingPathComponent("tunnel/memory.txt")
-        let t = DispatchSource.makeTimerSource(queue: .global(qos: .utility))
-        t.schedule(deadline: .now() + 1, repeating: 2)
-        t.setEventHandler { [weak self] in
-            guard let self else { return }
-            let f = footprintMiB()
-            peak = max(peak, f)
-            let limit = f + Double(os_proc_available_memory()) / 1048576
-            let line = String(format: "%.0f footprint=%.1f peak=%.1f limit=%.1f\n", Date().timeIntervalSince1970, f, peak, limit)
-            try? line.write(to: path, atomically: true, encoding: .utf8)
-        }
+    override func sleep(completionHandler: @escaping () -> Void) {
+        log.notice("设备休眠")
+        memQueue.sync { stopMemoryTimer() }
+        IostunnelSetSleeping(true)
+        completionHandler()
+    }
+
+    /// 把内存读数写到共享目录（一行，覆盖写）：被系统杀掉后还能看到最后的峰值。
+    /// 休眠时不采样；写文件比采样费电，只在峰值上涨或读数过旧时才写。
+    private func startMemoryTimer() {
+        guard memTimer == nil, memPath != nil else { return }
+        let t = DispatchSource.makeTimerSource(queue: memQueue)
+        t.schedule(deadline: .now() + 1, repeating: .seconds(10), leeway: .seconds(5))
+        t.setEventHandler { [weak self] in self?.sampleMemory() }
         t.resume()
         memTimer = t
+    }
+
+    private func stopMemoryTimer() {
+        memTimer?.cancel()
+        memTimer = nil
+    }
+
+    private func sampleMemory() {
+        guard let memPath else { return }
+        let m = footprintMiB()
+        guard m.peak >= writtenPeak + 1 || Date().timeIntervalSince(writtenAt) >= 60 else { return }
+        let limit = m.current + Double(os_proc_available_memory()) / 1048576
+        let line = String(format: "%.0f footprint=%.1f peak=%.1f limit=%.1f\n", Date().timeIntervalSince1970, m.current, m.peak, limit)
+        try? line.write(to: memPath, atomically: true, encoding: .utf8)
+        writtenPeak = m.peak
+        writtenAt = Date()
     }
 
     override func startTunnel(options: [String: NSObject]?, completionHandler: @escaping (Error?) -> Void) {
@@ -101,8 +126,12 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
             IostunnelStart(home.path, TunHost(provider: self), &err)
             if let err { log.error("内核启动失败：\(err, privacy: .public)") }
             else {
-                self.recordMemory(home)
+                self.memQueue.sync {
+                    self.memPath = home.appendingPathComponent("tunnel/memory.txt")
+                    self.startMemoryTimer()
+                }
                 self.watchNetwork()
+                TunnelMetrics.shared.start(home: home)
             }
             completionHandler(err)
         }
@@ -111,7 +140,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
     override func stopTunnel(with reason: NEProviderStopReason, completionHandler: @escaping () -> Void) {
         log.notice("停止隧道，原因 \(reason.rawValue)")
         stopping = true
-        memTimer?.cancel()
+        memQueue.sync { stopMemoryTimer() }
         pathMonitor.cancel()
         DispatchQueue.global().async {
             IostunnelStop()
