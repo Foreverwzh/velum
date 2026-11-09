@@ -553,7 +553,11 @@ func renderDNS(d *ir.DNS) (obj, error) {
 		rules = append(rules, o)
 	}
 	if d.FakeIP != nil {
+		// 排在所有 DNS 规则之后：只作用于没被其他规则（fake-ip-filter、直连域名、nameserver-policy 等）接走的域名，即走 fake-ip 的域名
 		rules = append(rules, obj{"query_type": []string{"A", "AAAA"}, "action": "route", "server": "fakeip"})
+		if !d.FakeIP.KeepSVCB {
+			rules = append(rules, obj{"query_type": []string{"HTTPS", "SVCB"}, "action": "predefined"}) // 空应答（NOERROR、没有记录），见 ir.FakeIP.KeepSVCB
+		}
 	}
 	out := obj{"servers": servers}
 	if len(rules) > 0 {

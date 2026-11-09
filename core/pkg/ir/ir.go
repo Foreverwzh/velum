@@ -282,7 +282,13 @@ type DNSRule struct {
 	Source      Source
 }
 
-type FakeIP struct{ Inet4Range, Inet6Range string }
+type FakeIP struct {
+	Inet4Range, Inet6Range string
+	// KeepSVCB 为 false 时，走 fake-ip 的域名查询 HTTPS / SVCB 记录（类型 65 / 64）直接回空应答（mihomo、Surge 的默认行为）：
+	// 不发往上游 DNS（否则泄露访问的域名），也不把带真实 IP 提示（ipv4hint）的应答交给应用（否则浏览器会绕过 fake-ip 直连该 IP）。
+	// 系统拿到空应答后改查 A 记录；代价是这些域名不能用 ECH，HTTP/3 改由 Alt-Svc 发现。
+	KeepSVCB bool
+}
 
 // ---------- 告警 ----------
 

@@ -333,7 +333,7 @@ func (d *Daemon) build(mode fetchMode) (*state, error) {
 		if opts.TUN.Address, opts.TUN.Address6, opts.TUN.MTU, opts.TUN.Include, opts.TUN.Exclude, err = cfg.TUNOptions(); err != nil {
 			return nil, err
 		}
-		opts.TUN.DNSHijack = cfg.TUN.DNSHijack
+		opts.TUN.DNSHijack, opts.TUN.AllowSVCB = cfg.TUN.DNSHijack, cfg.TUN.AllowDNSSVCB
 		opts.TUN.IncludeApps, opts.TUN.ExcludeApps = cfg.TUN.IncludeApps, cfg.TUN.ExcludeApps
 	}
 	d.mu.RLock()

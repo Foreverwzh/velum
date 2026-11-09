@@ -32,10 +32,12 @@ type Subscription struct {
 }
 
 type TUN struct {
-	Enabled      bool     `yaml:"enabled"`
-	Address      string   `yaml:"address"`
-	Address6     string   `yaml:"address6"`
-	DNSHijack    bool     `yaml:"dns_hijack"`
+	Enabled   bool   `yaml:"enabled"`
+	Address   string `yaml:"address"`
+	Address6  string `yaml:"address6"`
+	DNSHijack bool   `yaml:"dns_hijack"`
+	// AllowDNSSVCB 允许走 fake-ip 的域名查询 HTTPS / SVCB 记录（Surge allow-dns-svcb）；默认回空应答。
+	AllowDNSSVCB bool     `yaml:"allow_dns_svcb"`
 	MTU          uint32   `yaml:"mtu"`
 	RouteInclude []string `yaml:"route_include"`
 	RouteExclude []string `yaml:"route_exclude"`
@@ -116,6 +118,9 @@ tun:
   # 把系统 DNS 指向 TUN（由 helper 设置、退出时还原），使所有应用的 DNS 都经 Velum 分流
   # Linux 不改系统文件，始终由路由层接管 53 端口，此项不生效
   dns_hijack: true
+  # 允许走 fake-ip 的域名查询 HTTPS / SVCB 记录（DNS 类型 65 / 64）。默认不允许：直接回空应答，系统改查 A 记录拿到 fake-ip；
+  # 否则这类查询会发到上游 DNS（泄露访问的域名），应答里的真实 IP 提示还会让浏览器绕过 fake-ip。代价是这些域名不能用 ECH
+  allow_dns_svcb: false
   # 经 TUN 的目标网段；为空表示全局接管（0.0.0.0/1 + 128.0.0.0/1，不替换默认路由）
   route_include: []
   # 不经 TUN 的网段（另会合并 overlay 的 dev_bypass.cidrs）

@@ -3,11 +3,13 @@ package singbox_test
 import (
 	"context"
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"net/url"
 	"slices"
 	"strings"
@@ -22,6 +24,8 @@ import (
 	"github.com/Foreverwzh/velum/core/pkg/engine/singbox/render"
 	"github.com/Foreverwzh/velum/core/pkg/overlay"
 	"github.com/Foreverwzh/velum/core/pkg/subscription"
+
+	mDNS "github.com/miekg/dns"
 )
 
 // fakeDNS 按域名前缀应答：nx 返回 NXDOMAIN，sf 返回 SERVFAIL，to 不应答，其余返回 answers 里的地址。
@@ -491,5 +495,79 @@ func TestStaleAnswerWhenUpstreamDown(t *testing.T) {
 	}
 	if d := time.Since(start); d > time.Second {
 		t.Errorf("用时 %v：过期应答应立即返回，后台再刷新", d)
+	}
+}
+
+// 走 fake-ip 的域名：HTTPS / SVCB 查询直接回空应答、不发往上游；fake-ip-filter 里的域名照常转发；allow_dns_svcb 打开后都转发。
+// TUN 需要权限：用 TUN 模式编译后，把 TUN 入站换成本机 UDP 入站（之后同样经嗅探与 hijack-dns 处理）。
+func TestFakeIPBlocksSVCB(t *testing.T) {
+	for _, allow := range []bool{false, true} {
+		upstream, asked := fakeDNSLog(t, map[string]string{})
+		sub, err := subscription.Parse([]byte(fmt.Sprintf(`
+dns:
+  enable: true
+  ipv6: false
+  enhanced-mode: fake-ip
+  fake-ip-filter: ["+.filtered.test"]
+  nameserver: [udp://127.0.0.1:%d]
+rules:
+  - MATCH,DIRECT
+`, upstream)), subscription.Options{File: "sub.yaml"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		plan, err := compiler.Compile(sub, &overlay.Overlay{}, compiler.Options{Mode: compiler.ModeTUN, Listen: freePort(t),
+			TUN: compiler.TUNOptions{Address: netip.MustParsePrefix("172.19.0.1/30"), AllowSVCB: allow}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		r, err := render.Render(plan, render.Options{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var cfg map[string]any
+		if err := json.Unmarshal(r.JSON, &cfg); err != nil {
+			t.Fatal(err)
+		}
+		dnsIn := freePort(t)
+		var inbounds []any
+		for _, in := range cfg["inbounds"].([]any) {
+			if in.(map[string]any)["type"] != "tun" {
+				inbounds = append(inbounds, in)
+			}
+		}
+		cfg["inbounds"] = append(inbounds, map[string]any{"type": "direct", "tag": "dns-in", "listen": "127.0.0.1", "listen_port": dnsIn.Port(), "network": "udp"})
+		js, _ := json.Marshal(cfg)
+		eng := singbox.New(singbox.Options{})
+		if err := eng.Start(context.Background(), engine.Config{JSON: js, RuleSources: r.RuleSources, RuleIndex: r.RuleIndex}); err != nil {
+			t.Fatal(err)
+		}
+		query := func(name string, qtype uint16) *mDNS.Msg {
+			m := new(mDNS.Msg)
+			m.SetQuestion(name+".", qtype)
+			resp, err := mDNS.Exchange(m, dnsIn.String())
+			if err != nil {
+				t.Fatalf("%s %s：%v", name, mDNS.TypeToString[qtype], err)
+			}
+			return resp
+		}
+		for _, qt := range []uint16{mDNS.TypeHTTPS, mDNS.TypeSVCB} {
+			resp := query("www.proxied.test", qt)
+			blocked := !slices.Contains(asked(), "www.proxied.test")
+			switch {
+			case !allow && (!blocked || resp.Rcode != mDNS.RcodeSuccess || len(resp.Answer) != 0):
+				t.Errorf("走 fake-ip 的域名查 %s 应直接回空应答、不发往上游：rcode=%d answer=%v asked=%v", mDNS.TypeToString[qt], resp.Rcode, resp.Answer, asked())
+			case allow && blocked:
+				t.Errorf("allow_dns_svcb 打开后 %s 查询应发往上游", mDNS.TypeToString[qt])
+			}
+		}
+		if a := query("www.proxied.test", mDNS.TypeA); len(a.Answer) != 1 || !strings.HasPrefix(a.Answer[0].(*mDNS.A).A.String(), "198.18.") {
+			t.Errorf("A 记录应为 fake-ip：%v", a.Answer)
+		}
+		query("www.filtered.test", mDNS.TypeHTTPS)
+		if !slices.Contains(asked(), "www.filtered.test") {
+			t.Errorf("fake-ip-filter 里的域名应照常查询 HTTPS 记录：asked=%v", asked())
+		}
+		eng.Stop()
 	}
 }

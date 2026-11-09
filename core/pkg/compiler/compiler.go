@@ -96,6 +96,8 @@ type TUNOptions struct {
 	Force    []netip.Prefix // 优先于排除网段、一定经 TUN 的地址
 	// DNSHijack 为 true 时把系统 DNS 指向 TUN 内的 DNS 地址（由 helper 执行）。
 	DNSHijack bool
+	// AllowSVCB 为 true 时走 fake-ip 的域名也照常查询 HTTPS / SVCB 记录（默认回空应答，见 ir.FakeIP.KeepSVCB）。
+	AllowSVCB bool
 	// IncludeApps / ExcludeApps：只经 / 不经 TUN 的应用（Android 包名）。
 	IncludeApps, ExcludeApps []string
 }
@@ -190,6 +192,11 @@ func Compile(sub *ir.Config, ov *overlay.Overlay, opts Options) (*Plan, error) {
 	if opts.Mode != ModeTUN && cfg.DNS.FakeIP != nil {
 		// 系统代理模式下应用使用系统 DNS，fake-ip 无意义；且会让内核解析节点域名时拿到假地址。
 		cfg.DNS.FakeIP = nil
+	}
+	if f := cfg.DNS.FakeIP; f != nil {
+		f := *f // 不改订阅的 IR（与其他编译共享）
+		f.KeepSVCB = opts.TUN.AllowSVCB
+		cfg.DNS.FakeIP = &f
 	}
 
 	// ---- 规则：内置 + Overlay 优先于订阅 ----
