@@ -1,0 +1,81 @@
+name: ios
+
+# 发版时由 release.yml 调用：出 iOS 包传到 App Store Connect，处理完出现在 TestFlight。
+# 单独一个工作流、不在 publish 的 needs 里：TestFlight 出问题不挡 GitHub Release。
+on:
+  workflow_call:
+    inputs:
+      version:
+        type: string
+        required: true
+
+jobs:
+  testflight:
+    runs-on: macos-26
+    defaults:
+      run:
+        working-directory: mobile/ios
+    env:
+      GOPROXY: https://proxy.golang.org,direct
+      VELUM_VERSION: ${{ inputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+      # 部署目标 iOS 26.1，App Store 也要求当前大版本的 SDK：用运行器上最新的正式版 Xcode
+      - name: select Xcode
+        run: |
+          xcode=$(ls -d /Applications/Xcode_[0-9]*.app | grep -vi beta | sort -V | tail -1)
+          sudo xcode-select -s "$xcode"
+          xcodebuild -version
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: core/go.mod
+          cache-dependency-path: core/go.sum
+      - name: gomobile + xcodegen
+        working-directory: core
+        run: |
+          v=$(go list -m -f '{{.Version}}' golang.org/x/mobile)
+          go install golang.org/x/mobile/cmd/gomobile@$v golang.org/x/mobile/cmd/gobind@$v
+          brew install xcodegen
+      # 签名分两段，都是自动签名：
+      # - 导出时用 App Store Connect API 密钥走云端托管的分发证书，私钥不出 Apple，CI 上不放分发证书。
+      # - 归档时 Xcode 要一张本机有私钥的开发证书。不给的话它每次用密钥新建一张，团队里越攒越多，
+      #   所以固定用 secrets 里这一张。
+      - name: import signing credentials
+        env:
+          ASC_KEY_P8: ${{ secrets.ASC_API_KEY_P8 }}
+          ASC_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
+          DEV_CERT_P12_BASE64: ${{ secrets.IOS_DEV_CERT_P12_BASE64 }}
+          DEV_CERT_P12_PASSWORD: ${{ secrets.IOS_DEV_CERT_P12_PASSWORD }}
+        run: |
+          for var in ASC_KEY_P8 ASC_KEY_ID ASC_ISSUER_ID DEV_CERT_P12_BASE64 DEV_CERT_P12_PASSWORD; do
+            [[ -n "${!var}" ]] || { echo "✗ 没配置 iOS 签名的 secret（$var），见 mobile/ios/README.md"; exit 1; }
+          done
+          umask 077
+          key_path="$RUNNER_TEMP/AuthKey_$ASC_KEY_ID.p8"
+          printf '%s\n' "$ASC_KEY_P8" > "$key_path"
+          {
+            echo "ASC_KEY_PATH=$key_path"
+            echo "ASC_KEY_ID=$ASC_KEY_ID"
+            echo "ASC_ISSUER_ID=$ASC_ISSUER_ID"
+          } >> "$GITHUB_ENV"
+          keychain="$RUNNER_TEMP/ios-signing.keychain-db"
+          pw="$(uuidgen)"
+          echo "KEYCHAIN_PATH=$keychain" >> "$GITHUB_ENV"
+          security create-keychain -p "$pw" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$pw" "$keychain"
+          echo "$DEV_CERT_P12_BASE64" | base64 --decode > "$RUNNER_TEMP/dev-cert.p12"
+          security import "$RUNNER_TEMP/dev-cert.p12" -k "$keychain" -P "$DEV_CERT_P12_PASSWORD" \
+            -T /usr/bin/codesign -T /usr/bin/security
+          rm -f "$RUNNER_TEMP/dev-cert.p12"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$pw" "$keychain"
+          existing="$(security list-keychains -d user | sed 's/[\" ]//g')"
+          security list-keychains -d user -s "$keychain" $existing
+      - name: build and upload to TestFlight
+        run: ./scripts/build-ios.sh --upload
+      - name: clean up signing credentials
+        if: always()
+        run: |
+          rm -f "${ASC_KEY_PATH:-}"
+          [[ -n "${KEYCHAIN_PATH:-}" ]] && security delete-keychain "$KEYCHAIN_PATH" || true

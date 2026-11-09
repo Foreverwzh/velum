@@ -8,7 +8,7 @@
 | :--- | :--- |
 | 技术 | SwiftUI 原生，工程在 `mobile/ios`（XcodeGen）。Android 继续用 Flutter，两端共用 Go 核心，不共用界面 |
 | 第一屏 | 一问一答：状态、当前线路、需要留意，底部常驻「节点、或任意网址」 |
-| 分发（D6） | 先只给自己装（开发者配置文件，约一年到期）。TestFlight 和上架以后再评估，GPLv3 与 App Store 条款的问题见 D8 |
+| 分发（D6） | 发版自动传 TestFlight，只发内部测试组（见 `mobile/ios/README.md`）。外部测试和上架以后再评估：GPLv3 与 App Store 条款的问题见 ARCHITECTURE 的 D8；VPN 类 App 上架要组织账号（审核指南 5.4） |
 | 最低系统 | iOS 26.1（`tabViewBottomAccessory`）。只做 iPhone，竖屏 |
 
 ## 界面与交互

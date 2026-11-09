@@ -10,8 +10,9 @@ settings:
     CODE_SIGN_STYLE: Automatic
     SWIFT_VERSION: "5.0"
     SWIFT_EMIT_LOC_STRINGS: YES
+    # 发版时由 scripts/build-ios.sh 覆盖
     CURRENT_PROJECT_VERSION: 1
-    MARKETING_VERSION: "0.1"
+    MARKETING_VERSION: "0.1.0"
     TARGETED_DEVICE_FAMILY: "1"
 targets:
   Velum:
@@ -22,6 +23,9 @@ targets:
       path: App/Info.plist
       properties:
         CFBundleDisplayName: Velum
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        ITSAppUsesNonExemptEncryption: false
         CFBundleDevelopmentRegion: zh-Hans
         CFBundleLocalizations: [zh-Hans, en]
         NSLocalNetworkUsageDescription: Velum uses your network's DNS server, often your router, to resolve addresses when it is not connected.
@@ -29,6 +33,7 @@ targets:
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+        UIRequiresFullScreen: true
     settings:
       PRODUCT_BUNDLE_IDENTIFIER: io.github.foreverwzh.velum
       ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
@@ -58,6 +63,8 @@ targets:
       path: Tunnel/Info.plist
       properties:
         CFBundleDisplayName: Velum Tunnel
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         NSExtension:
           NSExtensionPointIdentifier: com.apple.networkextension.packet-tunnel
           NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).PacketTunnelProvider
