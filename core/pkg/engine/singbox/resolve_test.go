@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"net/netip"
 	"net/url"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -569,5 +570,83 @@ rules:
 			t.Errorf("fake-ip-filter 里的域名应照常查询 HTTPS 记录：asked=%v", asked())
 		}
 		eng.Stop()
+	}
+}
+
+// 内核重启（换配置、重新加载）后，重启前发出的 fake-ip 仍能找回域名：应用会缓存拿到的 fake-ip，
+// 否则在它们过期前，这些连接都会失败（missing fakeip record）。
+func TestFakeIPSurvivesRestart(t *testing.T) {
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte("target")) }))
+	defer target.Close()
+	_, targetPort, _ := net.SplitHostPort(target.Listener.Addr().String())
+	upstream := fakeDNS(t, map[string]string{"x.test": "127.0.0.1"})
+	sub, err := subscription.Parse([]byte(fmt.Sprintf(`
+dns:
+  enable: true
+  ipv6: false
+  enhanced-mode: fake-ip
+  nameserver: [udp://127.0.0.1:%d]
+rules:
+  - MATCH,DIRECT
+`, upstream)), subscription.Options{File: "sub.yaml"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	listen := freePort(t)
+	plan, err := compiler.Compile(sub, &overlay.Overlay{}, compiler.Options{Mode: compiler.ModeTUN, Listen: listen,
+		TUN: compiler.TUNOptions{Address: netip.MustParsePrefix("172.19.0.1/30")}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := render.Render(plan, render.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cfg map[string]any
+	if err := json.Unmarshal(r.JSON, &cfg); err != nil {
+		t.Fatal(err)
+	}
+	dnsIn := freePort(t)
+	var inbounds []any
+	for _, in := range cfg["inbounds"].([]any) {
+		if in.(map[string]any)["type"] != "tun" {
+			inbounds = append(inbounds, in)
+		}
+	}
+	cfg["inbounds"] = append(inbounds, map[string]any{"type": "direct", "tag": "dns-in", "listen": "127.0.0.1", "listen_port": dnsIn.Port(), "network": "udp"})
+	js, _ := json.Marshal(cfg)
+	ecfg := engine.Config{JSON: js, RuleSources: r.RuleSources, RuleIndex: r.RuleIndex, CachePath: filepath.Join(t.TempDir(), "singbox.db")}
+	eng := singbox.New(singbox.Options{})
+	if err := eng.Start(context.Background(), ecfg); err != nil {
+		t.Fatal(err)
+	}
+	defer eng.Stop()
+	m := new(mDNS.Msg)
+	m.SetQuestion("x.test.", mDNS.TypeA)
+	resp, err := mDNS.Exchange(m, dnsIn.String())
+	if err != nil || len(resp.Answer) != 1 {
+		t.Fatalf("fake-ip 查询：%v %v", resp, err)
+	}
+	fake := resp.Answer[0].(*mDNS.A).A.String()
+	if !strings.HasPrefix(fake, "198.18.") {
+		t.Fatalf("应拿到 fake-ip：%s", fake)
+	}
+	if err := eng.Restart(context.Background(), ecfg); err != nil {
+		t.Fatal(err)
+	}
+	proxyURL, _ := url.Parse("http://" + listen.String())
+	client := &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(proxyURL), DisableKeepAlives: true}, Timeout: 5 * time.Second}
+	res, err := client.Get("http://" + fake + ":" + targetPort + "/")
+	if err != nil {
+		t.Fatalf("重启后用之前的 fake-ip %s 连接应找回 x.test：%v", fake, err)
+	}
+	body, _ := io.ReadAll(res.Body)
+	res.Body.Close()
+	if string(body) != "target" {
+		t.Fatalf("body=%q", body)
+	}
+	// 同一域名重启后仍分到同一个 fake-ip
+	if resp, err = mDNS.Exchange(m, dnsIn.String()); err != nil || resp.Answer[0].(*mDNS.A).A.String() != fake {
+		t.Errorf("重启后 x.test 应仍是 %s：%v %v", fake, resp, err)
 	}
 }

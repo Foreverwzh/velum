@@ -25,6 +25,7 @@ import (
 	"github.com/Foreverwzh/velum/core/pkg/engine/singbox/physdns"
 	"github.com/Foreverwzh/velum/core/pkg/engine/singbox/race"
 	"github.com/Foreverwzh/velum/core/pkg/ir"
+	"github.com/sagernet/bbolt"
 	box "github.com/sagernet/sing-box"
 	"github.com/sagernet/sing-box/adapter"
 	"github.com/sagernet/sing-box/dns"
@@ -178,16 +179,20 @@ func (e *Engine) startLocked(cfg engine.Config) error {
 	opts.Log.Disabled = false
 	opts.Log.Level = "debug" // reject 结论等关键信息在 debug 级别；写文件时再按 minLevel 过滤
 	// 设置了 PlatformLogWriter 时 sing-box 会强制启用缓存文件（默认为工作目录下的 cache.db），
-	// 其中保存的 selector 选择优先于配置中的 default。Velum 以 state.json 为准，因此指定路径并在启动前清空。
+	// 其中保存的 selector 选择优先于配置中的 default。Velum 以 state.json 为准，因此指定路径并在启动前清掉其中的选择。
+	// fake-ip 的地址分配保留（store_fakeip）：应用会把拿到的 fake-ip 缓存一段时间（TTL），内核重启后不认识这些地址，
+	// 应用用它们发起的连接都会失败（missing fakeip record），直到应用重新解析。
 	cachePath := cfg.CachePath
 	if cachePath == "" {
 		cachePath = filepath.Join(os.TempDir(), fmt.Sprintf("velum-singbox-%d.db", os.Getpid()))
 	}
-	_ = os.Remove(cachePath)
+	if err := keepOnlyFakeIP(cachePath); err != nil {
+		_ = os.Remove(cachePath)
+	}
 	if opts.Experimental == nil {
 		opts.Experimental = &option.ExperimentalOptions{}
 	}
-	opts.Experimental.CacheFile = &option.CacheFileOptions{Enabled: true, Path: cachePath}
+	opts.Experimental.CacheFile = &option.CacheFileOptions{Enabled: true, Path: cachePath, StoreFakeIP: true}
 	lvl, err := sblog.ParseLevel(orDefault(cfg.LogLevel, "info"))
 	if err != nil {
 		return err
@@ -271,6 +276,37 @@ func (e *Engine) Restart(ctx context.Context, cfg engine.Config) error {
 }
 
 var errEngineStopped = errors.New("engine stopped")
+
+// fakeIPBucketPrefix 是 sing-box 缓存文件里 fake-ip 数据的 bucket 前缀（experimental/cachefile/fakeip.go）。
+const fakeIPBucketPrefix = "fakeip_"
+
+// keepOnlyFakeIP 删除缓存文件里 fake-ip 以外的数据（策略组选择、展开状态、规则集等），文件不存在时什么也不做。
+// 打不开（损坏、被占用）时返回错误，由调用方删除整个文件。
+func keepOnlyFakeIP(path string) error {
+	if _, err := os.Stat(path); err != nil {
+		return nil
+	}
+	db, err := bbolt.Open(path, 0o600, &bbolt.Options{Timeout: time.Second})
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	return db.Update(func(tx *bbolt.Tx) error {
+		var drop [][]byte
+		_ = tx.ForEach(func(name []byte, _ *bbolt.Bucket) error {
+			if !strings.HasPrefix(string(name), fakeIPBucketPrefix) {
+				drop = append(drop, append([]byte(nil), name...))
+			}
+			return nil
+		})
+		for _, name := range drop {
+			if err := tx.DeleteBucket(name); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
 
 // Stop 关闭内核；之后 Start / Restart 都返回错误（引擎随 daemon 退出，不再使用）。
 func (e *Engine) Stop() error {

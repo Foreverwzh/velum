@@ -322,6 +322,7 @@ type PlatformHooks interface {
 - **物理网络 DNS 运行时更新**：接管系统 DNS 后（桌面 TUN、Linux、Android），原本经系统解析器的服务器改为 `velum-physical` 传输，地址不写进内核配置，由 daemon 在每次编译后交给引擎（`engine.PhysicalDNSSetter`）。换 Wi-Fi 时物理 DNS 常会变化，写进配置就要重启内核、断开所有连接（2026-11-09 到公司时连续重启两次）；现在只更新地址并清空 DNS 缓存。网络下发多个 DNS 时并发询问（IPv4 在前，跳过链路本地 IPv6，最多 3 个），一个不可用不影响解析。
 - **乐观缓存（serve-stale，RFC 8767）**：开启 sing-box 的 `dns.optimistic`。缓存过期后先返回旧应答（TTL 1 秒）并在后台刷新，刷新失败时保留旧应答，最长 3 天。上游 DNS 全部不可用时，访问过的域名仍能解析。换网时随物理 DNS 变化清空缓存。
 - **fake-ip 域名的 HTTPS / SVCB 查询**：走 fake-ip 的域名查询类型 65 / 64 时直接回空应答（`predefined`，排在 fake-ip 规则之后，只作用于没被其他 DNS 规则接走的域名），与 mihomo、Surge（`allow-dns-svcb` 默认关闭）一致。否则 macOS / iOS 访问网页时的这类查询会发往上游 DNS（泄露访问的域名，实测 2026-11-09），应答里的真实 IP 提示还会让浏览器绕过 fake-ip。代价：这些域名不能用 ECH，HTTP/3 改由 Alt-Svc 发现。`tun.allow_dns_svcb: true` 关闭此行为。在渲染层实现（不改 sing-box fork）。
+- **fake-ip 跨内核重启保留**：开启缓存文件的 `store_fakeip`；启动前只清掉缓存文件里 fake-ip 以外的数据（策略组选择等以 state.json 为准）。应用会缓存拿到的 fake-ip（TTL 600 秒），以前每次重启内核（升级、换配置）后这些地址都不认识，应用的连接失败到重新解析为止（`missing fakeip record`，2026-11-09 升级后 79 条）。
 - **系统 hosts**：与 mihomo 一致默认读取系统 hosts 文件（`use-system-hosts: false` 时关闭）。编译器注入 sing-box 的 `hosts` DNS 服务器和一条 `preferred_by` 规则，只应答文件里有记录的域名，排在 Overlay hosts 之后、其他 DNS 规则之前；文件修改后自动生效。`vlu why` 的 DNS 一步显示「系统 hosts 文件」。
 - **验证方式**：用真实订阅（脱敏，不入库）和覆盖型合成样本（`spikes/m0-subconv/testdata/coverage`）做 golden snapshot 测试，并对产物执行 `box.New` 校验。另外用 Clash 语义参考匹配器生成正例 / 反例，与 sing-box 匹配器逐条比对，覆盖规则集和内联 AND / OR / NOT。方法见 `spikes/m0-subconv`。
 
