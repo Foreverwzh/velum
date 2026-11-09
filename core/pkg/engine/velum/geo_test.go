@@ -17,7 +17,7 @@ func fakeFetch(files map[string]string) func(string) ([]byte, error) {
 
 func TestGeoSiteParsesV2flyFormat(t *testing.T) {
 	g := GeoSource{SiteURL: "s/{name}", Fetch: fakeFetch(map[string]string{
-		"s/google": "# 注释\ngoogle.com\nfull:www.google.cn @cn\nkeyword:googlevideo\nregexp:^gg\\d+\\.example$\ninclude:youtube\ninclude:google # 循环\n",
+		"s/google":  "# 注释\ngoogle.com\nfull:www.google.cn @cn\nkeyword:googlevideo\nregexp:^gg\\d+\\.example$\ninclude:youtube\ninclude:google # 循环\n",
 		"s/youtube": "domain:youtube.com\nfull:yt.example @cn @ads\n",
 	})}
 	c, err := g.Load("geosite-google")
