@@ -1,4 +1,4 @@
-// Package subscription 把 Clash / Stash / mihomo YAML 转换为 VelumIR。
+// Package subscription 把 Clash / Stash / mihomo YAML 或 sing-box JSON 转换为 VelumIR。
 //
 // 原则：可以降级，但绝不静默丢弃——每个降级或不支持的项都会产生 ir.Warning。
 package subscription
@@ -62,11 +62,13 @@ type readResult struct {
 const prefetchLimit = 8
 
 // Parse 转换一份 Clash YAML。
+//
+// sing-box 的 JSON 配置（顶层有 outbounds）同样接受，见 parseSingBox。
 func Parse(data []byte, opts Options) (*ir.Config, error) {
 	if opts.ReadFile == nil {
 		opts.ReadFile = func(p, _ string) ([]byte, error) { return userfs.ReadFile(p) }
 	}
-	var root yaml.Node
+	var root yaml.Node // JSON 也是合法的 YAML：sing-box 配置同样走这里，并保留行号
 	if err := yaml.Unmarshal(data, &root); err != nil {
 		return nil, fmt.Errorf("parse yaml: %w", err)
 	}
@@ -76,6 +78,10 @@ func Parse(data []byte, opts Options) (*ir.Config, error) {
 	doc := root.Content[0]
 	c := &converter{opts: opts, cfg: &ir.Config{}, tags: map[string]bool{ir.OutboundDirect: true, ir.OutboundReject: true},
 		nodeIndex: map[string]int{}, nodeType: map[string]string{}, providerNodes: map[string][]string{}, ruleSets: map[string]*ir.RuleSet{}}
+	if IsSingBox(doc) {
+		c.parseSingBox(doc)
+		return c.cfg, nil
+	}
 	c.global(doc)
 	c.prefetch(doc)
 	c.proxies(mapGet(doc, "proxies"))
@@ -248,6 +254,11 @@ func (c *converter) prefetch(doc *yaml.Node) {
 			keys = append(keys, [2]string{c.resolve(path), str(p, "url")})
 		}
 	}
+	c.prefetchKeys(keys)
+}
+
+// prefetchKeys 并发读取 (path, url) 列表，结果供 c.read 使用。
+func (c *converter) prefetchKeys(keys [][2]string) {
 	if len(keys) < 2 {
 		return
 	}

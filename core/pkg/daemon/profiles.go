@@ -105,7 +105,7 @@ func (d *Daemon) verifySubscription(cfg *config.Config, rawURL, ua string) (*sou
 	}
 	sub, err := subscription.Parse(data, subscription.Options{File: "subscription", ReadFile: f.ProviderReader(), GeoRuleSetURL: cfg.Subscription.GeoRuleSetURL})
 	if err != nil {
-		return nil, i18n.Errorf("订阅内容无法识别（需要 Clash / Stash / mihomo 格式）：%w", err)
+		return nil, i18n.Errorf("订阅内容无法识别（需要 Clash / Stash / mihomo / sing-box 格式）：%w", err)
 	}
 	if len(sub.Nodes) == 0 {
 		return nil, i18n.Errorf("订阅中没有可用节点")

@@ -157,7 +157,7 @@ export const en = {
   "搜索节点、策略组或操作；输入网址可直接诊断": "Search nodes, groups or actions; enter a URL to diagnose it",
   "撤销修改": "Revert changes",
   "操作": "Actions",
-  "支持 Clash、Stash、mihomo 格式；首次拉取可能需要十几秒": "Clash, Stash and mihomo formats are supported; the first fetch can take a dozen seconds",
+  "支持 Clash、Stash、mihomo、sing-box 格式；首次拉取可能需要十几秒": "Clash, Stash, mihomo and sing-box formats are supported; the first fetch can take a dozen seconds",
   "文本": "Text",
   "新版本": "New version",
   "新的订阅地址（不改则留空）": "New subscription URL (leave empty to keep it)",

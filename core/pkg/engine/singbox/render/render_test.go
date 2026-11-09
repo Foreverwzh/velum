@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Foreverwzh/velum/core/pkg/compiler"
 	"github.com/Foreverwzh/velum/core/pkg/engine/singbox/physdns"
@@ -17,6 +18,7 @@ import (
 	"github.com/Foreverwzh/velum/core/pkg/explain"
 	"github.com/Foreverwzh/velum/core/pkg/ir"
 	"github.com/Foreverwzh/velum/core/pkg/overlay"
+	"github.com/Foreverwzh/velum/core/pkg/source"
 	"github.com/Foreverwzh/velum/core/pkg/subscription"
 	box "github.com/sagernet/sing-box"
 	"github.com/sagernet/sing-box/adapter"
@@ -522,5 +524,55 @@ rules:
 	}
 	if got["mixed"] != "https://www.gstatic.com/generate_204" {
 		t.Errorf("混有节点的组不应改：%q", got["mixed"])
+	}
+}
+
+// sing-box 格式的订阅：解析 → 编译 → 渲染，产物能被 sing-box 加载。规则集按需联网下载。
+func TestSingBoxSubscriptionEndToEnd(t *testing.T) {
+	path := os.Getenv("VELUM_TEST_SINGBOX_SUB")
+	if path == "" {
+		t.Skip("设置 VELUM_TEST_SINGBOX_SUB=<sing-box 配置文件> 以运行")
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := source.New(t.TempDir(), "")
+	sub, err := subscription.Parse(data, subscription.Options{File: "subscription", ReadFile: f.ProviderReader()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sub.Nodes) == 0 {
+		t.Fatal("没有节点")
+	}
+	sub.Warnings = append(sub.Warnings, f.ResolveRemoteRuleSets(sub, time.Hour)...)
+	for _, w := range sub.Warnings {
+		t.Logf("warning %s/%s [%s] %s %s", w.Category, w.Kind, w.Level, w.Reason, w.Subject)
+	}
+	for _, mode := range []string{compiler.ModeSysProxy, compiler.ModeTUN} {
+		plan, err := compiler.Compile(sub, &overlay.Overlay{}, compiler.Options{Mode: mode, Listen: netip.MustParseAddrPort("127.0.0.1:7899"), Platform: "darwin",
+			TUN: compiler.TUNOptions{Address: netip.MustParsePrefix("172.19.0.1/30")}})
+		if err != nil {
+			t.Fatalf("%s: %v", mode, err)
+		}
+		r, err := render.Render(plan, render.Options{})
+		if err != nil {
+			t.Fatalf("%s: %v", mode, err)
+		}
+		ctx := boxContext()
+		opts, err := sjson.UnmarshalExtendedContext[option.Options](ctx, r.JSON)
+		if err != nil {
+			t.Fatalf("%s: decode: %v", mode, err)
+		}
+		instance, err := box.New(box.Options{Context: ctx, Options: opts})
+		if err != nil {
+			t.Fatalf("%s: box.New: %v", mode, err)
+		}
+		instance.Close()
+		if out := os.Getenv("VELUM_TEST_SINGBOX_OUT"); out != "" {
+			_ = os.WriteFile(filepath.Join(out, mode+".json"), r.JSON, 0o600)
+		}
+		t.Logf("%s: nodes=%d groups=%d rules=%d rulesets=%d dnsrules=%d json=%dKB", mode, len(plan.IR.Nodes), len(plan.IR.Groups),
+			len(plan.IR.Rules), len(plan.IR.RuleSets), len(plan.IR.DNS.Rules), len(r.JSON)/1024)
 	}
 }
