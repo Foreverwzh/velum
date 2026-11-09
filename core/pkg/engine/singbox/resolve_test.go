@@ -313,3 +313,57 @@ rules:
 		t.Error("unlisted.test 解析后应当命中 IP 规则被拒绝")
 	}
 }
+
+// 订阅的 DNS 连不上（如 DoH 被所在网络拒绝）：内核改问系统 DNS，直连域名照常解析。
+func TestSubscriptionDNSFallsBackToSystem(t *testing.T) {
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte("target")) }))
+	defer target.Close()
+	_, targetPort, _ := net.SplitHostPort(target.Listener.Addr().String())
+	system := fakeDNS(t, map[string]string{"direct.test": "127.0.0.1"})
+	dead := freePort(t) // 没有服务在听：查询立即被拒绝
+	sub, err := subscription.Parse([]byte(fmt.Sprintf(`
+dns:
+  enable: true
+  ipv6: false
+  nameserver: [tcp://127.0.0.1:%d]
+rules:
+  - MATCH,DIRECT
+`, dead.Port())), subscription.Options{File: "sub.yaml"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	listen := freePort(t)
+	plan, err := compiler.Compile(sub, &overlay.Overlay{}, compiler.Options{Mode: compiler.ModeProxy, Listen: listen})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range plan.IR.DNS.Servers { // 用假的系统 DNS 代替本机真实的系统解析器
+		if sv := &plan.IR.DNS.Servers[i]; sv.Tag == compiler.LocalDNS {
+			sv.Type, sv.Address, sv.Port = "udp", "127.0.0.1", system
+		}
+	}
+	r, err := render.Render(plan, render.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	eng := singbox.New(singbox.Options{})
+	if err := eng.Start(context.Background(), engine.Config{JSON: r.JSON, RuleSources: r.RuleSources, RuleIndex: r.RuleIndex}); err != nil {
+		t.Fatal(err)
+	}
+	defer eng.Stop()
+	proxyURL, _ := url.Parse("http://" + listen.String())
+	client := &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(proxyURL), DisableKeepAlives: true}, Timeout: 8 * time.Second}
+	start := time.Now()
+	resp, err := client.Get("http://direct.test:" + targetPort + "/")
+	if err != nil {
+		t.Fatalf("订阅的 DNS 不可用时应改用系统 DNS：%v", err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if string(body) != "target" {
+		t.Fatalf("body=%q", body)
+	}
+	if d := time.Since(start); d > 2*time.Second {
+		t.Errorf("用时 %v：主上游被拒绝后应立即改问系统 DNS", d)
+	}
+}

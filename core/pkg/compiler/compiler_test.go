@@ -954,3 +954,64 @@ func TestIOSKeepsLocalDNS(t *testing.T) {
 		t.Errorf("iOS 仍应把隧道的系统 DNS 指向 Velum：%+v", p.Route)
 	}
 }
+
+// 订阅只写了一个 DoH：它失败时改问系统 DNS；final、节点解析、nameserver-policy 和 DoH 的引导解析都有兜底。
+// 显式经代理查询的服务器（地址#出站）不回落到本地网络。
+func TestSubscriptionDNSFallsBackToSystem(t *testing.T) {
+	y := "proxies:\n  - {name: n1, type: ss, server: 1.2.3.4, port: 443, cipher: aes-128-gcm, password: x}\n" +
+		"proxy-groups:\n  - {name: Proxy, type: select, proxies: [n1]}\n" +
+		"dns:\n  default-nameserver: [223.5.5.5]\n  nameserver: [https://doh.pub/dns-query]\n" +
+		"  proxy-server-nameserver: [https://1.12.12.12/dns-query, https://223.5.5.5/dns-query]\n" +
+		"  nameserver-policy:\n    \"+.example.org\": \"https://8.8.8.8/dns-query#Proxy\"\n    \"+.example.net\": system\n" +
+		"rules:\n  - MATCH,DIRECT\n"
+	s, err := subscription.Parse([]byte(y), subscription.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := compiler.Compile(s, nil, compiler.Options{Mode: compiler.ModeProxy, Listen: netip.MustParseAddrPort("127.0.0.1:7899")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := p.IR.DNS
+	byTag := map[string]ir.DNSServer{}
+	for _, sv := range d.Servers {
+		byTag[sv.Tag] = sv
+	}
+	hasFallback := func(tag string) bool {
+		sv := byTag[tag]
+		return sv.Type == "race" && slices.Equal(sv.Fallback, []string{compiler.LocalDNS})
+	}
+	if !hasFallback(d.Final) || !slices.Equal(byTag[d.Final].Members, []string{"ns-0"}) {
+		t.Errorf("final 应为带系统 DNS 兜底的 ns-0：%+v", byTag[d.Final])
+	}
+	if !hasFallback(d.OutboundResolver) || len(byTag[d.OutboundResolver].Members) != 2 {
+		t.Errorf("节点解析应在原竞速组上加兜底：%+v", byTag[d.OutboundResolver])
+	}
+	if r := byTag["ns-0"].Resolver; !hasFallback(r) {
+		t.Errorf("DoH 的引导解析应有兜底：%q", r)
+	}
+	for _, r := range d.Rules {
+		sv := byTag[r.Server]
+		switch {
+		case r.Server == compiler.LocalDNS, sv.Type == "local", sv.Type == "hosts":
+		case sv.Detour != "":
+			// 经代理查询的服务器保持原样
+		case !hasFallback(r.Server):
+			t.Errorf("DNS 规则 %s 的服务器 %s 应有兜底", r.Source.Text, r.Server)
+		}
+	}
+	proxied := false
+	for _, sv := range d.Servers {
+		if sv.Detour == "Proxy" {
+			proxied = true
+			for _, w := range d.Servers {
+				if slices.Contains(w.Members, sv.Tag) && len(w.Fallback) > 0 {
+					t.Errorf("经代理查询的 %s 不应回落到系统 DNS", sv.Tag)
+				}
+			}
+		}
+	}
+	if !proxied {
+		t.Fatal("测试订阅应含经代理查询的服务器")
+	}
+}

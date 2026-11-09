@@ -259,7 +259,9 @@ type DNSServer struct {
 	Type    string // local / udp / tcp / tls / https / quic / h3 / dhcp / fakeip / race / hosts
 	Address string
 	// Members 是 race 类型的上游（其他 DNSServer 的 Tag）：并发查询，取最先成功的应答（mihomo 多个 nameserver 的语义）。
-	Members  []string
+	Members []string
+	// Fallback 是 race 类型的兜底上游：Members 出错、返回 SERVFAIL / REFUSED 或迟迟不应答时加入（通常是系统 DNS）。
+	Fallback []string
 	Port     int
 	Path     string
 	Resolver string // 当 Address 是域名时，用于解析它的 DNS 服务器

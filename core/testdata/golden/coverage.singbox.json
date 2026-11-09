@@ -53,7 +53,7 @@
         "rule_set": [
           "geosite-cn"
         ],
-        "server": "policy-0-0"
+        "server": "policy-0-0-fallback"
       },
       {
         "action": "route",
@@ -68,7 +68,7 @@
         "rule_set": [
           "rs:corp_domains"
         ],
-        "server": "policy-2-0"
+        "server": "policy-2-0-fallback"
       },
       {
         "action": "route",
@@ -95,19 +95,22 @@
         "type": "udp"
       },
       {
-        "domain_resolver": "bootstrap-0",
+        "domain_resolver": "bootstrap-0-fallback",
         "server": "dns.alidns.com",
         "tag": "ns-0",
         "type": "https"
       },
       {
-        "domain_resolver": "bootstrap-0",
+        "domain_resolver": "bootstrap-0-fallback",
         "server": "dot.pub",
         "server_port": 853,
         "tag": "ns-1",
         "type": "tls"
       },
       {
+        "fallback": [
+          "velum-local"
+        ],
         "servers": [
           "ns-0",
           "ns-1"
@@ -116,7 +119,7 @@
         "type": "velum-race"
       },
       {
-        "domain_resolver": "bootstrap-0",
+        "domain_resolver": "bootstrap-0-fallback",
         "server": "doh.pub",
         "tag": "policy-0-0",
         "type": "https"
@@ -126,7 +129,7 @@
         "type": "local"
       },
       {
-        "domain_resolver": "bootstrap-0",
+        "domain_resolver": "bootstrap-0-fallback",
         "server": "dns.adguard-dns.com",
         "tag": "policy-2-0",
         "type": "quic"
@@ -138,6 +141,46 @@
       {
         "tag": "velum-hosts",
         "type": "hosts"
+      },
+      {
+        "fallback": [
+          "velum-local"
+        ],
+        "servers": [
+          "ns-0"
+        ],
+        "tag": "ns-0-fallback",
+        "type": "velum-race"
+      },
+      {
+        "fallback": [
+          "velum-local"
+        ],
+        "servers": [
+          "policy-0-0"
+        ],
+        "tag": "policy-0-0-fallback",
+        "type": "velum-race"
+      },
+      {
+        "fallback": [
+          "velum-local"
+        ],
+        "servers": [
+          "policy-2-0"
+        ],
+        "tag": "policy-2-0-fallback",
+        "type": "velum-race"
+      },
+      {
+        "fallback": [
+          "velum-local"
+        ],
+        "servers": [
+          "bootstrap-0"
+        ],
+        "tag": "bootstrap-0-fallback",
+        "type": "velum-race"
       }
     ]
   },
@@ -147,7 +190,7 @@
         "172.16.0.2/32",
         "fd01::2/128"
       ],
-      "domain_resolver": "ns-0",
+      "domain_resolver": "ns-0-fallback",
       "mtu": 1280,
       "peers": [
         {
@@ -192,7 +235,7 @@
     },
     {
       "alter_id": 0,
-      "domain_resolver": "ns-0",
+      "domain_resolver": "ns-0-fallback",
       "security": "auto",
       "server": "v1.example.com",
       "server_port": 443,
@@ -213,7 +256,7 @@
     },
     {
       "alter_id": 0,
-      "domain_resolver": "ns-0",
+      "domain_resolver": "ns-0-fallback",
       "security": "auto",
       "server": "v2.example.com",
       "server_port": 443,
@@ -230,7 +273,7 @@
     },
     {
       "alter_id": 0,
-      "domain_resolver": "ns-0",
+      "domain_resolver": "ns-0-fallback",
       "security": "auto",
       "server": "v3.example.com",
       "server_port": 443,
@@ -249,7 +292,7 @@
       "uuid": "85dff723-6b85-4787-b888-445599ed4bd0"
     },
     {
-      "domain_resolver": "ns-0",
+      "domain_resolver": "ns-0-fallback",
       "password": "fake-password",
       "server": "t1.example.com",
       "server_port": 443,
@@ -262,7 +305,7 @@
       "type": "trojan"
     },
     {
-      "domain_resolver": "ns-0",
+      "domain_resolver": "ns-0-fallback",
       "password": "fake-password",
       "server": "t2.example.com",
       "server_port": 443,
@@ -277,7 +320,7 @@
       "type": "trojan"
     },
     {
-      "domain_resolver": "ns-0",
+      "domain_resolver": "ns-0-fallback",
       "server": "r1.example.com",
       "server_port": 443,
       "tag": "vless-reality-grpc",
@@ -302,7 +345,7 @@
       "uuid": "85dff723-6b85-4787-b888-445599ed4bd0"
     },
     {
-      "domain_resolver": "ns-0",
+      "domain_resolver": "ns-0-fallback",
       "server": "r2.example.com",
       "server_port": 443,
       "tag": "vless-ws",
@@ -319,7 +362,7 @@
       "uuid": "85dff723-6b85-4787-b888-445599ed4bd0"
     },
     {
-      "domain_resolver": "ns-0",
+      "domain_resolver": "ns-0-fallback",
       "down_mbps": 200,
       "hop_interval": "30s",
       "obfs": {
@@ -343,7 +386,7 @@
     },
     {
       "auth_str": "fake-auth",
-      "domain_resolver": "ns-0",
+      "domain_resolver": "ns-0-fallback",
       "down_mbps": 100,
       "server": "h1.example.com",
       "server_port": 443,
@@ -357,7 +400,7 @@
     },
     {
       "auth_str": "fake-auth",
-      "domain_resolver": "ns-0",
+      "domain_resolver": "ns-0-fallback",
       "down_mbps": 100,
       "server": "h1.example.com",
       "server_port": 443,
@@ -370,7 +413,7 @@
     },
     {
       "congestion_control": "bbr",
-      "domain_resolver": "ns-0",
+      "domain_resolver": "ns-0-fallback",
       "password": "fake-password",
       "server": "tu.example.com",
       "server_port": 443,
@@ -387,7 +430,7 @@
       "zero_rtt_handshake": true
     },
     {
-      "domain_resolver": "ns-0",
+      "domain_resolver": "ns-0-fallback",
       "method": "2022-blake3-aes-128-gcm",
       "password": "0W0/kh8yYmF3AJ4+Mf8UDQ==",
       "server": "s1.example.com",
@@ -397,7 +440,7 @@
       "udp_over_tcp": true
     },
     {
-      "domain_resolver": "ns-0",
+      "domain_resolver": "ns-0-fallback",
       "method": "aes-256-gcm",
       "password": "fake-password",
       "plugin": "obfs-local",
@@ -408,7 +451,7 @@
       "type": "shadowsocks"
     },
     {
-      "domain_resolver": "ns-0",
+      "domain_resolver": "ns-0-fallback",
       "password": "fake-stls",
       "server": "s3.example.com",
       "server_port": 443,
@@ -432,7 +475,7 @@
       "type": "shadowsocks"
     },
     {
-      "domain_resolver": "ns-0",
+      "domain_resolver": "ns-0-fallback",
       "psk": "fake-psk",
       "server": "sn.example.com",
       "server_port": 44047,
@@ -461,7 +504,7 @@
     },
     {
       "alter_id": 0,
-      "domain_resolver": "ns-0",
+      "domain_resolver": "ns-0-fallback",
       "security": "auto",
       "server": "v4.example.com",
       "server_port": 443,
@@ -470,7 +513,7 @@
       "uuid": "85dff723-6b85-4787-b888-445599ed4bd0"
     },
     {
-      "domain_resolver": "ns-0",
+      "domain_resolver": "ns-0-fallback",
       "password": "fake-password",
       "server": "hk1.example.com",
       "server_port": 443,
@@ -483,7 +526,7 @@
     },
     {
       "alter_id": 0,
-      "domain_resolver": "ns-0",
+      "domain_resolver": "ns-0-fallback",
       "security": "auto",
       "server": "hk2.example.com",
       "server_port": 443,
@@ -499,7 +542,7 @@
       "uuid": "85dff723-6b85-4787-b888-445599ed4bd0"
     },
     {
-      "domain_resolver": "ns-0",
+      "domain_resolver": "ns-0-fallback",
       "method": "aes-128-gcm",
       "password": "fake-password",
       "server": "jp1.example.com",
@@ -508,7 +551,7 @@
       "type": "shadowsocks"
     },
     {
-      "domain_resolver": "ns-0",
+      "domain_resolver": "ns-0-fallback",
       "password": "fake-password",
       "server": "sg1.example.com",
       "server_port": 443,
@@ -520,7 +563,7 @@
       "uuid": "85dff723-6b85-4787-b888-445599ed4bd0"
     },
     {
-      "domain_resolver": "ns-0",
+      "domain_resolver": "ns-0-fallback",
       "server": "tw1.example.com",
       "server_port": 443,
       "tag": "TW 01",

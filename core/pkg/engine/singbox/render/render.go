@@ -502,6 +502,9 @@ func renderDNS(d *ir.DNS) (obj, error) {
 			}
 		case "race":
 			o["type"], o["servers"] = race.Type, s.Members
+			if len(s.Fallback) > 0 {
+				o["fallback"] = s.Fallback
+			}
 		case "udp", "tcp", "tls", "https", "quic", "h3":
 			o["server"] = s.Address
 			if s.Port > 0 {

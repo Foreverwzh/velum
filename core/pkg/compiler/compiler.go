@@ -381,6 +381,7 @@ func Compile(sub *ir.Config, ov *overlay.Overlay, opts Options) (*Plan, error) {
 	if cfg.DNS.FakeIP == nil {
 		cfg.DNS.Rules = dropServerRules(cfg.DNS.Rules, "fakeip")
 	}
+	systemFallback(&cfg.DNS)
 
 	// ---- 系统代理 ----
 	p.SysProxy.Enabled = opts.SystemProxy
@@ -792,6 +793,61 @@ func firstRealDNS(d *ir.DNS) string {
 		}
 	}
 	return LocalDNS
+}
+
+// systemFallback 给订阅的 DNS 服务器加上系统 DNS（LocalDNS）兜底：它出错、返回 SERVFAIL / REFUSED 或迟迟不应答时，
+// 改问当前网络的 DNS（见 race 包）。订阅常只写一个 DoH（如 doh.pub），它被限流（429）、被所在网络拒绝或连不上时，
+// 所有走它的域名都解析不了：网页、聊天软件一起断开，而已建立的代理连接不受影响。
+// 显式指定经某个出站（地址#出站）的服务器不加：用户要求只经该出站查询（如经代理防污染），回落到本地网络违背这个意图。
+// 覆盖 final、节点域名解析、DNS 规则和 DoH 服务器的引导解析；系统 DNS 自身、hosts、fake-ip、VPN 作用域 DNS 等 Velum 生成的服务器不变。
+func systemFallback(d *ir.DNS) {
+	idx := map[string]int{}
+	for i, s := range d.Servers {
+		idx[s.Tag] = i
+	}
+	direct := func(s ir.DNSServer) bool {
+		switch s.Type {
+		case "udp", "tcp", "tls", "https", "quic", "h3":
+			return s.Detour == ""
+		}
+		return false
+	}
+	src := velum(i18n.T("订阅的 DNS 失败时改用系统 DNS"))
+	done := map[string]string{}
+	wrap := func(tag string) string {
+		if w, ok := done[tag]; ok {
+			return w
+		}
+		i, ok := idx[tag]
+		if !ok || d.Servers[i].Source.Kind != ir.SourceSubscription {
+			return tag
+		}
+		w := tag
+		switch sv := &d.Servers[i]; {
+		case sv.Type == "race" && len(sv.Fallback) == 0 && slices.ContainsFunc(sv.Members, func(m string) bool {
+			j, ok := idx[m]
+			return ok && direct(d.Servers[j])
+		}):
+			sv.Fallback = []string{LocalDNS}
+		case direct(*sv):
+			w = tag + "-fallback"
+			d.Servers = append(d.Servers, ir.DNSServer{Tag: w, Type: "race", Members: []string{tag}, Fallback: []string{LocalDNS}, Source: src})
+		}
+		done[tag] = w
+		return w
+	}
+	d.Final = wrap(d.Final)
+	d.OutboundResolver = wrap(d.OutboundResolver)
+	for i := range d.Rules {
+		if d.Rules[i].Server != "" {
+			d.Rules[i].Server = wrap(d.Rules[i].Server)
+		}
+	}
+	for i := range d.Servers {
+		if r := d.Servers[i].Resolver; r != "" {
+			d.Servers[i].Resolver = wrap(r)
+		}
+	}
 }
 
 func dropServerRules(rules []ir.DNSRule, server string) []ir.DNSRule {
