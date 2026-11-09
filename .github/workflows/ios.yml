@@ -44,7 +44,7 @@ jobs:
         env:
           ASC_KEY_P8: ${{ secrets.ASC_API_KEY_P8 }}
           ASC_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
-          ASC_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
+          ASC_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER }} # 同一账号的 Issuer ID 都一样，和公证共用
           DEV_CERT_P12_BASE64: ${{ secrets.IOS_DEV_CERT_P12_BASE64 }}
           DEV_CERT_P12_PASSWORD: ${{ secrets.IOS_DEV_CERT_P12_PASSWORD }}
         run: |

@@ -25,6 +25,6 @@ xcodebuild test -project Velum.xcodeproj -scheme Velum \
 | :--- | :--- |
 | `ASC_API_KEY_P8` | App Store Connect API 密钥 `.p8` 的全文，角色要 Admin（要用云端托管的分发证书） |
 | `ASC_API_KEY_ID` | 密钥 ID |
-| `ASC_API_ISSUER_ID` | Issuer ID |
+| `APPLE_API_ISSUER` | Issuer ID，和公证共用（同一账号只有一个） |
 | `IOS_DEV_CERT_P12_BASE64` | Apple Development 证书连私钥导出的 `.p12`，`base64 -i x.p12` |
 | `IOS_DEV_CERT_P12_PASSWORD` | `.p12` 的密码 |
