@@ -8,6 +8,13 @@ on:
       version:
         type: string
         required: true
+  # 手动重跑 iOS 这一段，不用再发一个版本
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 版本号，如 0.1.0-rc.29
+        type: string
+        required: true
 
 jobs:
   testflight:
@@ -42,9 +49,10 @@ jobs:
       #   所以固定用 secrets 里这一张。
       - name: import signing credentials
         env:
-          ASC_KEY_P8: ${{ secrets.ASC_API_KEY_P8 }}
-          ASC_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
-          ASC_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER }} # 同一账号的 Issuer ID 都一样，和公证共用
+          # 和桌面公证共用同一把 App Store Connect API 密钥
+          ASC_KEY_P8: ${{ secrets.APPLE_API_PRIVATE_KEY }}
+          ASC_KEY_ID: ${{ secrets.APPLE_API_KEY }}
+          ASC_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER }}
           DEV_CERT_P12_BASE64: ${{ secrets.IOS_DEV_CERT_P12_BASE64 }}
           DEV_CERT_P12_PASSWORD: ${{ secrets.IOS_DEV_CERT_P12_PASSWORD }}
         run: |

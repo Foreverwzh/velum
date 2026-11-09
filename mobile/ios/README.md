@@ -19,12 +19,12 @@ xcodebuild test -project Velum.xcodeproj -scheme Velum \
 
 - App Store Connect 里建好 App，bundle id `io.github.foreverwzh.velum`。扩展的 App ID、App Group 和描述文件由
   `-allowProvisioningUpdates` 自动处理。
-- 仓库 secrets（和 smelt 同一个团队，可以用同一套）：
+- 仓库 secrets：
 
 | secret | 内容 |
 | :--- | :--- |
-| `ASC_API_KEY_P8` | App Store Connect API 密钥 `.p8` 的全文，角色要 Admin（要用云端托管的分发证书） |
-| `ASC_API_KEY_ID` | 密钥 ID |
-| `APPLE_API_ISSUER` | Issuer ID，和公证共用（同一账号只有一个） |
+| `APPLE_API_PRIVATE_KEY` | App Store Connect API 密钥 `.p8` 的全文，和桌面公证共用；角色要 Admin（要用云端托管的分发证书） |
+| `APPLE_API_KEY` | 密钥 ID |
+| `APPLE_API_ISSUER` | Issuer ID |
 | `IOS_DEV_CERT_P12_BASE64` | Apple Development 证书连私钥导出的 `.p12`，`base64 -i x.p12` |
 | `IOS_DEV_CERT_P12_PASSWORD` | `.p12` 的密码 |
