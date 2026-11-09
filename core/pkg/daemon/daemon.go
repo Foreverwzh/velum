@@ -1217,9 +1217,10 @@ func (d *Daemon) status() rpc.Status {
 	d.upMu.Lock()
 	upd := d.upd
 	d.upMu.Unlock()
+	// 持锁期间只读 daemon 自己的字段，不调用引擎：iOS 上引擎查询要跨进程发消息给隧道扩展，
+	// 扩展不在时可能很慢，持着读锁会让切换开关、重新加载一直等下去。
 	d.mu.RLock()
-	defer d.mu.RUnlock()
-	s := rpc.Status{Traffic: traffic, Update: upd, PID: os.Getpid(), Version: Version, Running: d.Engine.Running(), Home: d.Paths.Home, StartedAt: d.startedAt, Starting: d.starting, LastError: d.lastErr,
+	s := rpc.Status{Traffic: traffic, Update: upd, PID: os.Getpid(), Version: Version, Home: d.Paths.Home, StartedAt: d.startedAt, Starting: d.starting, LastError: d.lastErr,
 		Overridden: d.sysOverride != nil || d.tunOverride != nil, WebListen: d.webListen, WebError: d.webErr}
 	if d.trial != nil {
 		s.TUNTrial = &rpc.TUNTrial{Deadline: d.trial.deadline}
@@ -1264,10 +1265,19 @@ func (d *Daemon) status() rpc.Status {
 		if st.plan.Route.Enabled {
 			s.TUN = &rpc.TUNStatus{Address: st.plan.Route.Address, Address6: st.plan.Route.Address6, Routes: st.plan.Route.Routes,
 				Exclude: st.plan.Route.Exclude, SystemDNS: st.plan.Route.SystemDNS, IncludeApps: st.plan.Route.IncludeApps, ExcludeApps: st.plan.Route.ExcludeApps}
-			if t, ok := d.Engine.(interface{ TUNName() string }); ok {
-				s.TUN.Name = t.TUNName()
-			}
 		}
+	}
+	st := d.st
+	d.mu.RUnlock()
+
+	// 以下查询引擎，不持 d.mu。st 发布后只读，可以在锁外使用。
+	s.Running = d.Engine.Running()
+	if s.TUN != nil {
+		if t, ok := d.Engine.(interface{ TUNName() string }); ok {
+			s.TUN.Name = t.TUNName()
+		}
+	}
+	if st != nil {
 		delayer, _ := d.Engine.(interface{ Delay(string) int })
 		for _, g := range st.plan.IR.Groups {
 			gs := rpc.GroupStatus{Tag: g.Tag, Type: g.Type, Selected: d.Engine.Selected(g.Tag), Members: g.Members, Policy: g.Policy}

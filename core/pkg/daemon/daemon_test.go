@@ -39,6 +39,8 @@ type fakeEngine struct {
 	last     engine.Config
 	gate     chan struct{} // 非 nil 时 Start 等它关闭（模拟首次加载耗时）
 	phys     []string      // SetPhysicalDNS 收到的地址
+	selGate  chan struct{} // 非 nil 时第一次 Selected 等它关闭（模拟 iOS 上跨进程查询隧道扩展很慢）
+	selEnter chan struct{} // 第一次 Selected 进入时关闭
 }
 
 func (f *fakeEngine) SetPhysicalDNS(addrs []string) { f.mu.Lock(); f.phys = addrs; f.mu.Unlock() }
@@ -68,6 +70,14 @@ func (f *fakeEngine) Subscribe() (<-chan engine.Connection, func()) {
 	return make(chan engine.Connection), func() {}
 }
 func (f *fakeEngine) Selected(tag string) string {
+	f.mu.Lock()
+	gate, enter := f.selGate, f.selEnter
+	f.selGate, f.selEnter = nil, nil // 只卡第一次：切换开关自己的回复也要查询
+	f.mu.Unlock()
+	if gate != nil {
+		close(enter)
+		<-gate
+	}
 	if tag == "Proxy" {
 		return "Auto"
 	}
@@ -1369,5 +1379,34 @@ func TestDaemonPhysicalDNSChangeKeepsEngine(t *testing.T) {
 	time.Sleep(100 * time.Millisecond) // 等重新加载结束
 	if n := eng.restartCount(); n != before {
 		t.Fatalf("只有物理 DNS 变化时不应重启内核：重启 %d 次", n-before)
+	}
+}
+
+// iOS 上 Selected / Delay 要跨进程问隧道扩展，扩展不在时可能很久才返回。
+// status 不能在持 d.mu 时等它们，否则切换开关会一直卡住（界面一直转圈）。
+func TestStatusDoesNotBlockSwitchWhileEngineIsSlow(t *testing.T) {
+	gate, enter := make(chan struct{}), make(chan struct{})
+	_, eng, c, done := setupEngine(t, &fakeEngine{})
+	defer done()
+	eng.mu.Lock()
+	eng.selGate, eng.selEnter = gate, enter
+	eng.mu.Unlock()
+	defer close(gate)
+
+	go func() { _, _ = c.Status() }()
+	select {
+	case <-enter:
+	case <-time.After(5 * time.Second):
+		t.Fatal("status 没有查询策略组")
+	}
+	res := make(chan error, 1)
+	go func() {
+		_, err := c.Switch(rpc.SwitchRequest{SystemProxy: "off"})
+		res <- err
+	}()
+	select {
+	case <-res:
+	case <-time.After(3 * time.Second):
+		t.Fatal("引擎查询卡住时，切换开关也被卡住了")
 	}
 }

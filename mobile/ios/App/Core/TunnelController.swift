@@ -59,8 +59,10 @@ final class TunnelController: NSObject, MobilebindTunnelHostProtocol, @unchecked
 
     private func statusChanged() {
         let active = tunnelActive()
-        // 隧道断了但按需连接还开着：是被系统结束，系统马上会拉起来，不算用户断开
-        if !active, lock.withLock({ wasActive }), let m = reload(), m.isOnDemandEnabled { return }
+        // 隧道断了但按需连接还开着：是被系统结束，系统马上会拉起来，不算用户断开。
+        // 配置必须仍是启用的：别的 VPN 被启用时系统会把本配置的 isEnabled 置为 false，
+        // 按需连接标志虽然还在，却不会再生效，这时要当成被撤销，否则界面一直显示「已连接」。
+        if !active, lock.withLock({ wasActive }), let m = reload(), m.isEnabled, m.isOnDemandEnabled { return }
         let notify = lock.withLock { () -> Bool in
             defer { wasActive = active }
             return wasActive && !active && !transitioning
@@ -182,7 +184,9 @@ final class TunnelController: NSObject, MobilebindTunnelHostProtocol, @unchecked
     }
 
     func tunnelCall(_ req: String?, error: NSErrorPointer) -> String {
-        guard let session = current()?.connection as? NETunnelProviderSession, let data = req?.data(using: .utf8) else {
+        // 隧道没在运行时 sendProviderMessage 的回调可能永远不来，每次都要等满 25 秒；
+        // 而核心在持读锁时会连续查询几百次（每个策略组、每个成员），切换开关就被一直卡住。
+        guard tunnelActive(), let session = current()?.connection as? NETunnelProviderSession, let data = req?.data(using: .utf8) else {
             error?.pointee = CoreError.message(String(localized: "隧道未运行")) as NSError
             return ""
         }

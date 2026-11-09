@@ -46,7 +46,13 @@ type splitEngine struct {
 	selected map[string]string
 	state    *tunnelproto.State
 	stateAt  time.Time
+	// failAt 是最近一次查询扩展状态失败的时间：失败也缓存 stateTTL，
+	// 否则一次 status 会对每个策略组、每个成员各发一次注定失败的请求。
+	failAt time.Time
 }
+
+// errTunnelDown 表示隧道扩展没在运行：不发消息，直接失败。
+var errTunnelDown = errors.New("tunnel is not running")
 
 func newSplitEngine(home string, host TunnelHost, local *singbox.Engine) *splitEngine {
 	return &splitEngine{home: home, host: host, local: local, selected: tunnelproto.LoadSelected(home)}
@@ -67,7 +73,7 @@ func (e *splitEngine) apply(ctx context.Context, cfg engine.Config) error {
 	e.mu.Lock()
 	first := !e.started
 	e.started = true
-	e.state = nil
+	e.state, e.failAt = nil, time.Time{}
 	e.mu.Unlock()
 
 	if cfg.TUN == nil {
@@ -130,6 +136,10 @@ func (e *splitEngine) Running() bool {
 }
 
 func (e *splitEngine) call(r tunnelproto.Request) (*tunnelproto.Response, error) {
+	// 隧道不在时，发出的消息可能要等到超时才失败（iOS 上回调可能永远不来）
+	if !e.host.TunnelActive() {
+		return nil, errTunnelDown
+	}
 	b, _ := json.Marshal(r)
 	s, err := e.host.TunnelCall(string(b))
 	if err != nil {
@@ -153,13 +163,20 @@ func (e *splitEngine) remoteState() *tunnelproto.State {
 		e.mu.Unlock()
 		return s
 	}
+	if time.Since(e.failAt) < stateTTL {
+		e.mu.Unlock()
+		return nil
+	}
 	e.mu.Unlock()
 	resp, err := e.call(tunnelproto.Request{Op: tunnelproto.OpState})
 	if err != nil || resp.State == nil {
+		e.mu.Lock()
+		e.failAt = time.Now()
+		e.mu.Unlock()
 		return nil
 	}
 	e.mu.Lock()
-	e.state, e.stateAt = resp.State, time.Now()
+	e.state, e.stateAt, e.failAt = resp.State, time.Now(), time.Time{}
 	e.mu.Unlock()
 	return resp.State
 }
@@ -214,7 +231,7 @@ func (e *splitEngine) SelectMember(group, member string) error {
 		e.selected = map[string]string{}
 	}
 	e.selected[group] = member
-	e.state = nil
+	e.state, e.failAt = nil, time.Time{}
 	return tunnelproto.SaveSelected(e.home, e.selected)
 }
 
@@ -227,7 +244,7 @@ func (e *splitEngine) TestGroup(ctx context.Context, group string) (map[string]i
 		return nil, err
 	}
 	e.mu.Lock()
-	e.state = nil
+	e.state, e.failAt = nil, time.Time{}
 	e.mu.Unlock()
 	return resp.Delays, nil
 }

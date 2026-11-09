@@ -23,6 +23,7 @@ type fakeTunnel struct {
 	starts, stops int
 	calls         []tunnelproto.Request
 	startErr      error
+	callErr       error
 }
 
 func (f *fakeTunnel) Network() string { return "" }
@@ -40,6 +41,9 @@ func (f *fakeTunnel) TunnelCall(req string) (string, error) {
 	var r tunnelproto.Request
 	_ = json.Unmarshal([]byte(req), &r)
 	f.calls = append(f.calls, r)
+	if f.callErr != nil {
+		return "", f.callErr
+	}
 	b, _ := json.Marshal(tunnelproto.Response{State: &tunnelproto.State{
 		Selected: map[string]string{"Proxy": "节点"}, Delays: map[string]int{"节点": 42}, TUNName: "utun9"}})
 	return string(b), nil
@@ -271,4 +275,49 @@ func TestSplitReportsConnectivityFromSystem(t *testing.T) {
 	// 没有物理网络时才是离线
 	host.network = ""
 	wait(string(netsense.Offline))
+}
+
+// 隧道被别的 VPN 挤掉后，核心仍以为在用隧道：查询不能再发消息给不存在的扩展
+// （iOS 上回调可能永远不来，每次都等到超时）。
+func TestSplitEngineSkipsCallsWhenTunnelIsGone(t *testing.T) {
+	f := &fakeTunnel{active: true}
+	e := newSplitEngine(t.TempDir(), f, singbox.New(singbox.Options{}))
+	e.setRemote(true)
+	if got := e.Selected("Proxy"); got != "节点" {
+		t.Fatalf("隧道在时应当查到扩展的选择：%q", got)
+	}
+	f.active = false
+	e.mu.Lock()
+	e.state = nil
+	e.mu.Unlock()
+	before := len(f.calls)
+	for range 100 {
+		e.Selected("Proxy")
+		e.Delay("节点")
+	}
+	if n := len(f.calls) - before; n != 0 {
+		t.Fatalf("隧道不在时仍发了 %d 次消息", n)
+	}
+}
+
+// 扩展在但查询失败：失败结果也要缓存，一次 status 不能对每个策略组、每个成员各失败一次。
+func TestSplitEngineCachesFailedState(t *testing.T) {
+	f := &fakeTunnel{active: true, callErr: os.ErrDeadlineExceeded}
+	e := newSplitEngine(t.TempDir(), f, singbox.New(singbox.Options{}))
+	e.setRemote(true)
+	for range 100 {
+		e.Selected("Proxy")
+		e.Delay("节点")
+	}
+	if n := f.count(tunnelproto.OpState); n != 1 {
+		t.Fatalf("stateTTL 内应当只查询一次，实际 %d 次", n)
+	}
+	// 失败缓存过期后恢复查询
+	f.callErr = nil
+	e.mu.Lock()
+	e.failAt = time.Now().Add(-stateTTL)
+	e.mu.Unlock()
+	if got := e.Selected("Proxy"); got != "节点" {
+		t.Fatalf("失败缓存过期后应当重新查询：%q", got)
+	}
 }
