@@ -82,6 +82,8 @@ type Cond struct {
 	RuleSet       []string `json:"rule_set,omitempty"`
 	Port          []int    `json:"port,omitempty"`
 	Network       []string `json:"network,omitempty"`
+	// NoResolve：IP 条件不触发解析（Clash no-resolve）。引擎在解析点之前不用解析出的地址匹配这类规则。
+	NoResolve bool `json:"no_resolve,omitempty"`
 }
 
 // Action 的 JSON 形如 {"kind": "direct"} / {"kind": "route", "target": "Proxy"}。
@@ -124,12 +126,23 @@ type Result struct {
 	Warnings []Warning `json:"warnings"`
 	// RuleIndex 是引擎规则 → Plan 规则的下标（一致性测试用：两边命中同一条规则才算一致）。
 	RuleIndex []int `json:"rule_index"`
+	// Loaded 是由 GeoSource 取得的远程规则集内容（tag → 条件），可交给 explain.WhyWith 求值。
+	Loaded map[string][]ir.Cond `json:"-"`
+}
+
+// Options 控制转换。
+type Options struct {
+	// Geo 为 geoip-* / geosite-* 远程规则集提供数据；为 nil 时这些规则集不可用（产出告警）。
+	Geo *GeoSource
 }
 
 // Render 转换 Plan。不会因为不支持的内容失败，只产出告警。
-func Render(p *compiler.Plan) *Result {
+func Render(p *compiler.Plan) *Result { return RenderWith(p, Options{}) }
+
+// RenderWith 同 Render，可提供远程 geo 规则集的数据源。
+func RenderWith(p *compiler.Plan, opt Options) *Result {
 	c := p.IR
-	r := &Result{Config: Config{SchemaVersion: SchemaVersion, IPv6: c.IPv6}}
+	r := &Result{Config: Config{SchemaVersion: SchemaVersion, IPv6: c.IPv6}, Loaded: map[string][]ir.Cond{}}
 	warn := func(kind, subject, reason string, src ir.Source) {
 		r.Warnings = append(r.Warnings, Warning{Kind: kind, Subject: subject, Reason: reason, Source: src})
 	}
@@ -150,8 +163,21 @@ func Render(p *compiler.Plan) *Result {
 	usable := map[string]bool{}
 	for _, rs := range c.RuleSets {
 		if rs.Kind != ir.RuleSetInline {
-			warn("rule_set", rs.Tag, fmt.Sprintf("%s 规则集（%s）暂不支持：引擎不读 sing-box 的 .srs，需要换成可再分发的数据源", rs.Kind, rs.Format), rs.Source)
-			continue
+			var conds []ir.Cond
+			var err error
+			if opt.Geo != nil {
+				conds, err = opt.Geo.Load(rs.Tag)
+			}
+			switch {
+			case err != nil:
+				warn("rule_set", rs.Tag, "取 geo 数据失败："+err.Error(), rs.Source)
+				continue
+			case conds == nil:
+				warn("rule_set", rs.Tag, fmt.Sprintf("%s 规则集（%s）暂不支持：引擎不读 sing-box 的 .srs，需要换成可再分发的数据源", rs.Kind, rs.Format), rs.Source)
+				continue
+			}
+			r.Loaded[rs.Tag] = conds
+			rs.Rules = conds
 		}
 		out := RuleSet{Name: rs.Tag}
 		dropped := 0
@@ -172,6 +198,19 @@ func Render(p *compiler.Plan) *Result {
 		r.RuleSets = append(r.RuleSets, out)
 	}
 
+	// 解析点：sing-box 只在显式的 resolve 动作处解析域名，之前的 IP 规则对域名连接看不到 IP。
+	// 引擎的解析点是「第一条不带 no-resolve 的 IP 规则」，所以把第一个 resolve 之前的 IP 规则都标成 no-resolve，
+	// 两边的解析点就对齐了；Plan 里没有 resolve 时，所有 IP 规则都不对域名连接生效。
+	resolvedFrom := len(c.Rules)
+	for i, rule := range c.Rules {
+		if rule.Action.Kind == ir.ActionResolve {
+			resolvedFrom = i
+			if rule.Match.Cond != nil || rule.Match.Logical != "" {
+				warn("rule", fmt.Sprintf("#%d", i+1), "带条件的 resolve 按无条件处理（解析点取这条规则的位置）", rule.Source)
+			}
+			break
+		}
+	}
 	for i, rule := range c.Rules {
 		a, ok := action(rule.Action, rule.Source, warn)
 		if !ok {
@@ -188,6 +227,9 @@ func Render(p *compiler.Plan) *Result {
 		cd, ok := cond(*rule.Match.Cond, usable, fmt.Sprintf("#%d", i+1), rule.Source, warn)
 		if !ok {
 			continue
+		}
+		if i < resolvedFrom {
+			cd.NoResolve = true
 		}
 		r.Config.Rules = append(r.Config.Rules, Rule{Cond: cd, Action: a})
 		r.RuleIndex = append(r.RuleIndex, i)
@@ -265,7 +307,7 @@ func action(a ir.Action, src ir.Source, warn warnFn) (Action, bool) {
 func cond(c ir.Cond, usable map[string]bool, subject string, src ir.Source, warn warnFn) (Cond, bool) {
 	out := Cond{
 		Domain: c.Domain, DomainSuffix: c.DomainSuffix, DomainKeyword: c.DomainKeyword, IPCIDR: c.IPCIDR,
-		IPPrivate: c.IPPrivate, Network: c.Network,
+		IPPrivate: c.IPPrivate, Network: c.Network, NoResolve: c.NoResolve,
 	}
 	for _, p := range c.Port {
 		out.Port = append(out.Port, p)

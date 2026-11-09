@@ -55,3 +55,28 @@ func TestRenderConvertsAndWarns(t *testing.T) {
 		}
 	}
 }
+
+// 解析点对齐：第一个 resolve 动作之前的 IP 规则标成 no-resolve（sing-box 只在 resolve 处解析）。
+func TestRenderMarksIPRulesBeforeResolve(t *testing.T) {
+	ipRule := func(cidr string) ir.Rule {
+		return ir.Rule{Match: ir.Leaf(ir.Cond{IPCIDR: []string{cidr}}), Action: ir.Action{Kind: ir.ActionRoute, Outbound: ir.OutboundDirect}}
+	}
+	c := &ir.Config{
+		Rules: []ir.Rule{
+			ipRule("10.0.0.0/8"),
+			{Match: ir.Leaf(ir.Cond{DomainSuffix: []string{"a.com"}}), Action: ir.Action{Kind: ir.ActionRoute, Outbound: ir.OutboundDirect}},
+			{Action: ir.Action{Kind: ir.ActionResolve}},
+			ipRule("1.0.0.0/8"),
+		},
+		Final: ir.Action{Kind: ir.ActionRoute, Outbound: ir.OutboundDirect},
+	}
+	r := Render(&compiler.Plan{IR: c})
+	if len(r.Config.Rules) != 3 || !r.Config.Rules[0].Cond.NoResolve || r.Config.Rules[2].Cond.NoResolve {
+		t.Fatalf("resolve 之前的 IP 规则应标 no-resolve、之后的不标：%+v", r.Config.Rules)
+	}
+	// 没有 resolve：所有 IP 规则都标
+	c.Rules = []ir.Rule{ipRule("1.0.0.0/8")}
+	if r := Render(&compiler.Plan{IR: c}); !r.Config.Rules[0].Cond.NoResolve {
+		t.Fatal("没有 resolve 时 IP 规则对域名连接不生效，应标 no-resolve")
+	}
+}

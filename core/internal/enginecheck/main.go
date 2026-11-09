@@ -21,6 +21,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/Foreverwzh/velum/core/pkg/compiler"
 	"github.com/Foreverwzh/velum/core/pkg/config"
@@ -33,10 +34,12 @@ import (
 )
 
 type target struct {
-	Domain  string `json:"domain,omitempty"`
-	IP      string `json:"ip,omitempty"`
-	Port    uint16 `json:"port"`
-	Network string `json:"network"`
+	Domain string `json:"domain,omitempty"`
+	IP     string `json:"ip,omitempty"`
+	// Resolved 是域名的解析结果（只有域名的目标可带）：覆盖「先解析、再按 IP 规则匹配」的路径。
+	Resolved string `json:"resolved,omitempty"`
+	Port     uint16 `json:"port"`
+	Network  string `json:"network"`
 	// Velum 的判断：命中的 Plan 规则下标（-1 = final）与归一化动作。
 	RuleIndex int    `json:"rule_index"`
 	Action    string `json:"action"`
@@ -72,7 +75,11 @@ func main() {
 	plan, err := compiler.Compile(sub, ov, opts)
 	fail(err)
 
-	r := velum.Render(plan)
+	geo := &velum.GeoSource{Fetch: func(url string) ([]byte, error) {
+		b, _, err := f.Get("providers", url, 24*time.Hour)
+		return b, err
+	}}
+	r := velum.RenderWith(plan, velum.Options{Geo: geo})
 	fail(os.MkdirAll(*out, 0o700))
 	write := func(name string, v any) {
 		b, err := json.MarshalIndent(v, "", " ")
@@ -84,7 +91,7 @@ func main() {
 	write("rule_index.json", r.RuleIndex)
 	write("warnings.json", r.Warnings)
 
-	ts := targets(plan.IR, *perSet)
+	ts := targets(plan.IR, *perSet, r.Loaded)
 	tf, err := os.OpenFile(filepath.Join(*out, "targets.jsonl"), os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
 	fail(err)
 	enc := json.NewEncoder(tf)
@@ -93,7 +100,10 @@ func main() {
 		if t.IP != "" {
 			et.IP = netip.MustParseAddr(t.IP)
 		}
-		d := explain.WhyWith(plan, et, nil).Decision
+		if t.Resolved != "" {
+			et.ResolvedIPs = []netip.Addr{netip.MustParseAddr(t.Resolved)}
+		}
+		d := explain.WhyWith(plan, et, r.Loaded).Decision
 		t.RuleIndex, t.Action, t.Uncertain = d.RuleIndex, normalize(d.Action, d.Outbound), d.Uncertain
 		fail(enc.Encode(t))
 	}
@@ -125,12 +135,12 @@ func normalize(kind, outbound string) string {
 }
 
 // targets 从规则和规则集里取样（命中样本），再加随机域名 / IP（大多落到 final）。
-func targets(c *ir.Config, perSet int) []target {
+func targets(c *ir.Config, perSet int, loaded map[string][]ir.Cond) []target {
 	rng := rand.New(rand.NewPCG(1, 2))
 	var out []target
 	seen := map[string]bool{}
 	add := func(t target) {
-		k := fmt.Sprintf("%s|%s|%d|%s", t.Domain, t.IP, t.Port, t.Network)
+		k := fmt.Sprintf("%s|%s|%s|%d|%s", t.Domain, t.IP, t.Resolved, t.Port, t.Network)
 		if !seen[k] {
 			seen[k] = true
 			out = append(out, t)
@@ -192,6 +202,26 @@ func targets(c *ir.Config, perSet int) []target {
 	for i := 0; i < 300; i++ {
 		a := netip.AddrFrom4([4]byte{byte(1 + rng.IntN(222)), byte(rng.IntN(256)), byte(rng.IntN(256)), byte(rng.IntN(256))})
 		add(target{IP: a.String(), Port: 443, Network: "tcp"})
+	}
+	// 带解析结果的域名：一半配 geo 规则集里的地址（如中国 IP），一半配随机地址
+	var geoIPs []string
+	for _, conds := range loaded {
+		for _, cd := range conds {
+			for _, p := range cd.IPCIDR {
+				if pf, err := netip.ParsePrefix(p); err == nil && pf.Addr().Is4() {
+					geoIPs = append(geoIPs, pf.Masked().Addr().Next().String())
+				}
+			}
+		}
+	}
+	sort.Strings(geoIPs)
+	for i := 0; i < 400; i++ {
+		d := fmt.Sprintf("r%d.%s.%s", i, words[rng.IntN(len(words))], tlds[rng.IntN(len(tlds))])
+		ip := netip.AddrFrom4([4]byte{byte(1 + rng.IntN(222)), byte(rng.IntN(256)), byte(rng.IntN(256)), byte(rng.IntN(256))}).String()
+		if i%2 == 0 && len(geoIPs) > 0 {
+			ip = geoIPs[rng.IntN(len(geoIPs))]
+		}
+		add(target{Domain: d, Resolved: ip, Port: 443, Network: "tcp"})
 	}
 	// 端口 / 网络维度：同一批域名换成 UDP 443、TCP 80
 	base := len(out)
