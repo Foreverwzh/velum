@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/Foreverwzh/velum/core/pkg/engine"
+	"github.com/Foreverwzh/velum/core/pkg/engine/singbox/physdns"
 	"github.com/Foreverwzh/velum/core/pkg/engine/singbox/race"
 	"github.com/Foreverwzh/velum/core/pkg/ir"
 	box "github.com/sagernet/sing-box"
@@ -57,9 +58,10 @@ type Engine struct {
 	// stopped：Stop 之后不再启动。daemon 退出时后台可能仍有进行中的重新加载（如拉取 providers 后重启引擎）；
 	// velumd 随即退出无妨，但 macOS 系统扩展的进程在隧道停止后继续存在，复活的内核会一直占着端口。
 	stopped bool
-	bctx    context.Context // 内核的 context（含 DNS 路由器等服务）
-	plat    *platform       // 平台接口：TUN 模式下持有 helper 会话；macOS 上另负责连接归属查询
-	ownTUN  string          // 内核自建 TUN（Windows）的网卡名
+	bctx    context.Context  // 内核的 context（含 DNS 路由器等服务）
+	plat    *platform        // 平台接口：TUN 模式下持有 helper 会话；macOS 上另负责连接归属查询
+	ownTUN  string           // 内核自建 TUN（Windows）的网卡名
+	phys    *physdns.Servers // 物理网络的 DNS：跨内核重启保留，变化时不必重启（见 SetPhysicalDNS）
 
 	mu       sync.Mutex // 连接数据与运行时引用
 	router   adapter.Router
@@ -87,27 +89,48 @@ func New(opts Options) *Engine {
 	if opts.History <= 0 {
 		opts.History = defaultHistory
 	}
-	return &Engine{opts: opts, live: map[uint32]*engine.Connection{}, canceled: map[uint32]bool{}, meters: map[uint32]*meter{}, procs: map[string]*counter{}, errs: map[uint32][]string{},
+	return &Engine{opts: opts, phys: &physdns.Servers{}, live: map[uint32]*engine.Connection{}, canceled: map[uint32]bool{}, meters: map[uint32]*meter{}, procs: map[string]*counter{}, errs: map[uint32][]string{},
 		subs: map[chan engine.Connection]struct{}{}}
 }
 
-var _ engine.Engine = (*Engine)(nil)
+var (
+	_ engine.Engine            = (*Engine)(nil)
+	_ engine.PhysicalDNSSetter = (*Engine)(nil)
+)
 
-func boxContext(ctx context.Context) context.Context {
-	return box.Context(ctx, include.InboundRegistry(), include.OutboundRegistry(), include.EndpointRegistry(),
-		dnsRegistry(), include.ServiceRegistry(), include.CertificateProviderRegistry())
+// SetPhysicalDNS 更新物理网络的 DNS 地址：正在运行的内核在下次查询时使用新地址，不重启、不断开连接。
+// 地址变化说明换了网络：清空 DNS 缓存，上一个网络的应答（如只在办公网能解析的内网域名）不再沿用。
+func (e *Engine) SetPhysicalDNS(addrs []string) {
+	if !e.phys.Set(addrs) {
+		return
+	}
+	e.lmu.Lock()
+	bctx := e.bctx
+	e.lmu.Unlock()
+	if bctx == nil {
+		return
+	}
+	if r := service.FromContext[adapter.DNSRouter](bctx); r != nil {
+		r.ClearCache()
+	}
 }
 
-// dnsRegistry 是内核的 DNS 传输表，另加 Velum 的 race 传输（多上游竞速）。
-func dnsRegistry() *dns.TransportRegistry {
+func boxContext(ctx context.Context, phys *physdns.Servers) context.Context {
+	return physdns.With(box.Context(ctx, include.InboundRegistry(), include.OutboundRegistry(), include.EndpointRegistry(),
+		DNSRegistry(), include.ServiceRegistry(), include.CertificateProviderRegistry()), phys)
+}
+
+// DNSRegistry 是内核的 DNS 传输表，另加 Velum 的 race 传输（多上游竞速、兜底）和 physdns 传输（物理网络 DNS，运行时更新）。
+func DNSRegistry() *dns.TransportRegistry {
 	r := include.DNSTransportRegistry()
 	race.Register(r)
+	physdns.Register(r)
 	return r
 }
 
 // Check 校验配置能否被内核加载（不启动）。
 func Check(cfgJSON []byte) error {
-	ctx := boxContext(context.Background())
+	ctx := boxContext(context.Background(), &physdns.Servers{})
 	opts, err := json.UnmarshalExtendedContext[option.Options](ctx, cfgJSON)
 	if err != nil {
 		return fmt.Errorf("decode: %w", err)
@@ -132,7 +155,7 @@ func (e *Engine) Start(ctx context.Context, cfg engine.Config) error {
 }
 
 func (e *Engine) startLocked(cfg engine.Config) error {
-	bctx := boxContext(context.Background())
+	bctx := boxContext(context.Background(), e.phys)
 	var plat *platform
 	switch {
 	case cfg.TUN != nil && cfg.TUN.Opener != nil: // 没有 Opener（Windows）时由内核自建 TUN

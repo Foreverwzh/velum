@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/Foreverwzh/velum/core/pkg/compiler"
+	"github.com/Foreverwzh/velum/core/pkg/engine/singbox/physdns"
 	"github.com/Foreverwzh/velum/core/pkg/engine/singbox/race"
 	"github.com/Foreverwzh/velum/core/pkg/engine/singbox/render"
 	"github.com/Foreverwzh/velum/core/pkg/explain"
@@ -40,12 +41,13 @@ func repoTestdata(t *testing.T) string {
 func dnsRegistry() *dns.TransportRegistry {
 	r := include.DNSTransportRegistry()
 	race.Register(r)
+	physdns.Register(r)
 	return r
 }
 
 func boxContext() context.Context {
-	return box.Context(context.Background(), include.InboundRegistry(), include.OutboundRegistry(), include.EndpointRegistry(),
-		dnsRegistry(), include.ServiceRegistry(), include.CertificateProviderRegistry())
+	return physdns.With(box.Context(context.Background(), include.InboundRegistry(), include.OutboundRegistry(), include.EndpointRegistry(),
+		dnsRegistry(), include.ServiceRegistry(), include.CertificateProviderRegistry()), &physdns.Servers{})
 }
 
 func buildPlan(t *testing.T, mode string) *compiler.Plan {

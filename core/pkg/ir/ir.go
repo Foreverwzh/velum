@@ -256,7 +256,7 @@ type DNS struct {
 
 type DNSServer struct {
 	Tag     string
-	Type    string // local / udp / tcp / tls / https / quic / h3 / dhcp / fakeip / race / hosts
+	Type    string // local / udp / tcp / tls / https / quic / h3 / dhcp / fakeip / race / hosts / physical（物理网络 DNS，地址运行时更新）
 	Address string
 	// Members 是 race 类型的上游（其他 DNSServer 的 Tag）：并发查询，取最先成功的应答（mihomo 多个 nameserver 的语义）。
 	Members []string

@@ -10,6 +10,7 @@ import (
 	"net/netip"
 
 	"github.com/Foreverwzh/velum/core/pkg/compiler"
+	"github.com/Foreverwzh/velum/core/pkg/engine/singbox/physdns"
 	"github.com/Foreverwzh/velum/core/pkg/engine/singbox/race"
 	"github.com/Foreverwzh/velum/core/pkg/ir"
 )
@@ -500,6 +501,8 @@ func renderDNS(d *ir.DNS) (obj, error) {
 			if s.Path != "" {
 				o["path"] = []string{s.Path} // 默认为系统 hosts 文件
 			}
+		case "physical":
+			o["type"] = physdns.Type
 		case "race":
 			o["type"], o["servers"] = race.Type, s.Members
 			if len(s.Fallback) > 0 {
@@ -562,6 +565,10 @@ func renderDNS(d *ir.DNS) (obj, error) {
 	if d.Strategy != "" {
 		out["strategy"] = d.Strategy
 	}
+	// 乐观缓存（RFC 8767 serve-stale）：缓存过期后先用旧应答（TTL 1 秒）并在后台刷新，刷新失败时保留旧应答（最长 3 天）。
+	// 上游 DNS 全部不可用（网络刚恢复、DoH 被限流）时，访问过的域名仍能解析；平时也省去过期后的等待。
+	// 换网时引擎清空缓存（见 SetPhysicalDNS），上一个网络的应答不会沿用。
+	out["optimistic"] = true
 	return out, nil
 }
 

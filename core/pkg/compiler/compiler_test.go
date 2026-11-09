@@ -465,9 +465,12 @@ func TestAndroidUsesPhysicalDNS(t *testing.T) {
 			if sv.Type == "local" {
 				t.Errorf("%s：%s 仍使用系统解析器", mode, sv.Tag)
 			}
-			if sv.Tag == compiler.LocalDNS && sv.Address != "10.0.2.3" {
-				t.Errorf("%s：系统 DNS 应改为 10.0.2.3，实际 %+v", mode, sv)
+			if sv.Tag == compiler.LocalDNS && sv.Type != "physical" {
+				t.Errorf("%s：系统 DNS 应改为询问物理网络 DNS，实际 %+v", mode, sv)
 			}
+		}
+		if got := mk([]string{"10.0.2.3"}).PhysicalDNS; strings.Join(got, ",") != "10.0.2.3" {
+			t.Errorf("%s：物理网络 DNS 应为 10.0.2.3，实际 %v", mode, got)
 		}
 		found := false
 		for _, w := range mk(nil).Warnings {
@@ -905,22 +908,27 @@ func TestPhysicalDNSSkipsLinkLocal(t *testing.T) {
 	}{
 		// Wi-Fi：路由器的链路本地 IPv6 DNS 排在最前，且不带网卡标识
 		{[]string{"fe80::fa20:a9ff:fe47:fa88", "192.168.3.1"}, "192.168.3.1"},
-		// 蜂窝：IPv6 在前，仍优先 IPv4
-		{[]string{"2409:8020:2000::66", "2409:8020:2000::6", "112.4.1.36"}, "112.4.1.36"},
+		// 蜂窝：IPv6 在前，仍优先 IPv4；多个地址并发询问
+		{[]string{"2409:8020:2000::66", "2409:8020:2000::6", "112.4.1.36"}, "112.4.1.36,2409:8020:2000::66,2409:8020:2000::6"},
 		{[]string{"fe80::1", "2409:8020:2000::66"}, "2409:8020:2000::66"},
 		{[]string{"fe80::1"}, "fe80::1"},
+		// 最多 3 个
+		{[]string{"10.0.0.1", "10.0.0.2", "10.0.0.3", "10.0.0.4"}, "10.0.0.1,10.0.0.2,10.0.0.3"},
 	} {
 		p, err := compiler.Compile(s, nil, compiler.Options{Mode: compiler.ModeTUN, Listen: netip.MustParseAddrPort("127.0.0.1:7899"), Platform: "android",
 			TUN: compiler.TUNOptions{Address: netip.MustParsePrefix("172.19.0.1/30")}, Env: &compiler.Environment{PhysicalDNS: c.phys}})
 		if err != nil {
 			t.Fatal(err)
 		}
+		if got := strings.Join(p.PhysicalDNS, ","); got != c.want {
+			t.Errorf("phys=%v：应使用 %s，实际 %s", c.phys, c.want, got)
+		}
 		n := 0
 		for _, sv := range p.IR.DNS.Servers {
-			if sv.Type == "udp" && strings.Contains(sv.Source.Text, "物理网络 DNS") {
+			if sv.Type == "physical" {
 				n++
-				if sv.Address != c.want {
-					t.Errorf("phys=%v：%s 应使用 %s，实际 %s", c.phys, sv.Tag, c.want, sv.Address)
+				if sv.Address != "" {
+					t.Errorf("物理网络 DNS 的地址不应写进配置：%+v", sv)
 				}
 			}
 		}

@@ -504,6 +504,8 @@ func (d *Daemon) reload(ctx context.Context) error {
 	old := d.st
 	d.mu.RUnlock()
 	// RoutePlan 也要比较：macOS / Android 的路由、系统 DNS、按应用分流由平台层（helper / VpnService）执行，不在内核配置里
+	// 物理网络的 DNS 不在内核配置里（见 compiler.Plan.PhysicalDNS）：先更新，换 Wi-Fi 时只有它变化就不必重启
+	d.setPhysicalDNS(st)
 	if old != nil && d.Engine.Running() && bytes.Equal(old.rendered.JSON, st.rendered.JSON) && reflect.DeepEqual(old.plan.Route, st.plan.Route) {
 		// 内核配置未变化：不重启引擎（避免无谓断开连接），只更新状态（告警、拉取时间等）
 		d.mu.Lock()
@@ -518,6 +520,7 @@ func (d *Daemon) reload(ctx context.Context) error {
 		d.setErr(err)
 		// 新配置无法启动：尝试恢复旧配置
 		if old != nil {
+			d.setPhysicalDNS(old)
 			if rerr := d.Engine.Restart(ctx, d.engineConfig(old)); rerr != nil {
 				d.Logger.Printf("恢复旧配置失败：%v", rerr)
 			}
@@ -533,6 +536,13 @@ func (d *Daemon) reload(ctx context.Context) error {
 	d.Logger.Printf("配置已加载：%d 节点 / %d 策略组 / %d 规则，%d 条告警", st.sub.Nodes, st.sub.Groups, st.sub.Rules, len(st.plan.Warnings))
 	d.retryMissing(st)
 	return nil
+}
+
+// setPhysicalDNS 把物理网络的 DNS 地址交给引擎（运行中的内核随即使用，不重启）。
+func (d *Daemon) setPhysicalDNS(st *state) {
+	if s, ok := d.Engine.(engine.PhysicalDNSSetter); ok {
+		s.SetPhysicalDNS(st.plan.PhysicalDNS)
+	}
 }
 
 // retryMissing：引擎没起来时（首次设置订阅、启动）直连下载失败的规则集，在引擎起来后于后台经 Velum 代理重试一次，
@@ -597,6 +607,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 		d.setErr(err) // 配置有误时仍启动 RPC，便于 vlu status 查看原因；修正后 vlu reload
 	} else {
 		d.guardTUN(st, true)
+		d.setPhysicalDNS(st)
 		if err := d.Engine.Start(ctx, d.engineConfig(st)); err != nil {
 			d.setErr(err)
 		} else {

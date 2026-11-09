@@ -319,6 +319,8 @@ type PlatformHooks interface {
 - **策略组私有字段**：Stash 的 `ssid-policy`（按 Wi-Fi 切换）由 NetworkSense 场景触发器在运行时调用 selector 实现。
 - **DNS 竞速与兜底**：同一位置写了多个上游时由 Velum 的 `velum-race` 传输并发查询、取最先可用的应答（mihomo 语义）；`respect-rules` 由 Velum DNSPlan 实现。
   订阅的 DNS 服务器（final、节点域名解析、nameserver-policy、DoH 的引导解析）都带系统 DNS 兜底：上游出错、返回 SERVFAIL / REFUSED 或 500ms 内没有应答时加入系统 DNS；上游刚失败过（30 秒内）则两边同时发出，网络变化后重新信任上游。显式经出站查询的服务器（`地址#出站`）不兜底。原因：订阅常只写一个 DoH，它被限流（429）或被所在网络拒绝时，所有直连域名都解析不了（2026-11-09 实测）。
+- **物理网络 DNS 运行时更新**：接管系统 DNS 后（桌面 TUN、Linux、Android），原本经系统解析器的服务器改为 `velum-physical` 传输，地址不写进内核配置，由 daemon 在每次编译后交给引擎（`engine.PhysicalDNSSetter`）。换 Wi-Fi 时物理 DNS 常会变化，写进配置就要重启内核、断开所有连接（2026-11-09 到公司时连续重启两次）；现在只更新地址并清空 DNS 缓存。网络下发多个 DNS 时并发询问（IPv4 在前，跳过链路本地 IPv6，最多 3 个），一个不可用不影响解析。
+- **乐观缓存（serve-stale，RFC 8767）**：开启 sing-box 的 `dns.optimistic`。缓存过期后先返回旧应答（TTL 1 秒）并在后台刷新，刷新失败时保留旧应答，最长 3 天。上游 DNS 全部不可用时，访问过的域名仍能解析。换网时随物理 DNS 变化清空缓存。
 - **系统 hosts**：与 mihomo 一致默认读取系统 hosts 文件（`use-system-hosts: false` 时关闭）。编译器注入 sing-box 的 `hosts` DNS 服务器和一条 `preferred_by` 规则，只应答文件里有记录的域名，排在 Overlay hosts 之后、其他 DNS 规则之前；文件修改后自动生效。`vlu why` 的 DNS 一步显示「系统 hosts 文件」。
 - **验证方式**：用真实订阅（脱敏，不入库）和覆盖型合成样本（`spikes/m0-subconv/testdata/coverage`）做 golden snapshot 测试，并对产物执行 `box.New` 校验。另外用 Clash 语义参考匹配器生成正例 / 反例，与 sing-box 匹配器逐条比对，覆盖规则集和内联 AND / OR / NOT。方法见 `spikes/m0-subconv`。
 

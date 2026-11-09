@@ -134,6 +134,9 @@ type Plan struct {
 	SysProxy SysProxyPlan
 	Route    RoutePlan
 	Warnings []ir.Warning
+	// PhysicalDNS 是 physical 类型 DNS 服务器要询问的物理网络 DNS 地址。不写进内核配置，由引擎在运行时更新：
+	// 换 Wi-Fi 时它常会变化，写进配置就要重启内核、断开所有连接。
+	PhysicalDNS []string
 }
 
 func velum(text string) ir.Source { return ir.Source{Kind: ir.SourceVelum, Text: text} }
@@ -411,13 +414,13 @@ func Compile(sub *ir.Config, ov *overlay.Overlay, opts Options) (*Plan, error) {
 	if opts.Env != nil {
 		phys = opts.Env.PhysicalDNS
 	}
-	// usePhys 把经系统解析器（local）的解析改为直接询问物理网络的 DNS
+	// usePhys 把经系统解析器（local）的解析改为直接询问物理网络的 DNS（physical 类型，地址见 Plan.PhysicalDNS）
 	usePhys := func(why string) {
-		addr := pickPhysicalDNS(phys)
+		p.PhysicalDNS = usablePhysicalDNS(phys)
 		for i := range cfg.DNS.Servers {
 			if sv := &cfg.DNS.Servers[i]; sv.Type == "local" && sv.Tag != SystemResolverDNS {
-				sv.Type, sv.Address = "udp", addr
-				sv.Source.Text += "（" + why + i18n.T("，改用物理网络 DNS ") + addr + "）"
+				sv.Type = "physical"
+				sv.Source.Text += "（" + why + i18n.T("，改用物理网络 DNS") + "）"
 			}
 		}
 	}
@@ -888,11 +891,11 @@ func coveredHost(pattern string, hosts map[string]bool) string {
 // LinkLocalBypass 是始终写入系统代理豁免的链路本地地址：mDNS 主机名与 IPv4 链路本地网段。
 var LinkLocalBypass = []string{"*.local", "169.254.0.0/16"}
 
-// pickPhysicalDNS 从物理网络的 DNS 列表里挑一个能直接用的：优先 IPv4，其次非链路本地的 IPv6。
-// 路由器常经 RA 下发 fe80:: 链路本地 DNS 并排在最前，而平台层（如 iOS 的 res_getservers）拿到的地址不带网卡标识，
-// 这样的地址发不出去，查询会一直等到超时。都不合适时退回第一个。
-func pickPhysicalDNS(phys []string) string {
-	var v6 string
+// usablePhysicalDNS 返回物理网络的 DNS 里能直接用的地址：IPv4 在前，其次非链路本地的 IPv6，最多 3 个（并发询问）。
+// 路由器常经 RA 下发 fe80:: 链路本地 DNS 并排在最前，而平台层（如 Android 的 LinkProperties）拿到的地址可能不带网卡标识，
+// 这样的地址发不出去，查询会一直等到超时。都不合适时原样返回。
+func usablePhysicalDNS(phys []string) []string {
+	var v4, v6 []string
 	for _, s := range phys {
 		a, err := netip.ParseAddr(s)
 		if err != nil {
@@ -900,13 +903,14 @@ func pickPhysicalDNS(phys []string) string {
 		}
 		switch {
 		case a.Is4() || a.Is4In6():
-			return s
-		case v6 == "" && !a.IsLinkLocalUnicast():
-			v6 = s
+			v4 = append(v4, a.Unmap().String())
+		case !a.IsLinkLocalUnicast():
+			v6 = append(v6, s)
 		}
 	}
-	if v6 != "" {
-		return v6
+	out := append(v4, v6...)
+	if len(out) == 0 {
+		return slices.Clone(phys)
 	}
-	return phys[0]
+	return out[:min(len(out), 3)]
 }

@@ -1,6 +1,7 @@
 {
   "dns": {
     "final": "ns",
+    "optimistic": true,
     "rules": [
       {
         "action": "predefined",

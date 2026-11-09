@@ -38,7 +38,12 @@ type fakeEngine struct {
 	restarts int
 	last     engine.Config
 	gate     chan struct{} // 非 nil 时 Start 等它关闭（模拟首次加载耗时）
+	phys     []string      // SetPhysicalDNS 收到的地址
 }
+
+func (f *fakeEngine) SetPhysicalDNS(addrs []string) { f.mu.Lock(); f.phys = addrs; f.mu.Unlock() }
+func (f *fakeEngine) physDNS() []string             { f.mu.Lock(); defer f.mu.Unlock(); return f.phys }
+func (f *fakeEngine) restartCount() int             { f.mu.Lock(); defer f.mu.Unlock(); return f.restarts }
 
 func (f *fakeEngine) Start(_ context.Context, c engine.Config) error {
 	if f.gate != nil {
@@ -654,8 +659,10 @@ func TestDaemonTUNSystemDNS(t *testing.T) {
 		t.Fatalf("应接管系统 DNS 到 172.19.0.2：%+v", st)
 	}
 	js := string(eng.last.JSON)
-	if !strings.Contains(js, `"tag": "velum-local"`) || !strings.Contains(js, `"server": "192.168.1.1"`) {
-		t.Fatal("velum-local 应改为直接询问物理 DNS 192.168.1.1，避免绕回 Velum")
+	// 物理 DNS 的地址不写进内核配置，由引擎在运行时使用（换 Wi-Fi 时不必重启内核）
+	if !strings.Contains(js, `"tag": "velum-local",`+"\n"+`        "type": "velum-physical"`) || strings.Contains(js, `"server": "192.168.1.1"`) ||
+		strings.Join(eng.physDNS(), ",") != "192.168.1.1" {
+		t.Fatalf("velum-local 应改为直接询问物理 DNS 192.168.1.1，避免绕回 Velum：phys=%v", eng.physDNS())
 	}
 	// 系统 DNS 分流的域名直接询问为它配置的服务器；交给系统解析器会按默认 DNS（即 Velum）查询而回环
 	if !strings.Contains(js, `"tag": "velum-system-0-0"`) || !strings.Contains(js, `"server": "10.0.0.53"`) || strings.Contains(js, `"tag": "velum-system",`) {
@@ -1309,5 +1316,58 @@ func TestDaemonSetDomainFirst(t *testing.T) {
 		if cfg.Rules.DomainFirst != on {
 			t.Fatalf("config.yaml 应为 %v", on)
 		}
+	}
+}
+
+// 换 Wi-Fi：物理网络的 DNS 变化时只更新引擎里的地址，不重启内核（重启会断开所有连接）。
+func TestDaemonPhysicalDNSChangeKeepsEngine(t *testing.T) {
+	if runtime.GOOS == "linux" {
+		t.Skip("Linux 的物理 DNS 来自 SystemDNS，不经网络快照")
+	}
+	home, _ := os.MkdirTemp(tmpBase(), "velum-test-")
+	defer os.RemoveAll(home)
+	paths := testPaths(home)
+	_ = config.Ensure(paths)
+	cfg := strings.Replace(config.Template(), "tun:\n  enabled: false", "tun:\n  enabled: true", 1)
+	cfg = strings.Replace(cfg, "  interval: 5s", "  interval: 20ms", 1)
+	_ = os.WriteFile(paths.Config, []byte(cfg), 0o600)
+	eng := &fakeEngine{}
+	d := daemon.New(paths, eng, log.New(io.Discard, "", 0))
+	d.TUNOpener = &fakeOpener{}
+	var mu sync.Mutex
+	dhcp := "192.168.1.1"
+	d.NetSnapshot = func() (netsense.Snapshot, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		return netsense.Snapshot{PrimaryInterface: "en0", DHCPNameservers: []string{dhcp},
+			Routes: []netsense.Route{{Dst: netip.MustParsePrefix("0.0.0.0/0"), Iface: "en0"}}}, nil
+	}
+	d.CaptiveCheck = func(context.Context, []netsense.Probe, netsense.PhysicalPath) (netsense.CaptiveState, string) {
+		return netsense.Online, ""
+	}
+	go func() { _ = d.Run(context.Background()) }()
+	defer d.Shutdown()
+	wait := func(want string) bool {
+		for i := 0; i < 250; i++ {
+			if strings.Join(eng.physDNS(), ",") == want {
+				return true
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+		return false
+	}
+	if !wait("192.168.1.1") {
+		t.Fatalf("引擎应收到物理 DNS 192.168.1.1：%v", eng.physDNS())
+	}
+	before := eng.restartCount()
+	mu.Lock()
+	dhcp = "10.20.0.1"
+	mu.Unlock()
+	if !wait("10.20.0.1") {
+		t.Fatalf("换网后引擎应收到新的物理 DNS：%v", eng.physDNS())
+	}
+	time.Sleep(100 * time.Millisecond) // 等重新加载结束
+	if n := eng.restartCount(); n != before {
+		t.Fatalf("只有物理 DNS 变化时不应重启内核：重启 %d 次", n-before)
 	}
 }

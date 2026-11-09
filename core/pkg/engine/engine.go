@@ -110,6 +110,11 @@ type ProcessTraffic struct {
 }
 
 // Engine 是数据面引擎。
+// PhysicalDNSSetter 由能在运行时更新物理网络 DNS 的引擎实现：地址变化（换 Wi-Fi 等）时不必重启引擎。
+type PhysicalDNSSetter interface {
+	SetPhysicalDNS(addrs []string)
+}
+
 type Engine interface {
 	Start(ctx context.Context, cfg Config) error
 	// Restart 以新配置重启引擎，会断开所有现有连接。

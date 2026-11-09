@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -33,6 +34,14 @@ func fakeDNS(t *testing.T, answers map[string]string) int {
 // fakeDNSLog 同 fakeDNS，并返回到目前为止查询过的域名。
 func fakeDNSLog(t *testing.T, answers map[string]string) (int, func() []string) {
 	t.Helper()
+	port, asked, _ := fakeDNSCtl(t, answers)
+	return port, asked
+}
+
+// fakeDNSCtl 同 fakeDNSLog，另返回停止服务的函数（之后的查询都没有应答）。
+func fakeDNSCtl(t *testing.T, answers map[string]string) (int, func() []string, func()) {
+	t.Helper()
+	var down atomic.Bool
 	var mu sync.Mutex
 	var asked []string
 	pc, err := net.ListenPacket("udp4", "127.0.0.1:0")
@@ -54,6 +63,9 @@ func fakeDNSLog(t *testing.T, answers map[string]string) (int, func() []string) 
 				i += int(m[i]) + 1
 			}
 			name := strings.Join(labels, ".")
+			if down.Load() {
+				continue
+			}
 			mu.Lock()
 			asked = append(asked, name)
 			mu.Unlock()
@@ -89,7 +101,7 @@ func fakeDNSLog(t *testing.T, answers map[string]string) (int, func() []string) 
 		mu.Lock()
 		defer mu.Unlock()
 		return slices.Clone(asked)
-	}
+	}, func() { down.Store(true) }
 }
 
 // fakeNode 是一个 SOCKS5 节点：记录收到的目标，并以 200 应答任何请求。
@@ -365,5 +377,119 @@ rules:
 	}
 	if d := time.Since(start); d > 2*time.Second {
 		t.Errorf("用时 %v：主上游被拒绝后应立即改问系统 DNS", d)
+	}
+}
+
+// 物理网络的 DNS 在运行中更新：之后的查询改问新地址（含之前缓存过的域名），不重启内核。
+func TestPhysicalDNSUpdatesWithoutRestart(t *testing.T) {
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte("target")) }))
+	defer target.Close()
+	_, targetPort, _ := net.SplitHostPort(target.Listener.Addr().String())
+	home, askedHome := fakeDNSLog(t, map[string]string{"x.test": "127.0.0.1"})
+	office, askedOffice := fakeDNSLog(t, map[string]string{"x.test": "127.0.0.1", "y.test": "127.0.0.1"})
+	sub, err := subscription.Parse([]byte("dns:\n  enable: true\n  ipv6: false\n  nameserver: [system]\nrules:\n  - MATCH,DIRECT\n"), subscription.Options{File: "sub.yaml"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	listen := freePort(t)
+	plan, err := compiler.Compile(sub, &overlay.Overlay{}, compiler.Options{Mode: compiler.ModeProxy, Listen: listen, Platform: "android",
+		Env: &compiler.Environment{PhysicalDNS: []string{"127.0.0.1"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := render.Render(plan, render.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	eng := singbox.New(singbox.Options{})
+	eng.SetPhysicalDNS([]string{fmt.Sprintf("127.0.0.1:%d", home)})
+	if err := eng.Start(context.Background(), engine.Config{JSON: r.JSON, RuleSources: r.RuleSources, RuleIndex: r.RuleIndex}); err != nil {
+		t.Fatal(err)
+	}
+	defer eng.Stop()
+	proxyURL, _ := url.Parse("http://" + listen.String())
+	client := &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(proxyURL), DisableKeepAlives: true}, Timeout: 5 * time.Second}
+	get := func(host string) string {
+		resp, err := client.Get("http://" + host + ":" + targetPort + "/")
+		if err != nil {
+			return err.Error()
+		}
+		defer resp.Body.Close()
+		body, _ := io.ReadAll(resp.Body)
+		return string(body)
+	}
+	if b := get("x.test"); b != "target" || !slices.Contains(askedHome(), "x.test") {
+		t.Fatalf("x.test 应经家里的 DNS 解析：%q asked=%v", b, askedHome())
+	}
+	eng.SetPhysicalDNS([]string{fmt.Sprintf("127.0.0.1:%d", office)})
+	for _, h := range []string{"x.test", "y.test"} {
+		if b := get(h); b != "target" || !slices.Contains(askedOffice(), h) {
+			t.Errorf("换网后 %s 应改问新网络的 DNS：%q asked=%v", h, b, askedOffice())
+		}
+	}
+	if slices.Contains(askedHome(), "y.test") {
+		t.Errorf("换网后不应再问旧网络的 DNS：%v", askedHome())
+	}
+	// 网络下发多个 DNS、其中一个不应答：并发询问，不等它超时
+	silent, _ := net.ListenPacket("udp4", "127.0.0.1:0")
+	defer silent.Close()
+	eng.SetPhysicalDNS([]string{silent.LocalAddr().String(), fmt.Sprintf("127.0.0.1:%d", office)})
+	start := time.Now()
+	if b := get("x.test"); b != "target" {
+		t.Errorf("一个物理 DNS 不应答时应由另一个应答：%q", b)
+	}
+	if d := time.Since(start); d > time.Second {
+		t.Errorf("用时 %v：应并发询问各个物理 DNS", d)
+	}
+}
+
+// 上游 DNS 全部不可用：缓存过期的域名仍用旧应答（serve-stale），不会解析失败。
+func TestStaleAnswerWhenUpstreamDown(t *testing.T) {
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte("target")) }))
+	defer target.Close()
+	_, targetPort, _ := net.SplitHostPort(target.Listener.Addr().String())
+	port, _, stop := fakeDNSCtl(t, map[string]string{"x.test": "127.0.0.1"}) // 应答的 TTL 为 1 秒
+	sub, err := subscription.Parse([]byte("dns:\n  enable: true\n  ipv6: false\n  nameserver: [system]\nrules:\n  - MATCH,DIRECT\n"), subscription.Options{File: "sub.yaml"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	listen := freePort(t)
+	plan, err := compiler.Compile(sub, &overlay.Overlay{}, compiler.Options{Mode: compiler.ModeProxy, Listen: listen, Platform: "android",
+		Env: &compiler.Environment{PhysicalDNS: []string{"127.0.0.1"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := render.Render(plan, render.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	eng := singbox.New(singbox.Options{})
+	eng.SetPhysicalDNS([]string{fmt.Sprintf("127.0.0.1:%d", port)})
+	if err := eng.Start(context.Background(), engine.Config{JSON: r.JSON, RuleSources: r.RuleSources, RuleIndex: r.RuleIndex}); err != nil {
+		t.Fatal(err)
+	}
+	defer eng.Stop()
+	proxyURL, _ := url.Parse("http://" + listen.String())
+	client := &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(proxyURL), DisableKeepAlives: true}, Timeout: 5 * time.Second}
+	get := func() string {
+		resp, err := client.Get("http://x.test:" + targetPort + "/")
+		if err != nil {
+			return err.Error()
+		}
+		defer resp.Body.Close()
+		body, _ := io.ReadAll(resp.Body)
+		return string(body)
+	}
+	if b := get(); b != "target" {
+		t.Fatalf("首次解析：%q", b)
+	}
+	stop()
+	time.Sleep(1500 * time.Millisecond) // 缓存过期
+	start := time.Now()
+	if b := get(); b != "target" {
+		t.Fatalf("上游不可用时应使用过期的缓存应答：%q", b)
+	}
+	if d := time.Since(start); d > time.Second {
+		t.Errorf("用时 %v：过期应答应立即返回，后台再刷新", d)
 	}
 }
