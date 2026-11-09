@@ -92,14 +92,36 @@ type Action struct {
 	Target string `json:"target,omitempty"`
 }
 
+// DNS 对应 velum-engine 的 velum_ir::Dns（语义见那里的注释，与这里渲染给 sing-box 的一致）。
 type DNS struct {
-	Servers []string `json:"servers"`
-	FakeIP  *FakeIP  `json:"fake_ip,omitempty"`
+	Servers  []DNSServer `json:"servers"`
+	Rules    []DNSRule   `json:"rules,omitempty"`
+	Final    string      `json:"final,omitempty"`
+	Strategy string      `json:"strategy,omitempty"`
+	FakeIP   *FakeIP     `json:"fake_ip,omitempty"`
+}
+
+type DNSServer struct {
+	Tag      string   `json:"tag"`
+	Type     string   `json:"type"`
+	Address  string   `json:"address,omitempty"`
+	Members  []string `json:"members,omitempty"`
+	Fallback []string `json:"fallback,omitempty"`
+	Resolver string   `json:"resolver,omitempty"`
+}
+
+type DNSRule struct {
+	Cond        Cond     `json:"cond"`
+	QueryType   []string `json:"query_type,omitempty"`
+	Server      string   `json:"server,omitempty"`
+	Answer      []string `json:"answer,omitempty"`
+	PreferredBy string   `json:"preferred_by,omitempty"`
 }
 
 type FakeIP struct {
 	Inet4Range string `json:"inet4_range"`
 	Inet6Range string `json:"inet6_range,omitempty"`
+	KeepSVCB   bool   `json:"keep_svcb,omitempty"`
 }
 
 // RuleSet 是交给引擎编译成 .vrdb 的规则集内容（velum-tools vrdb-json 的输入格式）。
@@ -240,25 +262,7 @@ func RenderWith(p *compiler.Plan, opt Options) *Result {
 		r.Config.Final = Action{Kind: "direct"}
 	}
 
-	// DNS：目前引擎只有 UDP 上游 + fake-ip
-	for _, s := range c.DNS.Servers {
-		switch s.Type {
-		case "udp":
-			r.Config.DNS.Servers = append(r.Config.DNS.Servers, "udp://"+s.Address)
-		case "fakeip":
-		default:
-			warn("dns", s.Tag, fmt.Sprintf("DNS 服务器类型 %s 暂不支持", s.Type), ir.Source{})
-		}
-	}
-	if len(c.DNS.Rules) > 0 {
-		warn("dns", "rules", fmt.Sprintf("%d 条 DNS 规则（按域名分流 / hosts）暂不支持，所有查询走同一组上游", len(c.DNS.Rules)), ir.Source{})
-	}
-	if f := c.DNS.FakeIP; f != nil {
-		r.Config.DNS.FakeIP = &FakeIP{Inet4Range: f.Inet4Range, Inet6Range: f.Inet6Range}
-		if f.KeepSVCB {
-			warn("dns", "fake_ip", "KeepSVCB 暂不支持：HTTPS / SVCB 查询一律空应答", ir.Source{})
-		}
-	}
+	r.Config.DNS = dns(c.DNS, usable, warn)
 	return r
 }
 
@@ -383,6 +387,86 @@ func node(n ir.Node, warn warnFn) Node {
 	case "shadowsocks", "anytls", "wireguard":
 	default:
 		warn("node", n.Tag, "协议 "+n.Protocol+" 暂不支持（第二阶段）", src)
+	}
+	return out
+}
+
+// dns 转换 DNS 服务器与规则。引擎支持 udp / https / local（physical 同）/ race / hosts；
+// 其他类型去掉并告警，引用它们的竞速成员、规则一并清理。
+func dns(d ir.DNS, usable map[string]bool, warn warnFn) DNS {
+	out := DNS{Final: d.Final, Strategy: d.Strategy}
+	ok := map[string]bool{}
+	for _, s := range d.Servers {
+		switch s.Type {
+		case "udp", "https", "local", "physical", "hosts":
+			ok[s.Tag] = true
+		case "race":
+		case "fakeip":
+			continue
+		default:
+			warn("dns", s.Tag, fmt.Sprintf("DNS 服务器类型 %s 暂不支持", s.Type), ir.Source{})
+		}
+	}
+	keep := func(tags []string) []string {
+		var r []string
+		for _, t := range tags {
+			if ok[t] {
+				r = append(r, t)
+			}
+		}
+		return r
+	}
+	// race 可能引用其他 race：按声明顺序处理，成员只认已可用的
+	for _, s := range d.Servers {
+		if s.Type == "race" {
+			m, f := keep(s.Members), keep(s.Fallback)
+			if len(m)+len(f) == 0 {
+				warn("dns", s.Tag, "竞速组的成员都不可用", ir.Source{})
+				continue
+			}
+			ok[s.Tag] = true
+		}
+	}
+	for _, s := range d.Servers {
+		if !ok[s.Tag] {
+			continue
+		}
+		typ := s.Type
+		if typ == "physical" {
+			typ = "local" // 物理网络 DNS：引擎里就是平台提供的系统 DNS
+		}
+		if s.Detour != "" {
+			warn("dns", s.Tag, "经出站 "+s.Detour+" 查询（respect-rules）暂不支持，改为直连查询", ir.Source{})
+		}
+		out.Servers = append(out.Servers, DNSServer{Tag: s.Tag, Type: typ, Address: s.Address,
+			Members: keep(s.Members), Fallback: keep(s.Fallback), Resolver: s.Resolver})
+	}
+	if out.Final != "" && !ok[out.Final] {
+		warn("dns", out.Final, "final 服务器不可用，引擎改用第一个服务器", ir.Source{})
+		out.Final = ""
+	}
+	for i, r := range d.Rules {
+		subject := fmt.Sprintf("dns#%d", i+1)
+		if len(r.Answer) == 0 && !ok[r.Server] {
+			warn("dns", subject, "服务器 "+r.Server+" 不可用，已跳过", ir.Source{})
+			continue
+		}
+		var cd Cond
+		switch {
+		case r.Match.Cond != nil:
+			var good bool
+			cd, good = cond(*r.Match.Cond, usable, subject, ir.Source{}, warn)
+			if !good {
+				continue
+			}
+		case r.Match.Logical != "":
+			warn("dns", subject, "逻辑条件的 DNS 规则暂不支持，已跳过", ir.Source{})
+			continue
+		}
+		out.Rules = append(out.Rules, DNSRule{Cond: cd, QueryType: r.QueryType, Server: r.Server, Answer: r.Answer, PreferredBy: r.PreferredBy})
+	}
+	if f := d.FakeIP; f != nil {
+		out.FakeIP = &FakeIP{Inet4Range: f.Inet4Range, Inet6Range: f.Inet6Range, KeepSVCB: f.KeepSVCB}
 	}
 	return out
 }

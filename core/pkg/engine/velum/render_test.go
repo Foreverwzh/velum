@@ -27,7 +27,7 @@ func TestRenderConvertsAndWarns(t *testing.T) {
 			{Match: ir.Leaf(ir.Cond{IPCIDR: []string{"10.0.0.0/8"}}), Action: ir.Action{Kind: ir.ActionDrop}},
 		},
 		Final: ir.Action{Kind: ir.ActionRoute, Outbound: "Proxy"},
-		DNS:   ir.DNS{Servers: []ir.DNSServer{{Tag: "u", Type: "udp", Address: "223.5.5.5"}, {Tag: "d", Type: "https", Address: "1.1.1.1"}}, FakeIP: &ir.FakeIP{Inet4Range: "198.18.0.0/15"}},
+		DNS:   ir.DNS{Servers: []ir.DNSServer{{Tag: "u", Type: "udp", Address: "223.5.5.5"}, {Tag: "q", Type: "quic", Address: "1.1.1.1"}}, FakeIP: &ir.FakeIP{Inet4Range: "198.18.0.0/15"}},
 	}
 	r := Render(&compiler.Plan{IR: c})
 	if got := r.RuleIndex; len(got) != 3 || got[0] != 0 || got[1] != 1 || got[2] != 5 {
@@ -42,14 +42,14 @@ func TestRenderConvertsAndWarns(t *testing.T) {
 	if len(r.RuleSets) != 1 || r.RuleSets[0].DomainRegex[0] != `^x\d+` {
 		t.Errorf("内联规则集应当连正则一起转换：%+v", r.RuleSets)
 	}
-	if len(r.Config.DNS.Servers) != 1 || r.Config.DNS.Servers[0] != "udp://223.5.5.5" {
+	if len(r.Config.DNS.Servers) != 1 || r.Config.DNS.Servers[0].Tag != "u" || r.Config.DNS.Servers[0].Type != "udp" {
 		t.Errorf("DNS：%+v", r.Config.DNS)
 	}
 	all := ""
 	for _, w := range r.Warnings {
 		all += w.Kind + ":" + w.Subject + ":" + w.Reason + "\n"
 	}
-	for _, want := range []string{"逻辑规则", "geoip-cn", "process", "drop 按 reject", "https", "vmess"} {
+	for _, want := range []string{"逻辑规则", "geoip-cn", "process", "drop 按 reject", "vmess"} {
 		if !strings.Contains(all, want) {
 			t.Errorf("缺少告警 %q；全部告警：\n%s", want, all)
 		}
@@ -78,5 +78,42 @@ func TestRenderMarksIPRulesBeforeResolve(t *testing.T) {
 	c.Rules = []ir.Rule{ipRule("1.0.0.0/8")}
 	if r := Render(&compiler.Plan{IR: c}); !r.Config.Rules[0].Cond.NoResolve {
 		t.Fatal("没有 resolve 时 IP 规则对域名连接不生效，应标 no-resolve")
+	}
+}
+
+func TestRenderDNS(t *testing.T) {
+	d := ir.DNS{
+		Servers: []ir.DNSServer{
+			{Tag: "doh", Type: "https", Address: "doh.pub", Resolver: "boot"},
+			{Tag: "boot", Type: "udp", Address: "223.5.5.5"},
+			{Tag: "sys", Type: "physical"},
+			{Tag: "q", Type: "quic", Address: "x"},
+			{Tag: "r", Type: "race", Members: []string{"doh", "q"}, Fallback: []string{"sys"}},
+			{Tag: "dead", Type: "race", Members: []string{"q"}},
+		},
+		Rules: []ir.DNSRule{
+			{Match: ir.Leaf(ir.Cond{DomainSuffix: []string{"corp.example"}}), Server: "sys"},
+			{Match: ir.Leaf(ir.Cond{DomainSuffix: []string{"x.example"}}), Server: "dead"},
+			{Match: ir.Leaf(ir.Cond{Domain: []string{"pin.example"}}), Answer: []string{"10.0.0.1"}},
+			{Server: "sys", PreferredBy: "sys", QueryType: []string{"A"}},
+		},
+		Final: "r", Strategy: "ipv4_only", FakeIP: &ir.FakeIP{Inet4Range: "198.18.0.0/16"},
+	}
+	out := dns(d, nil, func(string, string, string, ir.Source) {})
+	tags := []string{}
+	for _, s := range out.Servers {
+		tags = append(tags, s.Tag+":"+s.Type)
+	}
+	if strings.Join(tags, ",") != "doh:https,boot:udp,sys:local,r:race" {
+		t.Errorf("服务器：%v", tags)
+	}
+	if r := out.Servers[3]; len(r.Members) != 1 || r.Members[0] != "doh" || r.Fallback[0] != "sys" {
+		t.Errorf("race 成员应当去掉不可用的：%+v", r)
+	}
+	if len(out.Rules) != 3 || out.Rules[1].Answer[0] != "10.0.0.1" || out.Rules[2].PreferredBy != "sys" {
+		t.Errorf("规则：%+v", out.Rules)
+	}
+	if out.Final != "r" || out.Strategy != "ipv4_only" || out.FakeIP.Inet4Range != "198.18.0.0/16" {
+		t.Errorf("final / strategy / fakeip：%+v", out)
 	}
 }

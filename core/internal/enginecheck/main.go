@@ -44,12 +44,15 @@ type target struct {
 	RuleIndex int    `json:"rule_index"`
 	Action    string `json:"action"`
 	Uncertain bool   `json:"uncertain,omitempty"`
+	// Velum 解析这个域名用的 DNS 服务器（引擎自己解析时的选择）；hosts 直接应答时为 "answer"。
+	DNSServer string `json:"dns_server,omitempty"`
 }
 
 func main() {
 	out := flag.String("out", "", "输出目录")
 	home := flag.String("home", "", "Velum 目录（默认与 velumd 相同）")
 	perSet := flag.Int("n", 40, "每个规则集取样的条目数")
+	dumpDNS := flag.Bool("dump-dns", false, "只打印 Plan 的 DNS 部分（调试用）")
 	flag.Parse()
 	if *out == "" {
 		fail(fmt.Errorf("缺少 -out"))
@@ -79,6 +82,18 @@ func main() {
 		b, _, err := f.Get("providers", url, 24*time.Hour)
 		return b, err
 	}}
+	if *dumpDNS {
+		d := plan.IR.DNS
+		fmt.Printf("final=%s strategy=%q fakeip=%+v outbound_resolver=%q\n", d.Final, d.Strategy, d.FakeIP, d.OutboundResolver)
+		for _, s := range d.Servers {
+			fmt.Printf("server %-22s type=%-8s addr=%-40s members=%v fallback=%q resolver=%q detour=%q\n", s.Tag, s.Type, s.Address, s.Members, s.Fallback, s.Resolver, s.Detour)
+		}
+		for i, r := range d.Rules {
+			b, _ := json.Marshal(r.Match)
+			fmt.Printf("rule #%d match=%s qtype=%v server=%s answer=%v preferred_by=%q\n", i+1, b, r.QueryType, r.Server, r.Answer, r.PreferredBy)
+		}
+		return
+	}
 	r := velum.RenderWith(plan, velum.Options{Geo: geo})
 	fail(os.MkdirAll(*out, 0o700))
 	write := func(name string, v any) {
@@ -103,8 +118,15 @@ func main() {
 		if t.Resolved != "" {
 			et.ResolvedIPs = []netip.Addr{netip.MustParseAddr(t.Resolved)}
 		}
-		d := explain.WhyWith(plan, et, r.Loaded).Decision
+		rep := explain.WhyWith(plan, et, r.Loaded)
+		d := rep.Decision
 		t.RuleIndex, t.Action, t.Uncertain = d.RuleIndex, normalize(d.Action, d.Outbound), d.Uncertain
+		if t.Domain != "" && rep.DNS.Applicable {
+			t.DNSServer = rep.DNS.Server
+			if len(rep.DNS.Answer) > 0 {
+				t.DNSServer = "answer"
+			}
+		}
 		fail(enc.Encode(t))
 	}
 	fail(tf.Close())
@@ -180,6 +202,12 @@ func targets(c *ir.Config, perSet int, loaded map[string][]ir.Cond) []target {
 		}
 	}
 	for _, r := range c.Rules {
+		if r.Match.Cond != nil {
+			fromCond(*r.Match.Cond, 5)
+		}
+	}
+	// DNS 规则里的域名也取样：覆盖每条 DNS 规则的服务器选择
+	for _, r := range c.DNS.Rules {
 		if r.Match.Cond != nil {
 			fromCond(*r.Match.Cond, 5)
 		}
