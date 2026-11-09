@@ -903,14 +903,14 @@ func TestPhysicalDNSSkipsLinkLocal(t *testing.T) {
 		phys []string
 		want string
 	}{
-		// iOS Wi-Fi：路由器的链路本地 IPv6 DNS 排在最前，且不带网卡标识
+		// Wi-Fi：路由器的链路本地 IPv6 DNS 排在最前，且不带网卡标识
 		{[]string{"fe80::fa20:a9ff:fe47:fa88", "192.168.3.1"}, "192.168.3.1"},
 		// 蜂窝：IPv6 在前，仍优先 IPv4
 		{[]string{"2409:8020:2000::66", "2409:8020:2000::6", "112.4.1.36"}, "112.4.1.36"},
 		{[]string{"fe80::1", "2409:8020:2000::66"}, "2409:8020:2000::66"},
 		{[]string{"fe80::1"}, "fe80::1"},
 	} {
-		p, err := compiler.Compile(s, nil, compiler.Options{Mode: compiler.ModeTUN, Listen: netip.MustParseAddrPort("127.0.0.1:7899"), Platform: "ios",
+		p, err := compiler.Compile(s, nil, compiler.Options{Mode: compiler.ModeTUN, Listen: netip.MustParseAddrPort("127.0.0.1:7899"), Platform: "android",
 			TUN: compiler.TUNOptions{Address: netip.MustParsePrefix("172.19.0.1/30")}, Env: &compiler.Environment{PhysicalDNS: c.phys}})
 		if err != nil {
 			t.Fatal(err)
@@ -927,5 +927,30 @@ func TestPhysicalDNSSkipsLinkLocal(t *testing.T) {
 		if n == 0 {
 			t.Errorf("phys=%v：没有改用物理网络 DNS 的服务器", c.phys)
 		}
+	}
+}
+
+// iOS：系统 DNS 保留 local，由 sing-box 按当前出站网卡读取系统 DNS，换网后自动跟随；不写死物理网络 DNS 的地址。
+func TestIOSKeepsLocalDNS(t *testing.T) {
+	s, _ := subscription.Parse([]byte("dns:\n  nameserver: [system]\nrules:\n  - MATCH,DIRECT\n"), subscription.Options{})
+	p, err := compiler.Compile(s, nil, compiler.Options{Mode: compiler.ModeTUN, Listen: netip.MustParseAddrPort("127.0.0.1:7899"), Platform: "ios",
+		TUN: compiler.TUNOptions{Address: netip.MustParsePrefix("172.19.0.1/30"), DNSHijack: true}, Env: &compiler.Environment{PhysicalDNS: []string{"192.168.3.1"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	local := 0
+	for _, sv := range p.IR.DNS.Servers {
+		if strings.Contains(sv.Address, "192.168.3.1") {
+			t.Errorf("iOS 不应写死物理网络 DNS：%+v", sv)
+		}
+		if sv.Tag == compiler.LocalDNS && sv.Type == "local" {
+			local++
+		}
+	}
+	if local == 0 {
+		t.Errorf("iOS 应保留 local 系统 DNS：%+v", p.IR.DNS.Servers)
+	}
+	if len(p.Route.SystemDNS) != 1 || p.Route.SystemDNS[0] != "172.19.0.2" {
+		t.Errorf("iOS 仍应把隧道的系统 DNS 指向 Velum：%+v", p.Route)
 	}
 }

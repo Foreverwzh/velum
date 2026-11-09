@@ -427,8 +427,10 @@ func Compile(sub *ir.Config, ov *overlay.Overlay, opts Options) (*Plan, error) {
 			}
 		}
 	}
-	if opts.Platform == "android" || opts.Platform == "ios" {
-		// 移动端没有 /etc/resolv.conf，内核的系统解析器不可用：始终使用平台层报告的当前网络 DNS
+	// iOS 保留 local：sing-box 在 Apple 平台读系统 DNS 配置（dnsinfo），按当前出站网卡选该网卡的 DNS，换网后自动跟随，
+	// 不用把地址写进配置（扩展的配置在 App 里编译，换网时 App 常不在运行，写死的地址会过期）。依赖 UnderNetworkExtension 取得出站网卡。
+	if opts.Platform == "android" {
+		// Android 没有 /etc/resolv.conf，内核的系统解析器不可用：使用平台层报告的当前网络 DNS
 		if len(phys) == 0 {
 			warn("dns", ir.Degraded, i18n.T("未获取到当前网络的 DNS，域名解析可能失败"), "", velum(i18n.T("系统 DNS")))
 		} else {
@@ -468,6 +470,9 @@ func Compile(sub *ir.Config, ov *overlay.Overlay, opts Options) (*Plan, error) {
 			} else {
 				usePhys(i18n.T("53 端口已由 Velum 接管"))
 			}
+		} else if opts.TUN.DNSHijack && opts.Platform == "ios" {
+			// iOS：系统 DNS 只对隧道里的流量指向 Velum；扩展自己的查询按物理网卡的 DNS 发出，local 不会绕回，保留（见上）
+			rp.SystemDNS = []string{opts.TUN.Address.Addr().Next().String()}
 		} else if opts.TUN.DNSHijack {
 			if len(phys) == 0 {
 				warn("tun.dns_hijack", ir.Degraded, i18n.T("未获取到物理网络的 DNS，暂不接管系统 DNS（接管后需要它来避免解析绕回 Velum）"), "", velum("TUN"))
