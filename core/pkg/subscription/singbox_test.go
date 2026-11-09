@@ -74,7 +74,7 @@ const singBoxSub = `{
 
 func TestSingBoxSubscription(t *testing.T) {
 	files := map[string]string{
-		"https://rules.example/src.json":    `{"version": 3, "rules": [{"domain": ["x.example"]}, {"type": "logical", "mode": "or", "rules": [{"ip_cidr": ["9.9.9.0/24"]}]}]}`,
+		"https://rules.example/src.json":   `{"version": 3, "rules": [{"domain": ["x.example"]}, {"type": "logical", "mode": "or", "rules": [{"ip_cidr": ["9.9.9.0/24"]}]}]}`,
 		"https://rules.example/mislabeled": "SRS\x01binary",
 	}
 	read := func(_, url string) ([]byte, error) {
