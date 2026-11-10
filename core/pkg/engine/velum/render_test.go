@@ -30,10 +30,13 @@ func TestRenderConvertsAndWarns(t *testing.T) {
 		DNS:   ir.DNS{Servers: []ir.DNSServer{{Tag: "u", Type: "udp", Address: "223.5.5.5"}, {Tag: "q", Type: "quic", Address: "1.1.1.1"}}, FakeIP: &ir.FakeIP{Inet4Range: "198.18.0.0/15"}},
 	}
 	r := Render(&compiler.Plan{IR: c})
-	if got := r.RuleIndex; len(got) != 3 || got[0] != 0 || got[1] != 1 || got[2] != 5 {
-		t.Fatalf("应当保留第 1、2、6 条，实际 %v", got)
+	if got := r.RuleIndex; len(got) != 4 || got[0] != 0 || got[1] != 1 || got[2] != 2 || got[3] != 5 {
+		t.Fatalf("应当保留第 1、2、3（逻辑规则）、6 条，实际 %v", got)
 	}
-	if a := r.Config.Rules[2].Action; a.Kind != "reject" {
+	if m := r.Config.Rules[2].Match; m == nil || m.Logical != "and" || len(m.Children) != 1 || m.Children[0].Cond.Port[0] != 443 {
+		t.Errorf("逻辑规则应当转换：%+v", m)
+	}
+	if a := r.Config.Rules[3].Action; a.Kind != "reject" {
 		t.Errorf("drop 应当按 reject：%+v", a)
 	}
 	if r.Config.Final.Target != "Proxy" || r.Config.Groups[0].Policy == nil || r.Config.Groups[0].Selected != "hk" {
@@ -49,7 +52,7 @@ func TestRenderConvertsAndWarns(t *testing.T) {
 	for _, w := range r.Warnings {
 		all += w.Kind + ":" + w.Subject + ":" + w.Reason + "\n"
 	}
-	for _, want := range []string{"逻辑规则", "geoip-cn", "process", "drop 按 reject", "vmess"} {
+	for _, want := range []string{"geoip-cn", "process", "drop 按 reject", "vmess"} {
 		if !strings.Contains(all, want) {
 			t.Errorf("缺少告警 %q；全部告警：\n%s", want, all)
 		}
@@ -179,5 +182,41 @@ func TestRenderDNSDetour(t *testing.T) {
 	}
 	if len(warns) != 1 || !strings.HasPrefix(warns[0], "gone:") {
 		t.Fatalf("告警：%v", warns)
+	}
+}
+
+// 逻辑规则：转换成 match 树；解析点之前的 IP 叶子标 no-resolve；有不支持的叶子时整条跳过。
+func TestRenderLogicalRules(t *testing.T) {
+	direct := ir.Action{Kind: ir.ActionRoute, Outbound: ir.OutboundDirect}
+	c := &ir.Config{
+		Rules: []ir.Rule{
+			{Match: ir.Match{Logical: "and", Children: []ir.Match{
+				ir.Leaf(ir.Cond{IPCIDR: []string{"::/0"}, Network: []string{"tcp"}}),
+				{Logical: "or", Invert: true, Children: []ir.Match{ir.Leaf(ir.Cond{IPCIDR: []string{"fd00::/8"}})}},
+			}}, Action: ir.Action{Kind: ir.ActionReject}},
+			{Match: ir.Match{Logical: "or", Children: []ir.Match{
+				ir.Leaf(ir.Cond{DomainSuffix: []string{"a.com"}}),
+				ir.Leaf(ir.Cond{ProcessName: []string{"x"}}),
+			}}, Action: direct},
+			{Action: ir.Action{Kind: ir.ActionResolve}},
+			{Match: ir.Leaf(ir.Cond{IPCIDR: []string{"10.0.0.0/8"}}), Action: direct},
+		},
+		DNS: ir.DNS{Servers: []ir.DNSServer{{Tag: "u", Type: "udp", Address: "1.1.1.1"}},
+			Rules: []ir.DNSRule{{Match: ir.Match{Logical: "and", Children: []ir.Match{ir.Leaf(ir.Cond{DomainSuffix: []string{"corp.example"}})}}, Server: "u"}}},
+		Final: direct,
+	}
+	r := Render(&compiler.Plan{IR: c})
+	if len(r.RuleIndex) != 2 || r.RuleIndex[0] != 0 || r.RuleIndex[1] != 3 {
+		t.Fatalf("规则下标：%v（含进程条件的逻辑规则应当跳过）", r.RuleIndex)
+	}
+	m := r.Config.Rules[0].Match
+	if m == nil || !m.Children[0].Cond.NoResolve || !m.Children[1].Invert || !m.Children[1].Children[0].Cond.NoResolve {
+		t.Fatalf("解析点之前的 IP 叶子应当 no-resolve：%+v", m)
+	}
+	if r.Config.Rules[1].Cond.NoResolve {
+		t.Fatal("解析点之后的规则不应 no-resolve")
+	}
+	if d := r.Config.DNS.Rules; len(d) != 1 || d[0].Match == nil || d[0].Match.Children[0].Cond.DomainSuffix[0] != "corp.example" {
+		t.Fatalf("DNS 逻辑规则：%+v", d)
 	}
 }

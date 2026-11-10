@@ -81,8 +81,18 @@ type Group struct {
 }
 
 type Rule struct {
-	Cond   Cond   `json:"cond"`
+	Cond Cond `json:"cond"`
+	// Match 是逻辑规则（and / or / 取反）；有它时引擎不看 Cond。
+	Match  *Match `json:"match,omitempty"`
 	Action Action `json:"action"`
+}
+
+// Match 是逻辑条件（同 ir.Match）：叶子（Cond），或 Logical 为 and / or 的组合。
+type Match struct {
+	Cond     *Cond   `json:"cond,omitempty"`
+	Logical  string  `json:"logical,omitempty"`
+	Invert   bool    `json:"invert,omitempty"`
+	Children []Match `json:"children,omitempty"`
 }
 
 type Cond struct {
@@ -125,6 +135,7 @@ type DNSServer struct {
 
 type DNSRule struct {
 	Cond        Cond     `json:"cond"`
+	Match       *Match   `json:"match,omitempty"`
 	QueryType   []string `json:"query_type,omitempty"`
 	Server      string   `json:"server,omitempty"`
 	Answer      []string `json:"answer,omitempty"`
@@ -271,11 +282,16 @@ func RenderWith(p *compiler.Plan, opt Options) *Result {
 			continue
 		}
 		if rule.Match.Cond == nil {
-			if rule.Match.Logical != "" {
-				warn("rule", fmt.Sprintf("#%d", i+1), i18n.T("逻辑规则（%s%s）暂不支持，已跳过", invertMark(rule.Match.Invert), rule.Match.Logical), rule.Source)
-			} else {
+			if rule.Match.Logical == "" {
 				warn("rule", fmt.Sprintf("#%d", i+1), i18n.T("无条件规则（sniff / resolve 等动作之外）暂不支持，已跳过"), rule.Source)
+				continue
 			}
+			m, ok := matchTree(rule.Match, usable, fmt.Sprintf("#%d", i+1), rule.Source, warn, i < resolvedFrom)
+			if !ok {
+				continue
+			}
+			r.Config.Rules = append(r.Config.Rules, Rule{Match: m, Action: a})
+			r.RuleIndex = append(r.RuleIndex, i)
 			continue
 		}
 		cd, ok := cond(*rule.Match.Cond, usable, fmt.Sprintf("#%d", i+1), rule.Source, warn)
@@ -303,13 +319,6 @@ func RenderWith(p *compiler.Plan, opt Options) *Result {
 	}
 	r.Config.DNS = dns(c.DNS, usable, outbounds, warn)
 	return r
-}
-
-func invertMark(inv bool) string {
-	if inv {
-		return "not "
-	}
-	return ""
 }
 
 type warnFn func(kind, subject, reason string, src ir.Source)
@@ -342,6 +351,33 @@ func action(a ir.Action, src ir.Source, warn warnFn) (Action, bool) {
 	}
 	warn("rule", a.Kind, i18n.T("未知动作，已跳过"), src)
 	return Action{}, false
+}
+
+// matchTree 转换逻辑条件；任一叶子不可用时整条规则不可用（已告警）。noResolve 时 IP 类叶子标 no-resolve（解析点之前）。
+func matchTree(m ir.Match, usable map[string]bool, subject string, src ir.Source, warn warnFn, noResolve bool) (*Match, bool) {
+	if m.Logical == "" {
+		if m.Cond == nil {
+			warn("rule", subject, i18n.T("逻辑规则里有空条件，已跳过"), src)
+			return nil, false
+		}
+		cd, ok := cond(*m.Cond, usable, subject, src, warn)
+		if !ok {
+			return nil, false
+		}
+		if noResolve {
+			cd.NoResolve = true
+		}
+		return &Match{Cond: &cd, Invert: m.Invert}, true
+	}
+	out := &Match{Logical: m.Logical, Invert: m.Invert}
+	for _, c := range m.Children {
+		k, ok := matchTree(c, usable, subject, src, warn, noResolve)
+		if !ok {
+			return nil, false
+		}
+		out.Children = append(out.Children, *k)
+	}
+	return out, true
 }
 
 func cond(c ir.Cond, usable map[string]bool, subject string, src ir.Source, warn warnFn) (Cond, bool) {
@@ -498,7 +534,11 @@ func dns(d ir.DNS, usable, outbounds map[string]bool, warn warnFn) DNS {
 				continue
 			}
 		case r.Match.Logical != "":
-			warn("dns", subject, i18n.T("逻辑条件的 DNS 规则暂不支持，已跳过"), ir.Source{})
+			m, good := matchTree(r.Match, usable, subject, ir.Source{}, warn, false)
+			if !good {
+				continue
+			}
+			out.Rules = append(out.Rules, DNSRule{Match: m, QueryType: r.QueryType, Server: r.Server, Answer: r.Answer, PreferredBy: r.PreferredBy})
 			continue
 		}
 		out.Rules = append(out.Rules, DNSRule{Cond: cd, QueryType: r.QueryType, Server: r.Server, Answer: r.Answer, PreferredBy: r.PreferredBy})

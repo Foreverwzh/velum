@@ -583,7 +583,6 @@ var en = map[string]string{
 	"%d 条条目带有规则集里不支持的条件（进程 / 端口 / 网络 / 源地址 / 协议 / 私有地址），已忽略这些条件": "%d entries have conditions that rule sets do not support (process / port / network / source address / protocol / private address); those conditions are ignored",
 	"带条件的 resolve 按无条件处理（解析点取这条规则的位置）":                           "A conditional resolve is treated as unconditional (the resolve point is this rule's position)",
 	"带条件的 sniff 按无条件处理":                                "A conditional sniff is treated as unconditional",
-	"逻辑规则（%s%s）暂不支持，已跳过":                               "Logical rule (%s%s) is not supported yet; skipped",
 	"无条件规则（sniff / resolve 等动作之外）暂不支持，已跳过":             "Unconditional rules (other than actions such as sniff / resolve) are not supported yet; skipped",
 	"改写目标地址（hosts 覆盖）暂不支持":                             "Rewriting the destination (hosts override) is not supported yet",
 	"drop 按 reject 处理":                                 "drop is treated as reject",
@@ -601,7 +600,6 @@ var en = map[string]string{
 	"经出站 %s 查询：引擎里没有这个出站，改为直连查询":                       "Querying through outbound %s: the engine has no such outbound, so it queries directly",
 	"final 服务器不可用，引擎改用第一个服务器":                          "The final server is unavailable; the engine uses the first server instead",
 	"服务器 %s 不可用，已跳过":                                   "Server %s is unavailable; skipped",
-	"逻辑条件的 DNS 规则暂不支持，已跳过":                             "DNS rules with logical conditions are not supported yet; skipped",
 	"geoip-%s：数据为空":                                    "geoip-%s: no data",
 	"geosite-%s：没有条目":                                  "geosite-%s: no entries",
 	"未知内核 %q（可选：空、velum）":                              "Unknown engine %q (choices: empty, velum)",
@@ -609,4 +607,5 @@ var en = map[string]string{
 	"本地引擎未运行":                                          "The local engine is not running",
 	"本地引擎：%s":                                          "Local engine: %s",
 	"这个构建只支持 iOS 的分离模式（StartSplit）":                    "This build only supports the iOS split mode (StartSplit)",
+	"逻辑规则里有空条件，已跳过":                                    "A logical rule has an empty condition; skipped",
 }
