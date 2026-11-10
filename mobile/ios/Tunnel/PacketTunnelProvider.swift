@@ -26,6 +26,9 @@ func footprintMiB() -> (current: Double, peak: Double) {
 
 class PacketTunnelProvider: NEPacketTunnelProvider {
     var stopping = false
+    /// 配置选了 velum-engine（tun.engine: velum）时的内核；为空时用 sing-box（Iostunnel）。
+    private var velum: VelumTunnel?
+    private var home: URL?
     private var memTimer: DispatchSourceTimer?
     private var memPath: URL?
     private let memQueue = DispatchQueue(label: "velum.memory", qos: .utility)
@@ -44,36 +47,38 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
 
     private func reportNetwork(_ path: Network.NWPath, retries: Int) {
         guard path.status == .satisfied, let iface = path.availableInterfaces.first(where: { $0.type != .other }) else {
-            report("", "")
+            report("", "", "")
             return
         }
+        // 物理网卡名（en0、pdp_ip0）：velum-engine 按它查询系统 DNS
+        let ifname = iface.name
         switch iface.type {
         case .cellular:
-            report("cellular", "")
+            report("cellular", "", ifname)
         case .wifi:
             // 连上 Wi-Fi 后名称可能要等一会儿才取得到；取不到时核心不会切换，避免把家里当成其他网络
             NEHotspotNetwork.fetchCurrent { [weak self] net in
                 guard let self else { return }
-                report("wifi", net?.ssid ?? "")
+                report("wifi", net?.ssid ?? "", ifname)
                 if net?.ssid == nil, retries > 0 {
                     netQueue.asyncAfter(deadline: .now() + 2) { self.reportNetwork(self.pathMonitor.currentPath, retries: retries - 1) }
                 }
             }
         default:
-            report("", "")
+            report("", "", ifname)
         }
     }
 
     /// 交给核心，并记下来给设置页显示：切换不对时要能看出隧道认为自己在什么网络。
-    private func report(_ kind: String, _ ssid: String) {
-        IostunnelNetworkChanged(kind, ssid)
+    private func report(_ kind: String, _ ssid: String, _ ifname: String) {
+        if let velum { velum.setNetwork(kind: kind, ssid: ssid, ifname: ifname) } else { IostunnelNetworkChanged(kind, ssid) }
         guard let group = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroup) else { return }
         try? "\(kind)\n\(ssid)\n".write(to: group.appendingPathComponent("velum/tunnel/network.txt"), atomically: true, encoding: .utf8)
     }
 
     override func wake() {
         log.notice("设备唤醒")
-        IostunnelSetSleeping(false)
+        if velum == nil { IostunnelSetSleeping(false) }
         memQueue.async { [weak self] in self?.startMemoryTimer() }
         netQueue.async { [weak self] in
             guard let self else { return }
@@ -84,7 +89,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
     override func sleep(completionHandler: @escaping () -> Void) {
         log.notice("设备休眠")
         memQueue.sync { stopMemoryTimer() }
-        IostunnelSetSleeping(true)
+        if velum == nil { IostunnelSetSleeping(true) }
         completionHandler()
     }
 
@@ -120,10 +125,9 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
             return completionHandler(tunnelError(String(localized: "取不到 App Group")))
         }
         let home = group.appendingPathComponent("velum")
+        self.home = home
         DispatchQueue.global().async {
-            IostunnelSetLocale(Locale.preferredLanguages.first ?? "")
-            var err: NSError?
-            IostunnelStart(home.path, TunHost(provider: self), &err)
+            let err = self.startEngine(home)
             if let err { log.error("内核启动失败：\(err, privacy: .public)") }
             else {
                 self.memQueue.sync {
@@ -137,20 +141,63 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         }
     }
 
+    /// 按配置启动内核：meta 里 engine 为 velum 时用 velum-engine，否则用 sing-box。
+    private func startEngine(_ home: URL) -> NSError? {
+        if VelumFiles.selected(VelumFiles.Paths(dir: home.appendingPathComponent("tunnel"))) {
+            let v = VelumTunnel(provider: self, home: home)
+            do {
+                try v.start()
+                velum = v
+                return nil
+            } catch {
+                return error as NSError
+            }
+        }
+        IostunnelSetLocale(Locale.preferredLanguages.first ?? "")
+        var err: NSError?
+        IostunnelStart(home.path, TunHost(provider: self), &err)
+        return err
+    }
+
+    /// 重新加载时配置换了内核（设置里切换 velum-engine）：停掉当前的，启动另一个。没换时返回 nil，照常交给内核。
+    private func switchEngineIfNeeded(_ messageData: Data) -> Data? {
+        guard let home,
+              (try? JSONSerialization.jsonObject(with: messageData) as? [String: Any])?["op"] as? String == "reload" else { return nil }
+        let want = VelumFiles.selected(VelumFiles.Paths(dir: home.appendingPathComponent("tunnel")))
+        guard want != (velum != nil) else { return nil }
+        log.notice("切换内核：\(want ? "velum-engine" : "sing-box", privacy: .public)")
+        if let v = velum {
+            v.stop()
+            velum = nil
+        } else {
+            IostunnelStop()
+        }
+        let err = startEngine(home)
+        reportNetwork(pathMonitor.currentPath, retries: 3)
+        let resp: [String: String] = err.map { ["error": $0.localizedDescription] } ?? [:]
+        return (try? JSONSerialization.data(withJSONObject: resp)) ?? Data("{}".utf8)
+    }
+
     override func stopTunnel(with reason: NEProviderStopReason, completionHandler: @escaping () -> Void) {
         log.notice("停止隧道，原因 \(reason.rawValue)")
         stopping = true
         memQueue.sync { stopMemoryTimer() }
         pathMonitor.cancel()
         DispatchQueue.global().async {
-            IostunnelStop()
+            if let v = self.velum { v.stop() } else { IostunnelStop() }
             completionHandler()
         }
     }
 
     override func handleAppMessage(_ messageData: Data, completionHandler: ((Data?) -> Void)?) {
         DispatchQueue.global().async {
-            completionHandler?(IostunnelHandle(messageData))
+            if let r = self.switchEngineIfNeeded(messageData) {
+                completionHandler?(r)
+            } else if let v = self.velum {
+                completionHandler?(v.handle(messageData))
+            } else {
+                completionHandler?(IostunnelHandle(messageData))
+            }
         }
     }
 
@@ -183,7 +230,7 @@ final class TunHost: NSObject, IostunnelHostProtocol {
     func openTun(_ req: String?, ret0_: UnsafeMutablePointer<Int32>?) throws {
         guard let provider, let data = req?.data(using: .utf8) else { throw tunnelError(String(localized: "没有 provider")) }
         let r = try JSONDecoder().decode(TunRequest.self, from: data)
-        try apply(settings(r), provider)
+        try apply(tunnelSettings(r), provider)
         guard let fd = provider.tunFD() else { throw tunnelError(String(localized: "找不到 utun")) }
         ret0_?.pointee = dup(fd) // 所有权交给核心：给一个副本，重新加载配置时系统持有的 FD 不受影响
     }
@@ -199,37 +246,38 @@ final class TunHost: NSObject, IostunnelHostProtocol {
         sem.wait()
         if let setErr { throw setErr }
     }
+}
 
-    private func settings(_ r: TunRequest) -> NEPacketTunnelNetworkSettings {
-        let s = NEPacketTunnelNetworkSettings(tunnelRemoteAddress: "127.0.0.1")
-        s.mtu = NSNumber(value: r.mtu)
-        let routes4 = (r.routes ?? []).compactMap(cidr).filter { !$0.0.contains(":") }
-        if let a = (r.inet4 ?? []).compactMap(cidr).first {
-            let ip = NEIPv4Settings(addresses: [a.0], subnetMasks: [mask4(a.1)])
-            // 全局接管是 0/1 + 128/1 扣除排除网段：改为默认路由，隧道才成为主服务（F6）。
-            // 排除网段不写成 excludedRoutes（F8），由引擎规则直连。
-            if covered4(uncovered4(routes4)) <= UInt64(1) << 31 {
-                ip.includedRoutes = [NEIPv4Route.default()]
-            } else {
-                ip.includedRoutes = routes4.map { NEIPv4Route(destinationAddress: $0.0, subnetMask: mask4($0.1)) }
-            }
-            s.ipv4Settings = ip
+/// 隧道网络参数：sing-box（核心经 OpenTun 请求）与 velum-engine 共用。
+func tunnelSettings(_ r: TunRequest) -> NEPacketTunnelNetworkSettings {
+    let s = NEPacketTunnelNetworkSettings(tunnelRemoteAddress: "127.0.0.1")
+    s.mtu = NSNumber(value: r.mtu)
+    let routes4 = (r.routes ?? []).compactMap(cidr).filter { !$0.0.contains(":") }
+    if let a = (r.inet4 ?? []).compactMap(cidr).first {
+        let ip = NEIPv4Settings(addresses: [a.0], subnetMasks: [mask4(a.1)])
+        // 全局接管是 0/1 + 128/1 扣除排除网段：改为默认路由，隧道才成为主服务（F6）。
+        // 排除网段不写成 excludedRoutes（F8），由引擎规则直连。
+        if covered4(uncovered4(routes4)) <= UInt64(1) << 31 {
+            ip.includedRoutes = [NEIPv4Route.default()]
+        } else {
+            ip.includedRoutes = routes4.map { NEIPv4Route(destinationAddress: $0.0, subnetMask: mask4($0.1)) }
         }
-        let routes6 = (r.routes ?? []).compactMap(cidr).filter { $0.0.contains(":") }
-        if let a = (r.inet6 ?? []).compactMap(cidr).first {
-            let ip = NEIPv6Settings(addresses: [a.0], networkPrefixLengths: [NSNumber(value: a.1)])
-            let full = Set(routes6.map { "\($0.0)/\($0.1)" }).isSuperset(of: ["::/1", "8000::/1"])
-            ip.includedRoutes = full ? [NEIPv6Route.default()]
-                : routes6.map { NEIPv6Route(destinationAddress: $0.0, networkPrefixLength: NSNumber(value: $0.1)) }
-            s.ipv6Settings = ip
-        }
-        if let dns = r.dns, !dns.isEmpty {
-            let d = NEDNSSettings(servers: dns)
-            d.matchDomains = [""]
-            s.dnsSettings = d
-        }
-        return s
+        s.ipv4Settings = ip
     }
+    let routes6 = (r.routes ?? []).compactMap(cidr).filter { $0.0.contains(":") }
+    if let a = (r.inet6 ?? []).compactMap(cidr).first {
+        let ip = NEIPv6Settings(addresses: [a.0], networkPrefixLengths: [NSNumber(value: a.1)])
+        let full = Set(routes6.map { "\($0.0)/\($0.1)" }).isSuperset(of: ["::/1", "8000::/1"])
+        ip.includedRoutes = full ? [NEIPv6Route.default()]
+            : routes6.map { NEIPv6Route(destinationAddress: $0.0, networkPrefixLength: NSNumber(value: $0.1)) }
+        s.ipv6Settings = ip
+    }
+    if let dns = r.dns, !dns.isEmpty {
+        let d = NEDNSSettings(servers: dns)
+        d.matchDomains = [""]
+        s.dnsSettings = d
+    }
+    return s
 }
 
 func tunnelError(_ s: String) -> NSError {

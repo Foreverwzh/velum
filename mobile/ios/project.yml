@@ -18,7 +18,7 @@ targets:
   Velum:
     type: application
     platform: iOS
-    sources: [App]
+    sources: [App, Shared]
     info:
       path: App/Info.plist
       properties:
@@ -50,6 +50,11 @@ targets:
         embed: true
       - framework: build/Mobilebind.xcframework
         embed: false
+      # velum-engine（闭源，不进本仓库）：scripts/engine.sh 从本机的 velum-engine 编译到 build/。App 里只用它编译路由文件
+      - framework: build/VelumEngine.xcframework
+        embed: false
+      # BoringSSL 含 C++ 代码
+      - sdk: libc++.tbd
       - sdk: NetworkExtension.framework
       - sdk: SystemConfiguration.framework
       - sdk: Security.framework
@@ -58,7 +63,7 @@ targets:
   VelumTunnel:
     type: app-extension
     platform: iOS
-    sources: [Tunnel]
+    sources: [Tunnel, Shared]
     info:
       path: Tunnel/Info.plist
       properties:
@@ -79,6 +84,9 @@ targets:
     dependencies:
       - framework: build/Iostunnel.xcframework
         embed: false
+      - framework: build/VelumEngine.xcframework
+        embed: false
+      - sdk: libc++.tbd
       - sdk: NetworkExtension.framework
       - sdk: MetricKit.framework
       - sdk: SystemConfiguration.framework

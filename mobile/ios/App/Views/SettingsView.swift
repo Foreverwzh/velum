@@ -40,6 +40,16 @@ struct SettingsView: View {
                     Text("先匹配所有域名规则，都没命中才解析 DNS 并匹配 IP 规则，可以少查 DNS。排在前面的 IP 规则不再优先于后面的域名规则。")
                 }
                 Section {
+                    Toggle(isOn: Binding(get: { model.status?.tunEngine == "velum" },
+                                         set: { v in Task { await model.setTunEngine(v) } })) {
+                        Label("使用 velum-engine 内核", systemImage: "cpu")
+                    }
+                } header: {
+                    Text("内核（测试）")
+                } footer: {
+                    Text("隧道改用 velum-engine。切换后隧道会重新加载，现有连接会断开。")
+                }
+                Section {
                     Button {
                         Task {
                             repairing = true

@@ -202,3 +202,10 @@
 "连上对端" = "Connected to server";
 "域名规则优先" = "Prefer domain rules";
 "先匹配所有域名规则，都没命中才解析 DNS 并匹配 IP 规则，可以少查 DNS。排在前面的 IP 规则不再优先于后面的域名规则。" = "Try all domain rules first, and only resolve DNS and try IP rules if none match, for fewer DNS lookups. An earlier IP rule no longer takes priority over a later domain rule.";
+"内核协议栈意外退出" = "The engine's network stack exited unexpectedly";
+"内核未运行" = "The engine is not running";
+"编译路由失败：%@" = "Failed to compile routes: %@";
+"配置不是 velum-engine 的" = "The configuration is not for velum-engine";
+"使用 velum-engine 内核" = "Use the velum-engine core";
+"内核（测试）" = "Core (testing)";
+"隧道改用 velum-engine。切换后隧道会重新加载，现有连接会断开。" = "The tunnel uses velum-engine instead. Switching reloads the tunnel and drops current connections.";

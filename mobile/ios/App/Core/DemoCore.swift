@@ -99,6 +99,12 @@ final class DemoCore: VelumCore, @unchecked Sendable {
         return s
     }
 
+    func setTunEngine(_ engine: String) async throws -> Status {
+        var s = try await status()
+        s.tunEngine = engine
+        return s
+    }
+
     func setTunnel(on: Bool) async throws -> Status {
         let slow = UserDefaults.standard.bool(forKey: "slowConnect")
         try await Task.sleep(for: .milliseconds(on ? (slow ? 6000 : 1200) : 400))

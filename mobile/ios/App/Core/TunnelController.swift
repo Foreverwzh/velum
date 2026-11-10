@@ -126,9 +126,22 @@ final class TunnelController: NSObject, MobilebindTunnelHostProtocol, @unchecked
 
     // MARK: MobilebindTunnelHost
 
+    /// 扩展读取的共享目录（与 RealCore.home() 下的 tunnel 目录相同）。
+    private static var velumPaths: VelumFiles.Paths? {
+        FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: group)
+            .map { VelumFiles.Paths(dir: $0.appendingPathComponent("velum/tunnel")) }
+    }
+
+    /// 用 velum-engine 时，在 App 进程里把配置编译成路由文件（扩展只加载）。编译错误在这里报给用户。
+    private func compileVelum() throws {
+        guard let p = Self.velumPaths else { return }
+        try VelumFiles.ensureCompiled(p)
+    }
+
     func startTunnel() throws {
         lock.withLock { transitioning = true }
         defer { lock.withLock { transitioning = false; wasActive = true } }
+        try compileVelum()
         let m = try prepared()
         do {
             try m.connection.startVPNTunnel()
@@ -189,6 +202,15 @@ final class TunnelController: NSObject, MobilebindTunnelHostProtocol, @unchecked
         guard tunnelActive(), let session = current()?.connection as? NETunnelProviderSession, let data = req?.data(using: .utf8) else {
             error?.pointee = CoreError.message(String(localized: "隧道未运行")) as NSError
             return ""
+        }
+        // 重新加载前先编译（velum-engine）：扩展收到 reload 时直接加载新的路由文件
+        if let r = try? JSONSerialization.jsonObject(with: data) as? [String: Any], r["op"] as? String == "reload" {
+            do {
+                try compileVelum()
+            } catch let e {
+                error?.pointee = e as NSError
+                return ""
+            }
         }
         let sem = DispatchSemaphore(value: 0)
         var out: Data?
