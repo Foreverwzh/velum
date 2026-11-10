@@ -140,3 +140,26 @@ func TestRenderSniff(t *testing.T) {
 		t.Fatal("没有 sniff 规则时不应打开")
 	}
 }
+
+// hijack-dns：protocol: dns 的接管规则打开引擎的接管，记下之前的规则数；带其他条件的告警。
+func TestRenderHijackDNS(t *testing.T) {
+	direct := ir.Action{Kind: ir.ActionRoute, Outbound: ir.OutboundDirect}
+	c := &ir.Config{
+		Rules: []ir.Rule{
+			{Match: ir.Leaf(ir.Cond{IPCIDR: []string{"::/0"}, Network: []string{"tcp"}}), Action: ir.Action{Kind: ir.ActionReject}},
+			{Action: ir.Action{Kind: ir.ActionSniff}},
+			{Match: ir.Leaf(ir.Cond{Protocol: []string{"dns"}}), Action: ir.Action{Kind: ir.ActionHijackDNS}},
+			{Match: ir.Leaf(ir.Cond{DomainSuffix: []string{"cn"}}), Action: direct},
+		},
+		Final: direct,
+	}
+	r := Render(&compiler.Plan{IR: c})
+	if !r.Config.HijackDNS || r.Config.HijackDNSAfter != 1 || r.Config.SniffAfter != 1 || len(r.Warnings) != 0 {
+		t.Fatalf("hijack=%v after=%d sniffAfter=%d 告警 %+v", r.Config.HijackDNS, r.Config.HijackDNSAfter, r.Config.SniffAfter, r.Warnings)
+	}
+	c.Rules[2].Match = ir.Leaf(ir.Cond{Protocol: []string{"dns"}, Port: []int{53}})
+	r = Render(&compiler.Plan{IR: c})
+	if r.Config.HijackDNS || len(r.Warnings) != 1 {
+		t.Fatalf("带其他条件的应当告警且不打开：hijack=%v 告警 %+v", r.Config.HijackDNS, r.Warnings)
+	}
+}

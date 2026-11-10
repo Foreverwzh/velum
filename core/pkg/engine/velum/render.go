@@ -7,6 +7,7 @@ package velum
 
 import (
 	"fmt"
+	"reflect"
 	"sort"
 	"strings"
 
@@ -29,6 +30,10 @@ type Config struct {
 	Sniff bool `json:"sniff"`
 	// SniffAfter：嗅探之前的规则数。这些规则只按 IP 判断，命中就不嗅探（如 TCP 握手前就拒绝 IPv6）。
 	SniffAfter int `json:"sniff_after"`
+	// HijackDNS：发往任意地址的 DNS 查询（UDP 按内容识别，TCP 53 端口）由引擎应答，走 DNS 规则与 fake-ip。
+	HijackDNS bool `json:"hijack_dns"`
+	// HijackDNSAfter：接管 DNS 之前的规则数，这些规则只按 IP 判断，命中就不接管。
+	HijackDNSAfter int `json:"hijack_dns_after"`
 }
 
 type Node struct {
@@ -248,6 +253,12 @@ func RenderWith(p *compiler.Plan, opt Options) *Result {
 			}
 			continue
 		}
+		if rule.Action.Kind == ir.ActionHijackDNS && isDNSProtocol(rule.Match) {
+			if !r.Config.HijackDNS {
+				r.Config.HijackDNS, r.Config.HijackDNSAfter = true, len(r.Config.Rules)
+			}
+			continue
+		}
 		a, ok := action(rule.Action, rule.Source, warn)
 		if !ok {
 			continue
@@ -312,7 +323,7 @@ func action(a ir.Action, src ir.Source, warn warnFn) (Action, bool) {
 		// 引擎遇到可能命中的 IP 规则时自己解析，不需要这条
 		return Action{}, false
 	case ir.ActionHijackDNS:
-		warn("rule", "hijack-dns", "接管发往其他 DNS 服务器的查询暂不支持（隧道 DNS 本身由引擎应答）", src)
+		warn("rule", "hijack-dns", "只支持「protocol: dns → hijack-dns」，带其他条件的接管 DNS 已跳过", src)
 		return Action{}, false
 	}
 	warn("rule", a.Kind, "未知动作，已跳过", src)
@@ -480,4 +491,17 @@ func dns(d ir.DNS, usable map[string]bool, warn warnFn) DNS {
 		out.FakeIP = &FakeIP{Inet4Range: f.Inet4Range, Inet6Range: f.Inet6Range, KeepSVCB: f.KeepSVCB}
 	}
 	return out
+}
+
+// isDNSProtocol：条件恰好是 protocol: dns（Velum 在 TUN 模式下插入的接管 DNS 规则）。
+func isDNSProtocol(m ir.Match) bool {
+	if m.Cond == nil || m.Logical != "" || m.Invert {
+		return false
+	}
+	c := *m.Cond
+	if len(c.Protocol) != 1 || c.Protocol[0] != "dns" {
+		return false
+	}
+	c.Protocol = nil
+	return reflect.DeepEqual(c, ir.Cond{})
 }
