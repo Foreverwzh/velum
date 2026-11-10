@@ -23,7 +23,7 @@ for a in "$@"; do
   case "$a" in
     --upload) upload=true ;;
     --store) store=true ;;
-    *) die "不认识的参数：$a（只有 --upload、--store）" ;;
+    *) die "不认识的参数：${a}（只有 --upload、--store）" ;;
   esac
 done
 

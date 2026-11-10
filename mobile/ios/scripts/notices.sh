@@ -1,12 +1,12 @@
 #!/bin/sh
 # 生成 App 附带的第三方版权声明 build/ThirdPartyNotices.txt：上架构建（velumonly）链接的 Go 模块、gomobile 运行时、
-# Go 标准库，以及 velum-engine 的 Rust crate（由 velum-engine 的 scripts/notices.py 生成）。
+# Go 标准库，以及 velum-engine 的 Rust crate（scripts/engine.sh 准备的 build/THIRD_PARTY_RUST.txt）。
 set -eu
 cd "$(dirname "$0")/.."
 ios=$(pwd)
-src="${VELUM_ENGINE_DIR:-$(cd ../../.. && pwd)/velum-engine}"
 mkdir -p build
-(cd "$src" && python3 scripts/notices.py "$ios/build/THIRD_PARTY_RUST.txt" >/dev/null)
+# Rust 部分由 scripts/engine.sh 准备（从源码生成，或随预编译引擎下载）
+[ -f build/THIRD_PARTY_RUST.txt ] || { echo "缺少 build/THIRD_PARTY_RUST.txt：先运行 scripts/engine.sh" >&2; exit 1; }
 cd ../../core
 TAGS="$(sed -n 's/^TAGS ?= //p' Makefile),velumonly"
 {
@@ -28,5 +28,5 @@ print("\n".join(out))
 ' "$(go env GOROOT)" > "$ios/build/THIRD_PARTY_GO.txt"
 cd "$ios"
 cat build/THIRD_PARTY_GO.txt build/THIRD_PARTY_RUST.txt > build/ThirdPartyNotices.txt
-rm build/THIRD_PARTY_GO.txt build/THIRD_PARTY_RUST.txt
+rm build/THIRD_PARTY_GO.txt
 echo "build/ThirdPartyNotices.txt：$(du -h build/ThirdPartyNotices.txt | cut -f1)"

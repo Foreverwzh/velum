@@ -11,7 +11,8 @@ xcodebuild test -project Velum.xcodeproj -scheme Velum \
 
 ## 发 TestFlight
 
-推送 `v*` 标签时，`release.yml` 调用 `ios.yml`，在 `macos-26` 上跑 `scripts/build-ios.sh --upload`：
+推送 `v*` 标签时，`release.yml` 调用 `ios.yml`，在 `macos-26` 上跑 `scripts/build-ios.sh --upload --store`
+（上架构建，不含 sing-box；预编译的 velum-engine 按 `engine.lock` 从私有仓库的 Release 下载并校验 sha256）：
 版本号是标签去掉 `-rc.N`，构建号是 UTC 时间（`%y%j%H%M`）。传完在 App Store Connect 处理好后出现在 TestFlight，
 只发内部测试组。本地出包：`sh scripts/build-ios.sh`（用 Xcode 里登录的账号签名，产物在 `build/ipa/`）。
 
@@ -28,3 +29,7 @@ xcodebuild test -project Velum.xcodeproj -scheme Velum \
 | `APPLE_API_ISSUER` | Issuer ID |
 | `IOS_DEV_CERT_P12_BASE64` | Apple Development 证书连私钥导出的 `.p12`，`base64 -i x.p12` |
 | `IOS_DEV_CERT_P12_PASSWORD` | `.p12` 的密码 |
+| `VELUM_ENGINE_TOKEN` | 能读 `Foreverwzh/velum-engine` 的 fine-grained 令牌（Repository access 只选这个仓库，权限 Contents: Read-only），下载预编译引擎 |
+
+更新引擎：在 velum-engine 里运行 `scripts/release-ios.sh <版本>`，把它最后打印的几行写进 `engine.lock`。
+本机有 velum-engine 源码时 `scripts/engine.sh` 直接从源码编译；`VELUM_ENGINE_DOWNLOAD=1` 强制按 `engine.lock` 下载。

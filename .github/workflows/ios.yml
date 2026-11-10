@@ -80,8 +80,14 @@ jobs:
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$pw" "$keychain"
           existing="$(security list-keychains -d user | sed 's/[\" ]//g')"
           security list-keychains -d user -s "$keychain" $existing
+      # 上架构建不含 sing-box：预编译的 velum-engine（私有仓库的 Release，版本与 sha256 见 mobile/ios/engine.lock）
+      # 用 VELUM_ENGINE_TOKEN 下载（只读那个仓库内容的 fine-grained 令牌）
       - name: build and upload to TestFlight
-        run: ./scripts/build-ios.sh --upload
+        env:
+          GH_TOKEN: ${{ secrets.VELUM_ENGINE_TOKEN }}
+        run: |
+          [[ -n "$GH_TOKEN" ]] || { echo "✗ 没配置 VELUM_ENGINE_TOKEN（读 velum-engine 的 Release），见 mobile/ios/README.md"; exit 1; }
+          ./scripts/build-ios.sh --upload --store
       - name: clean up signing credentials
         if: always()
         run: |
