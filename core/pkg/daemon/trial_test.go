@@ -18,7 +18,7 @@ func startTrialDaemon(t *testing.T, home string, setup func(*daemon.Daemon)) (*r
 	t.Helper()
 	paths := testPaths(home)
 	eng := &fakeEngine{}
-	d := daemon.New(paths, eng, log.New(io.Discard, "", 0))
+	d := newDaemon(paths, eng, log.New(io.Discard, "", 0))
 	d.TUNOpener = &fakeOpener{}
 	if setup != nil {
 		setup(d)

@@ -10,6 +10,7 @@ import (
 	"net/netip"
 
 	"github.com/Foreverwzh/velum/core/pkg/compiler"
+	"github.com/Foreverwzh/velum/core/pkg/engine"
 	"github.com/Foreverwzh/velum/core/pkg/engine/singbox/physdns"
 	"github.com/Foreverwzh/velum/core/pkg/engine/singbox/race"
 	"github.com/Foreverwzh/velum/core/pkg/ir"
@@ -21,13 +22,12 @@ type Options struct {
 	LogLevel string // trace / debug / info / warn / error，默认 info
 }
 
-// Rendered 是渲染产物。RuleSources[i] / RuleIndex[i] 对应 route.rules[i] 的来源与 IR 规则下标，
-// 供动态实录把命中规则映射回 Provenance。
-type Rendered struct {
-	JSON        []byte
-	RuleSources []ir.Source
-	RuleIndex   []int
-	Warnings    []ir.Warning
+// Rendered 是渲染产物（见 engine.Rendered）。
+type Rendered = engine.Rendered
+
+// Renderer 是给 daemon 注入的 sing-box 渲染器（daemon.Render）。
+func Renderer(p *compiler.Plan, logLevel string) (*engine.Rendered, error) {
+	return Render(p, Options{LogLevel: logLevel})
 }
 
 const rejectTag = ir.OutboundReject

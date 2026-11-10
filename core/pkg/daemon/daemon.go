@@ -32,7 +32,6 @@ import (
 	"github.com/Foreverwzh/velum/core/pkg/compiler"
 	"github.com/Foreverwzh/velum/core/pkg/config"
 	"github.com/Foreverwzh/velum/core/pkg/engine"
-	"github.com/Foreverwzh/velum/core/pkg/engine/singbox/render"
 	"github.com/Foreverwzh/velum/core/pkg/engine/velum"
 	"github.com/Foreverwzh/velum/core/pkg/explain"
 	"github.com/Foreverwzh/velum/core/pkg/helper"
@@ -58,7 +57,7 @@ type state struct {
 	stale            bool   // 使用了过期缓存（启动时），需要在后台更新
 	retryViaProxy    bool   // 有远程规则集直连下载失败且无缓存，引擎起来后应经 Velum 代理重试
 	plan             *compiler.Plan
-	rendered         *render.Rendered
+	rendered         *engine.Rendered    // sing-box 配置；只用 velum-engine 时为空的 Rendered
 	velum            *engine.VelumConfig // iOS 扩展用 velum-engine 时的配置（tun.engine: velum）
 	sub              rpc.SubscriptionStatus
 	profiles         []rpc.ProfileStatus
@@ -88,8 +87,11 @@ type Daemon struct {
 	inproc             http.Handler
 	Paths              config.Paths
 	Engine             engine.Engine
-	Logger             *log.Logger
-	SysProxy           SysProxy
+	// Render 把 Plan 渲染成内核配置（sing-box）。为 nil 时只用 velum-engine（iOS）：不渲染 sing-box 配置，
+	// 总是生成 velum-engine 的配置。由平台设置，daemon 本身不依赖 sing-box。
+	Render   func(p *compiler.Plan, logLevel string) (*engine.Rendered, error)
+	Logger   *log.Logger
+	SysProxy SysProxy
 	// TUNUnavailable 非空时 TUN 不可用（如 Windows 上未以服务运行），开启 TUN 会显示为暂停并给出此原因。
 	TUNUnavailable string
 	// TUNTrials 允许试运行 TUN（Linux 服务）；TUNRevertMarker 是回退定时器留下的记录，用于在状态里说明原因。
@@ -350,11 +352,13 @@ func (d *Daemon) build(mode fetchMode) (*state, error) {
 		st.plan.Warnings = append(st.plan.Warnings, d.TUNAdvisories()...)
 	}
 	d.applyRespectRules(st)
-	st.rendered, err = render.Render(st.plan, render.Options{LogLevel: cfg.LogLevel})
-	if err != nil {
-		return nil, err
+	st.rendered = &engine.Rendered{}
+	if d.Render != nil {
+		if st.rendered, err = d.Render(st.plan, cfg.LogLevel); err != nil {
+			return nil, err
+		}
 	}
-	if st.tunOn && cfg.TUN.Engine == "velum" {
+	if d.Render == nil || (st.tunOn && cfg.TUN.Engine == "velum") {
 		var warns []ir.Warning
 		if st.velum, warns, err = renderVelum(st.plan, f); err != nil {
 			return nil, err

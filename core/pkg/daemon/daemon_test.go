@@ -109,7 +109,7 @@ func setupEngine(t *testing.T, eng *fakeEngine) (config.Paths, *fakeEngine, *rpc
 	ov, _ := os.ReadFile(filepath.Join(td, "overlay.yaml"))
 	_ = os.WriteFile(paths.Overlay, ov, 0o600)
 
-	d := daemon.New(paths, eng, log.New(io.Discard, "", 0))
+	d := newDaemon(paths, eng, log.New(io.Discard, "", 0))
 	done := make(chan error, 1)
 	go func() { done <- d.Run(context.Background()) }()
 	c := rpc.NewClient(paths.Socket)
@@ -218,7 +218,7 @@ func TestDaemonLifecycle(t *testing.T) {
 func TestDaemonRejectsSecondInstance(t *testing.T) {
 	paths, _, _, cleanup := setup(t)
 	defer cleanup()
-	d2 := daemon.New(paths, &fakeEngine{}, log.New(io.Discard, "", 0))
+	d2 := newDaemon(paths, &fakeEngine{}, log.New(io.Discard, "", 0))
 	if err := d2.Run(context.Background()); err == nil || !strings.Contains(err.Error(), "已在运行") {
 		t.Fatalf("第二个实例应拒绝启动：%v", err)
 	}
@@ -228,7 +228,7 @@ func TestEmptyConfigStillServes(t *testing.T) {
 	home, _ := os.MkdirTemp(tmpBase(), "velum-test-")
 	defer os.RemoveAll(home)
 	paths := testPaths(home)
-	d := daemon.New(paths, &fakeEngine{}, log.New(io.Discard, "", 0))
+	d := newDaemon(paths, &fakeEngine{}, log.New(io.Discard, "", 0))
 	go func() { _ = d.Run(context.Background()) }()
 	defer d.Shutdown()
 	c := rpc.NewClient(paths.Socket)
@@ -290,7 +290,7 @@ func TestDaemonSysProxyLifecycle(t *testing.T) {
 	_ = config.Ensure(paths)
 	_ = os.WriteFile(paths.Overlay, []byte("system_proxy:\n  bypass: [localhost]\n"), 0o600)
 	sp := &fakeSysProxy{healRes: sysproxy.HealRestored}
-	d := daemon.New(paths, &fakeEngine{}, log.New(io.Discard, "", 0))
+	d := newDaemon(paths, &fakeEngine{}, log.New(io.Discard, "", 0))
 	d.SysProxy = sp
 	// 模拟主网络服务被其他 VPN 接管：实际生效的仍是旧代理
 	d.EffectiveProxy = func() (sysproxy.Effective, error) {
@@ -342,7 +342,7 @@ func TestDaemonSysProxySkipsUnchanged(t *testing.T) {
 	paths := testPaths(home)
 	_ = config.Ensure(paths)
 	sp := &fakeSysProxy{}
-	d := daemon.New(paths, &fakeEngine{}, log.New(io.Discard, "", 0))
+	d := newDaemon(paths, &fakeEngine{}, log.New(io.Discard, "", 0))
 	d.SysProxy = sp
 	var mu sync.Mutex
 	effPort := 7899
@@ -398,7 +398,7 @@ func TestDaemonTUNMode(t *testing.T) {
 	cfg := strings.Replace(config.Template(), "route_include: []", "route_include: [223.6.6.6/32]", 1)
 	_ = os.WriteFile(paths.Config, []byte(cfg), 0o600)
 	eng := &fakeEngine{}
-	d := daemon.New(paths, eng, log.New(io.Discard, "", 0))
+	d := newDaemon(paths, eng, log.New(io.Discard, "", 0))
 	op := &fakeOpener{}
 	d.TUNOpener = op
 	go func() { _ = d.Run(context.Background()) }()
@@ -447,7 +447,7 @@ func TestDaemonTUNUnavailable(t *testing.T) {
 	defer os.RemoveAll(home)
 	paths := testPaths(home)
 	eng := &fakeEngine{}
-	d := daemon.New(paths, eng, log.New(io.Discard, "", 0))
+	d := newDaemon(paths, eng, log.New(io.Discard, "", 0))
 	d.TUNOpener = &fakeOpener{}
 	d.TUNUnavailable = "TUN 需要安装 Velum 服务"
 	go func() { _ = d.Run(context.Background()) }()
@@ -481,7 +481,7 @@ func TestDaemonNetworkSense(t *testing.T) {
 	set := func(s netsense.Snapshot, c netsense.CaptiveState) { mu.Lock(); snap, captive = s, c; mu.Unlock() }
 
 	eng := &fakeEngine{}
-	d := daemon.New(paths, eng, log.New(io.Discard, "", 0))
+	d := newDaemon(paths, eng, log.New(io.Discard, "", 0))
 	d.TUNOpener = &fakeOpener{}
 	d.NetSnapshot = func() (netsense.Snapshot, error) { mu.Lock(); defer mu.Unlock(); return snap, nil }
 	d.CaptiveCheck = func(context.Context, []netsense.Probe, netsense.PhysicalPath) (netsense.CaptiveState, string) {
@@ -545,7 +545,7 @@ func TestDaemonStaleOwnDNS(t *testing.T) {
 	defer os.RemoveAll(home)
 	paths := testPaths(home)
 	_ = config.Ensure(paths)
-	d := daemon.New(paths, &fakeEngine{}, log.New(io.Discard, "", 0))
+	d := newDaemon(paths, &fakeEngine{}, log.New(io.Discard, "", 0))
 	d.NetSnapshot = func() (netsense.Snapshot, error) {
 		return netsense.Snapshot{PrimaryInterface: "en0",
 			Routes:    []netsense.Route{{Dst: netip.MustParsePrefix("0.0.0.0/0"), Iface: "en0"}},
@@ -572,7 +572,7 @@ func TestRepairResetsStaleDNS(t *testing.T) {
 	defer os.RemoveAll(home)
 	paths := testPaths(home)
 	_ = config.Ensure(paths)
-	d := daemon.New(paths, &fakeEngine{}, log.New(io.Discard, "", 0))
+	d := newDaemon(paths, &fakeEngine{}, log.New(io.Discard, "", 0))
 	var mu sync.Mutex
 	dns := []string{"172.19.0.2"}
 	var asked []string
@@ -643,7 +643,7 @@ func TestDaemonTUNSystemDNS(t *testing.T) {
 	cfg = strings.Replace(cfg, "route_include: []", "route_include: [198.51.100.0/24]", 1)
 	_ = os.WriteFile(paths.Config, []byte(cfg), 0o600)
 	eng := &fakeEngine{}
-	d := daemon.New(paths, eng, log.New(io.Discard, "", 0))
+	d := newDaemon(paths, eng, log.New(io.Discard, "", 0))
 	op := &fakeOpener{}
 	d.TUNOpener = op
 	d.NetSnapshot = func() (netsense.Snapshot, error) {
@@ -707,7 +707,7 @@ func TestDaemonWhyLoadsRuleSetsAndResolves(t *testing.T) {
 	daemon.RuleSetLoader = singbox.LoadRuleSetFile
 	defer func() { daemon.RuleSetLoader = nil }()
 	eng := &resolvingEngine{}
-	d := daemon.New(paths, eng, log.New(io.Discard, "", 0))
+	d := newDaemon(paths, eng, log.New(io.Discard, "", 0))
 	go func() { _ = d.Run(context.Background()) }()
 	defer d.Shutdown()
 	c := rpc.NewClient(paths.Socket)
@@ -835,7 +835,7 @@ func TestSwitchesIndependent(t *testing.T) {
 	}
 	eng := &fakeEngine{}
 	sp := &fakeSysProxy{}
-	d := daemon.New(paths, eng, log.New(io.Discard, "", 0))
+	d := newDaemon(paths, eng, log.New(io.Discard, "", 0))
 	d.SysProxy, d.TUNOpener, d.NetSnapshot = sp, &fakeOpener{}, snap
 	d.CaptiveCheck = func(context.Context, []netsense.Probe, netsense.PhysicalPath) (netsense.CaptiveState, string) {
 		return netsense.Online, ""
@@ -906,7 +906,7 @@ func TestSetSubscription(t *testing.T) {
 	paths := testPaths(home)
 	_ = config.Ensure(paths)
 	eng := &fakeEngine{}
-	d := daemon.New(paths, eng, log.New(io.Discard, "", 0))
+	d := newDaemon(paths, eng, log.New(io.Discard, "", 0))
 	go func() { _ = d.Run(context.Background()) }()
 	defer d.Shutdown()
 	c := rpc.NewClient(paths.Socket)
@@ -958,7 +958,7 @@ func TestDaemonTUNApps(t *testing.T) {
 	home, _ := os.MkdirTemp(tmpBase(), "velum-test-")
 	defer os.RemoveAll(home)
 	paths := testPaths(home)
-	d := daemon.New(paths, &fakeEngine{}, log.New(io.Discard, "", 0))
+	d := newDaemon(paths, &fakeEngine{}, log.New(io.Discard, "", 0))
 	go func() { _ = d.Run(context.Background()) }()
 	defer d.Shutdown()
 	c := rpc.NewClient(paths.Socket)
@@ -1005,7 +1005,7 @@ rules:
 	cfg = strings.Replace(cfg, "listen: 127.0.0.1:7899", "listen: 127.0.0.1:17998", 1)
 	_ = os.WriteFile(paths.Config, []byte(cfg), 0o600)
 	eng := &fakeEngine{}
-	d := daemon.New(paths, eng, log.New(io.Discard, "", 0))
+	d := newDaemon(paths, eng, log.New(io.Discard, "", 0))
 	go func() { _ = d.Run(context.Background()) }()
 	defer d.Shutdown()
 	c := rpc.NewClient(paths.Socket)
@@ -1084,7 +1084,7 @@ func TestProfiles(t *testing.T) {
 	defer os.RemoveAll(home)
 	paths := testPaths(home)
 	_ = config.Ensure(paths)
-	d := daemon.New(paths, &fakeEngine{}, log.New(io.Discard, "", 0))
+	d := newDaemon(paths, &fakeEngine{}, log.New(io.Discard, "", 0))
 	go func() { _ = d.Run(context.Background()) }()
 	defer d.Shutdown()
 	c := rpc.NewClient(paths.Socket)
@@ -1169,7 +1169,7 @@ func TestUpdateDoesNotBlockReload(t *testing.T) {
 	defer os.RemoveAll(home)
 	paths := testPaths(home)
 	_ = config.Ensure(paths)
-	d := daemon.New(paths, &fakeEngine{}, log.New(io.Discard, "", 0))
+	d := newDaemon(paths, &fakeEngine{}, log.New(io.Discard, "", 0))
 	go func() { _ = d.Run(context.Background()) }()
 	defer d.Shutdown()
 	c := rpc.NewClient(paths.Socket)
@@ -1259,7 +1259,7 @@ rules:
 	_ = os.WriteFile(paths.Config, []byte(cfg), 0o600)
 
 	eng := &recordingEngine{fakeEngine: &fakeEngine{}}
-	d := daemon.New(paths, eng, log.New(io.Discard, "", 0))
+	d := newDaemon(paths, eng, log.New(io.Discard, "", 0))
 	done := make(chan error, 1)
 	go func() { done <- d.Run(context.Background()) }()
 	c := rpc.NewClient(paths.Socket)
@@ -1342,7 +1342,7 @@ func TestDaemonPhysicalDNSChangeKeepsEngine(t *testing.T) {
 	cfg = strings.Replace(cfg, "  interval: 5s", "  interval: 20ms", 1)
 	_ = os.WriteFile(paths.Config, []byte(cfg), 0o600)
 	eng := &fakeEngine{}
-	d := daemon.New(paths, eng, log.New(io.Discard, "", 0))
+	d := newDaemon(paths, eng, log.New(io.Discard, "", 0))
 	d.TUNOpener = &fakeOpener{}
 	var mu sync.Mutex
 	dhcp := "192.168.1.1"

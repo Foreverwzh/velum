@@ -27,6 +27,7 @@ import (
 	"github.com/Foreverwzh/velum/core/pkg/daemon"
 	"github.com/Foreverwzh/velum/core/pkg/engine"
 	"github.com/Foreverwzh/velum/core/pkg/engine/singbox"
+	"github.com/Foreverwzh/velum/core/pkg/engine/singbox/render"
 	"github.com/Foreverwzh/velum/core/pkg/ipc"
 	"github.com/Foreverwzh/velum/core/pkg/logfile"
 	"github.com/Foreverwzh/velum/core/pkg/netsense"
@@ -116,6 +117,7 @@ func Start(home string, host Host) error {
 	}
 	return start(home, func(paths config.Paths, lf io.Writer, logger *log.Logger) *daemon.Daemon {
 		d := daemon.New(paths, singbox.New(singbox.Options{Log: lf}), logger)
+		d.Render = render.Renderer
 		d.TUNOpener = opener{host}
 		d.NetSnapshot = func() (netsense.Snapshot, error) { return netSnapshot(host) }
 		if proxyHost != nil {
@@ -145,6 +147,7 @@ func StartSplit(home string, host TunnelHost) error {
 		se := newSplitEngine(home, host, singbox.New(singbox.Options{Log: lf}))
 		se.onAdopt = TunRequested
 		d := daemon.New(paths, se, logger)
+		d.Render = render.Renderer
 		d.SystemConnectivity = true
 		d.NetSnapshot = func() (netsense.Snapshot, error) { return snapshot(host.Network()) }
 		return d

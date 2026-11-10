@@ -17,6 +17,7 @@ import (
 	"github.com/Foreverwzh/velum/core/pkg/config"
 	"github.com/Foreverwzh/velum/core/pkg/daemon"
 	"github.com/Foreverwzh/velum/core/pkg/engine/singbox"
+	"github.com/Foreverwzh/velum/core/pkg/engine/singbox/render"
 	"github.com/Foreverwzh/velum/core/pkg/logfile"
 )
 
@@ -64,6 +65,7 @@ func main() {
 	logger := log.New(out, "[velumd] ", log.LstdFlags|log.Lmicroseconds)
 	daemon.RuleSetLoader = singbox.LoadRuleSetFile
 	d := daemon.New(paths, singbox.New(singbox.Options{Log: out}), logger)
+	d.Render = render.Renderer
 	d.AllowSIDs = sids
 	setupPlatform(d, paths)
 

@@ -30,6 +30,15 @@ type Config struct {
 	Velum *VelumConfig
 }
 
+// Rendered 是内核配置的渲染产物（sing-box）。RuleSources[i] / RuleIndex[i] 对应内核 route.rules[i] 的来源与 IR 规则下标，
+// 供动态实录把命中规则映射回 Provenance。
+type Rendered struct {
+	JSON        []byte
+	RuleSources []ir.Source
+	RuleIndex   []int
+	Warnings    []ir.Warning
+}
+
 // VelumConfig 是 velum-engine 的配置（JSON，格式见 pkg/engine/velum）。
 type VelumConfig struct {
 	IR       []byte // 引擎 IR
