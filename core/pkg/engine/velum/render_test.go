@@ -99,7 +99,7 @@ func TestRenderDNS(t *testing.T) {
 		},
 		Final: "r", Strategy: "ipv4_only", FakeIP: &ir.FakeIP{Inet4Range: "198.18.0.0/16"},
 	}
-	out := dns(d, nil, func(string, string, string, ir.Source) {})
+	out := dns(d, nil, nil, func(string, string, string, ir.Source) {})
 	tags := []string{}
 	for _, s := range out.Servers {
 		tags = append(tags, s.Tag+":"+s.Type)
@@ -161,5 +161,23 @@ func TestRenderHijackDNS(t *testing.T) {
 	r = Render(&compiler.Plan{IR: c})
 	if r.Config.HijackDNS || len(r.Warnings) != 1 {
 		t.Fatalf("带其他条件的应当告警且不打开：hijack=%v 告警 %+v", r.Config.HijackDNS, r.Warnings)
+	}
+}
+
+// DNS 服务器的 detour：出站存在时传给引擎，不存在时告警并改为直连。
+func TestRenderDNSDetour(t *testing.T) {
+	d := ir.DNS{Servers: []ir.DNSServer{
+		{Tag: "via", Type: "udp", Address: "8.8.8.8", Detour: "Proxy"},
+		{Tag: "gone", Type: "udp", Address: "1.1.1.1", Detour: "Missing"},
+	}}
+	var warns []string
+	out := dns(d, nil, map[string]bool{"Proxy": true}, func(kind, subject, reason string, _ ir.Source) {
+		warns = append(warns, subject+":"+reason)
+	})
+	if out.Servers[0].Detour != "Proxy" || out.Servers[1].Detour != "" {
+		t.Fatalf("detour：%+v", out.Servers)
+	}
+	if len(warns) != 1 || !strings.HasPrefix(warns[0], "gone:") {
+		t.Fatalf("告警：%v", warns)
 	}
 }

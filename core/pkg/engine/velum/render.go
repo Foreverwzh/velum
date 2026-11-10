@@ -117,6 +117,7 @@ type DNSServer struct {
 	Members  []string `json:"members,omitempty"`
 	Fallback []string `json:"fallback,omitempty"`
 	Resolver string   `json:"resolver,omitempty"`
+	Detour   string   `json:"detour,omitempty"`
 }
 
 type DNSRule struct {
@@ -287,7 +288,14 @@ func RenderWith(p *compiler.Plan, opt Options) *Result {
 		r.Config.Final = Action{Kind: "direct"}
 	}
 
-	r.Config.DNS = dns(c.DNS, usable, warn)
+	outbounds := map[string]bool{}
+	for _, n := range r.Config.Nodes {
+		outbounds[n.Tag] = true
+	}
+	for _, g := range r.Config.Groups {
+		outbounds[g.Tag] = true
+	}
+	r.Config.DNS = dns(c.DNS, usable, outbounds, warn)
 	return r
 }
 
@@ -415,7 +423,7 @@ func node(n ir.Node, warn warnFn) Node {
 
 // dns 转换 DNS 服务器与规则。引擎支持 udp / https / local（physical 同）/ race / hosts；
 // 其他类型去掉并告警，引用它们的竞速成员、规则一并清理。
-func dns(d ir.DNS, usable map[string]bool, warn warnFn) DNS {
+func dns(d ir.DNS, usable, outbounds map[string]bool, warn warnFn) DNS {
 	out := DNS{Final: d.Final, Strategy: d.Strategy}
 	ok := map[string]bool{}
 	for _, s := range d.Servers {
@@ -457,11 +465,13 @@ func dns(d ir.DNS, usable map[string]bool, warn warnFn) DNS {
 		if typ == "physical" {
 			typ = "local" // 物理网络 DNS：引擎里就是平台提供的系统 DNS
 		}
-		if s.Detour != "" {
-			warn("dns", s.Tag, "经出站 "+s.Detour+" 查询（respect-rules）暂不支持，改为直连查询", ir.Source{})
+		detour := s.Detour
+		if detour != "" && !outbounds[detour] {
+			warn("dns", s.Tag, "经出站 "+detour+" 查询：引擎里没有这个出站，改为直连查询", ir.Source{})
+			detour = ""
 		}
 		out.Servers = append(out.Servers, DNSServer{Tag: s.Tag, Type: typ, Address: s.Address,
-			Members: keep(s.Members), Fallback: keep(s.Fallback), Resolver: s.Resolver})
+			Members: keep(s.Members), Fallback: keep(s.Fallback), Resolver: s.Resolver, Detour: detour})
 	}
 	if out.Final != "" && !ok[out.Final] {
 		warn("dns", out.Final, "final 服务器不可用，引擎改用第一个服务器", ir.Source{})
