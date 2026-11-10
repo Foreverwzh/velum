@@ -26,6 +26,16 @@ type Config struct {
 	// TUN 非空且 Opener 非空时由 Opener（velum-helper）创建 utun，配置中的 tun 入站经平台接口取得其 FD；
 	// Opener 为空（Windows）时由内核按配置自建 TUN 与路由。
 	TUN *TUNConfig
+	// Velum 非空时 iOS 扩展改用 velum-engine：引擎 IR、规则集与规则对应关系（直接由 Plan 渲染，不经 sing-box 配置）。
+	Velum *VelumConfig
+}
+
+// VelumConfig 是 velum-engine 的配置（JSON，格式见 pkg/engine/velum）。
+type VelumConfig struct {
+	IR       []byte // 引擎 IR
+	RuleSets []byte // 规则集（编译成 .vrdb）
+	// Meta 是引擎规则 → Plan 规则的对应关系：{"rule_index": [...], "rule_sources": [...], "final_source": {...}}
+	Meta []byte
 }
 
 type TUNConfig struct {

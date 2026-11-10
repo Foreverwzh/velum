@@ -33,6 +33,7 @@ import (
 	"github.com/Foreverwzh/velum/core/pkg/config"
 	"github.com/Foreverwzh/velum/core/pkg/engine"
 	"github.com/Foreverwzh/velum/core/pkg/engine/singbox/render"
+	"github.com/Foreverwzh/velum/core/pkg/engine/velum"
 	"github.com/Foreverwzh/velum/core/pkg/explain"
 	"github.com/Foreverwzh/velum/core/pkg/helper"
 	"github.com/Foreverwzh/velum/core/pkg/ipc"
@@ -58,6 +59,7 @@ type state struct {
 	retryViaProxy    bool   // 有远程规则集直连下载失败且无缓存，引擎起来后应经 Velum 代理重试
 	plan             *compiler.Plan
 	rendered         *render.Rendered
+	velum            *engine.VelumConfig // iOS 扩展用 velum-engine 时的配置（tun.engine: velum）
 	sub              rpc.SubscriptionStatus
 	profiles         []rpc.ProfileStatus
 	loadedAt         time.Time
@@ -352,13 +354,54 @@ func (d *Daemon) build(mode fetchMode) (*state, error) {
 	if err != nil {
 		return nil, err
 	}
+	if st.tunOn && cfg.TUN.Engine == "velum" {
+		var warns []ir.Warning
+		if st.velum, warns, err = renderVelum(st.plan, f); err != nil {
+			return nil, err
+		}
+		st.plan.Warnings = append(st.plan.Warnings, warns...)
+	}
 	st.sub.Nodes, st.sub.Groups, st.sub.Rules, st.sub.RuleSets = len(st.plan.IR.Nodes), len(st.plan.IR.Groups), len(st.plan.IR.Rules), len(st.plan.IR.RuleSets)
 	return st, nil
 }
 
+// renderVelum 直接由 Plan 渲染 velum-engine 的配置（不经 sing-box 配置）。GEOIP / GEOSITE 数据经 Fetcher 取，缓存一天。
+func renderVelum(p *compiler.Plan, f *source.Fetcher) (*engine.VelumConfig, []ir.Warning, error) {
+	geo := &velum.GeoSource{Fetch: func(url string) ([]byte, error) {
+		b, _, err := f.Get("providers", url, 24*time.Hour)
+		return b, err
+	}}
+	r := velum.RenderWith(p, velum.Options{Geo: geo})
+	var warns []ir.Warning
+	for _, w := range r.Warnings {
+		warns = append(warns, ir.Warning{Category: "velum-engine", Kind: w.Kind, Level: ir.Degraded, Reason: w.Reason, Subject: w.Subject, Source: w.Source})
+	}
+	irJSON, err := json.Marshal(r.Config)
+	if err != nil {
+		return nil, nil, err
+	}
+	sets, err := json.Marshal(r.RuleSets)
+	if err != nil {
+		return nil, nil, err
+	}
+	// 引擎第 i 条规则 → Plan 第 RuleIndex[i] 条规则及其来源（连接页显示 Velum 的规则）
+	sources := make([]ir.Source, len(r.RuleIndex))
+	for i, idx := range r.RuleIndex {
+		if idx >= 0 && idx < len(p.IR.Rules) {
+			sources[i] = p.IR.Rules[idx].Source
+		}
+	}
+	meta, err := json.Marshal(map[string]any{"rule_index": r.RuleIndex, "rule_sources": sources,
+		"final_source": ir.Source{Kind: ir.SourceVelum, Text: "route.final"}})
+	if err != nil {
+		return nil, nil, err
+	}
+	return &engine.VelumConfig{IR: irJSON, RuleSets: sets, Meta: meta}, warns, nil
+}
+
 func (d *Daemon) engineConfig(st *state) engine.Config {
 	c := engine.Config{JSON: st.rendered.JSON, RuleSources: st.rendered.RuleSources, RuleIndex: st.rendered.RuleIndex, LogLevel: st.cfg.LogLevel,
-		CachePath: filepath.Join(d.Paths.Cache, "singbox.db")}
+		CachePath: filepath.Join(d.Paths.Cache, "singbox.db"), Velum: st.velum}
 	for _, g := range st.plan.IR.Groups {
 		if g.Policy != nil {
 			if c.Policies == nil {
@@ -1139,6 +1182,7 @@ func (d *Daemon) handler() (h http.Handler) {
 	mux.HandleFunc("GET /debug/pprof/profile", pprof.Profile)
 	mux.HandleFunc("PUT /v1/language", d.setLanguage)
 	mux.HandleFunc("PUT /v1/rules/domain-first", d.setDomainFirst)
+	mux.HandleFunc("PUT /v1/tun/engine", d.setTUNEngine)
 	mux.HandleFunc("PUT /v1/network-hint", d.setNetworkHint)
 	mux.HandleFunc("GET /v1/connections", func(w http.ResponseWriter, r *http.Request) {
 		limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
@@ -1252,6 +1296,7 @@ func (d *Daemon) status() rpc.Status {
 	if st := d.st; st != nil {
 		s.Listen, s.LoadedAt, s.Subscription, s.Profiles = st.cfg.Listen, st.loadedAt, st.sub, st.profiles
 		s.DomainFirst = st.cfg.Rules.DomainFirst
+		s.TUNEngine = st.cfg.TUN.Engine
 		// 平台没有系统代理后端（如 Linux）时，要求开启也不会生效
 		s.SystemProxyOn, s.TUNOn, s.WantSystemProxy, s.WantTUN = st.sysOn && d.SysProxy != nil, st.tunOn, st.wantSys, st.wantTUN
 		s.Mode = modeName(st.sysOn, st.tunOn)
@@ -1598,6 +1643,39 @@ func (d *Daemon) setDomainFirst(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	data, err := config.SetBool(old, "rules", "domain_first", req.Enabled)
+	if err == nil {
+		err = userfs.WriteFileAtomic(d.Paths.Config, data, 0o600)
+	}
+	if err != nil {
+		writeErr(w, http.StatusUnprocessableEntity, err)
+		return
+	}
+	if err := d.Reload(r.Context()); err != nil {
+		_ = userfs.WriteFileAtomic(d.Paths.Config, old, 0o600)
+		_ = d.Reload(r.Context())
+		writeErr(w, http.StatusUnprocessableEntity, i18n.Errorf("应用失败，已改回原配置：%w", err))
+		return
+	}
+	writeJSON(w, d.status())
+}
+
+// setTUNEngine 切换 iOS 隧道扩展的内核（tun.engine）。应用失败时改回原配置。
+func (d *Daemon) setTUNEngine(w http.ResponseWriter, r *http.Request) {
+	var req rpc.EngineRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	if req.Engine != "" && req.Engine != "velum" {
+		writeErr(w, http.StatusBadRequest, i18n.Errorf("未知内核 %q（可选：空、velum）", req.Engine))
+		return
+	}
+	old, err := userfs.ReadFile(d.Paths.Config)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	data, err := config.SetFields(old, "tun", map[string]string{"engine": req.Engine}, []string{"engine"})
 	if err == nil {
 		err = userfs.WriteFileAtomic(d.Paths.Config, data, 0o600)
 	}

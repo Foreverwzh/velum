@@ -44,6 +44,8 @@ type TUN struct {
 	HelperSocket string   `yaml:"helper_socket"`
 	IncludeApps  []string `yaml:"include_apps"`
 	ExcludeApps  []string `yaml:"exclude_apps"`
+	// Engine 是 iOS 隧道扩展使用的内核：空（sing-box）或 velum（velum-engine，对照测试期间可切换）。
+	Engine string `yaml:"engine,omitempty"`
 }
 
 type NetworkSense struct {

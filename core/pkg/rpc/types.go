@@ -231,9 +231,16 @@ type DomainFirstRequest struct {
 	Enabled bool `json:"enabled"`
 }
 
+// EngineRequest 设置 iOS 隧道扩展的内核：空为 sing-box，velum 为 velum-engine。
+type EngineRequest struct {
+	Engine string `json:"engine"`
+}
+
 type Status struct {
 	// DomainFirst 是 config.yaml 的 rules.domain_first。
 	DomainFirst bool `json:"domain_first,omitempty"`
+	// TUNEngine 是 config.yaml 的 tun.engine（iOS 扩展的内核：空为 sing-box，velum 为 velum-engine）。
+	TUNEngine string `json:"tun_engine,omitempty"`
 	// WebListen 是网页界面实际监听的地址，WebError 是它没有启动的原因。
 	WebListen     string `json:"web_listen,omitempty"`
 	WebError      string `json:"web_error,omitempty"`

@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 
@@ -22,6 +23,15 @@ const (
 	selectedFile = "selected.json"
 )
 
+// velum-engine 的文件（meta 里 engine 为 velum 时扩展使用）。App 编译出 velum-router.vrrt / velum-rules.vrdb
+// 并把摘要写进 velum-compiled.txt；扩展发现编译产物缺失或摘要不符时自己编译。
+const (
+	EngineVelum       = "velum"
+	VelumIRFile       = "velum-ir.json"
+	VelumRuleSetsFile = "velum-rule-sets.json"
+	VelumMetaFile     = "velum-meta.json"
+)
+
 // CachePath 是扩展使用的内核缓存：不与 App 内的本地引擎共用（bbolt 独占文件）。
 func CachePath(home string) string { return filepath.Join(Dir(home), "cache.db") }
 
@@ -36,7 +46,9 @@ type meta struct {
 	Routes      []string                 `json:"routes,omitempty"`
 	SystemDNS   []string                 `json:"system_dns,omitempty"`
 	Policies    map[string]*ir.NetPolicy `json:"policies,omitempty"`
-	Hash        string                   `json:"hash"`
+	// Engine 是扩展使用的内核：空为 sing-box，velum 为 velum-engine。
+	Engine string `json:"engine,omitempty"`
+	Hash   string `json:"hash"`
 }
 
 func hashOf(c engine.Config, routes, dns []string) string {
@@ -46,6 +58,12 @@ func hashOf(c engine.Config, routes, dns []string) string {
 	h.Write(b)
 	b, _ = json.Marshal(c.Policies)
 	h.Write(b)
+	if v := c.Velum; v != nil {
+		for _, part := range [][]byte{[]byte(EngineVelum), v.IR, v.RuleSets, v.Meta} {
+			_, _ = fmt.Fprintf(h, "%d:", len(part))
+			h.Write(part)
+		}
+	}
 	return hex.EncodeToString(h.Sum(nil))
 }
 
@@ -60,12 +78,22 @@ func Save(home string, c engine.Config) (string, error) {
 		routes, dns = c.TUN.Routes, c.TUN.SystemDNS
 	}
 	m := meta{RuleSources: c.RuleSources, RuleIndex: c.RuleIndex, LogLevel: c.LogLevel, Routes: routes, SystemDNS: dns, Policies: c.Policies, Hash: hashOf(c, routes, dns)}
+	if c.Velum != nil {
+		m.Engine = EngineVelum
+	}
 	b, err := json.Marshal(m)
 	if err != nil {
 		return "", err
 	}
 	if err := writeAtomic(filepath.Join(dir, configFile), c.JSON); err != nil {
 		return "", err
+	}
+	if v := c.Velum; v != nil {
+		for name, data := range map[string][]byte{VelumIRFile: v.IR, VelumRuleSetsFile: v.RuleSets, VelumMetaFile: v.Meta} {
+			if err := writeAtomic(filepath.Join(dir, name), data); err != nil {
+				return "", err
+			}
+		}
 	}
 	return m.Hash, writeAtomic(filepath.Join(dir, metaFile), b)
 }

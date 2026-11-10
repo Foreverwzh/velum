@@ -7,6 +7,7 @@ package velum
 
 import (
 	"fmt"
+	"github.com/Foreverwzh/velum/core/pkg/i18n"
 	"reflect"
 	"sort"
 	"strings"
@@ -202,10 +203,10 @@ func RenderWith(p *compiler.Plan, opt Options) *Result {
 			}
 			switch {
 			case err != nil:
-				warn("rule_set", rs.Tag, "取 geo 数据失败："+err.Error(), rs.Source)
+				warn("rule_set", rs.Tag, i18n.T("取 geo 数据失败：%v", err), rs.Source)
 				continue
 			case conds == nil:
-				warn("rule_set", rs.Tag, fmt.Sprintf("%s 规则集（%s）暂不支持：引擎不读 sing-box 的 .srs，需要换成可再分发的数据源", rs.Kind, rs.Format), rs.Source)
+				warn("rule_set", rs.Tag, i18n.T("%s 规则集（%s）暂不支持：引擎不读 sing-box 的 .srs，需要换成可再分发的数据源", rs.Kind, rs.Format), rs.Source)
 				continue
 			}
 			r.Loaded[rs.Tag] = conds
@@ -224,7 +225,7 @@ func RenderWith(p *compiler.Plan, opt Options) *Result {
 			}
 		}
 		if dropped > 0 {
-			warn("rule_set", rs.Tag, fmt.Sprintf("%d 条条目带有规则集里不支持的条件（进程 / 端口 / 网络 / 源地址 / 协议 / 私有地址），已忽略这些条件", dropped), rs.Source)
+			warn("rule_set", rs.Tag, i18n.T("%d 条条目带有规则集里不支持的条件（进程 / 端口 / 网络 / 源地址 / 协议 / 私有地址），已忽略这些条件", dropped), rs.Source)
 		}
 		usable[rs.Tag] = true
 		r.RuleSets = append(r.RuleSets, out)
@@ -238,7 +239,7 @@ func RenderWith(p *compiler.Plan, opt Options) *Result {
 		if rule.Action.Kind == ir.ActionResolve {
 			resolvedFrom = i
 			if rule.Match.Cond != nil || rule.Match.Logical != "" {
-				warn("rule", fmt.Sprintf("#%d", i+1), "带条件的 resolve 按无条件处理（解析点取这条规则的位置）", rule.Source)
+				warn("rule", fmt.Sprintf("#%d", i+1), i18n.T("带条件的 resolve 按无条件处理（解析点取这条规则的位置）"), rule.Source)
 			}
 			break
 		}
@@ -250,7 +251,7 @@ func RenderWith(p *compiler.Plan, opt Options) *Result {
 				r.Config.Sniff, r.Config.SniffAfter = true, len(r.Config.Rules)
 			}
 			if rule.Match.Cond != nil || rule.Match.Logical != "" {
-				warn("rule", fmt.Sprintf("#%d", i+1), "带条件的 sniff 按无条件处理", rule.Source)
+				warn("rule", fmt.Sprintf("#%d", i+1), i18n.T("带条件的 sniff 按无条件处理"), rule.Source)
 			}
 			continue
 		}
@@ -266,9 +267,9 @@ func RenderWith(p *compiler.Plan, opt Options) *Result {
 		}
 		if rule.Match.Cond == nil {
 			if rule.Match.Logical != "" {
-				warn("rule", fmt.Sprintf("#%d", i+1), fmt.Sprintf("逻辑规则（%s%s）暂不支持，已跳过", invertMark(rule.Match.Invert), rule.Match.Logical), rule.Source)
+				warn("rule", fmt.Sprintf("#%d", i+1), i18n.T("逻辑规则（%s%s）暂不支持，已跳过", invertMark(rule.Match.Invert), rule.Match.Logical), rule.Source)
 			} else {
-				warn("rule", fmt.Sprintf("#%d", i+1), "无条件规则（sniff / resolve 等动作之外）暂不支持，已跳过", rule.Source)
+				warn("rule", fmt.Sprintf("#%d", i+1), i18n.T("无条件规则（sniff / resolve 等动作之外）暂不支持，已跳过"), rule.Source)
 			}
 			continue
 		}
@@ -318,23 +319,23 @@ func action(a ir.Action, src ir.Source, warn warnFn) (Action, bool) {
 			return Action{Kind: "reject"}, true
 		}
 		if a.OverrideAddress != "" {
-			warn("rule", a.Outbound, "改写目标地址（hosts 覆盖）暂不支持", src)
+			warn("rule", a.Outbound, i18n.T("改写目标地址（hosts 覆盖）暂不支持"), src)
 		}
 		return Action{Kind: "route", Target: a.Outbound}, true
 	case ir.ActionReject:
 		return Action{Kind: "reject"}, true
 	case ir.ActionDrop:
 		// 引擎没有静默丢弃，近似为拒绝（应用会更快得到失败）
-		warn("rule", "drop", "drop 按 reject 处理", src)
+		warn("rule", "drop", i18n.T("drop 按 reject 处理"), src)
 		return Action{Kind: "reject"}, true
 	case ir.ActionResolve:
 		// 引擎遇到可能命中的 IP 规则时自己解析，不需要这条
 		return Action{}, false
 	case ir.ActionHijackDNS:
-		warn("rule", "hijack-dns", "只支持「protocol: dns → hijack-dns」，带其他条件的接管 DNS 已跳过", src)
+		warn("rule", "hijack-dns", i18n.T("只支持「protocol: dns → hijack-dns」，带其他条件的接管 DNS 已跳过"), src)
 		return Action{}, false
 	}
-	warn("rule", a.Kind, "未知动作，已跳过", src)
+	warn("rule", a.Kind, i18n.T("未知动作，已跳过"), src)
 	return Action{}, false
 }
 
@@ -371,19 +372,19 @@ func cond(c ir.Cond, usable map[string]bool, subject string, src ir.Source, warn
 	hadAddr := addr || len(c.DomainRegex) > 0 || len(missing) > 0
 	if len(missing) > 0 {
 		sort.Strings(missing)
-		warn("rule", subject, "引用的规则集不可用："+strings.Join(missing, ", "), src)
+		warn("rule", subject, i18n.T("引用的规则集不可用：%s", strings.Join(missing, ", ")), src)
 	}
 	switch {
 	case len(c.ProcessName)+len(c.ProcessPath)+len(c.SourceIPCIDR)+len(c.Protocol) > 0:
 		// 与条件（进程 / 源地址 / 协议）无法求值：整条跳过，否则会扩大命中范围
-		warn("rule", subject, "含暂不支持的条件（"+strings.Join(unsupported, ", ")+"），已跳过", src)
+		warn("rule", subject, i18n.T("含暂不支持的条件（%s），已跳过", strings.Join(unsupported, ", ")), src)
 		return Cond{}, false
 	case hadAddr && !addr:
 		// 地址类条件全部不可用：剩下的端口 / 网络条件会扩大命中范围，整条跳过
-		warn("rule", subject, "地址类条件都不可用（"+strings.Join(append(unsupported, missing...), ", ")+"），已跳过", src)
+		warn("rule", subject, i18n.T("地址类条件都不可用（%s），已跳过", strings.Join(append(unsupported, missing...), ", ")), src)
 		return Cond{}, false
 	case len(c.DomainRegex) > 0:
-		warn("rule", subject, "顶层 domain_regex 暂不支持，已忽略（其余地址条件仍生效）", src)
+		warn("rule", subject, i18n.T("顶层 domain_regex 暂不支持，已忽略（其余地址条件仍生效）"), src)
 	}
 	return out, true
 }
@@ -408,15 +409,15 @@ func node(n ir.Node, warn warnFn) Node {
 		out.Transport = &Transport{Kind: t.Type, Path: t.Path, Host: host}
 	}
 	if len(n.Ports) > 0 {
-		warn("node", n.Tag, "端口跳跃暂不支持，只用主端口", src)
+		warn("node", n.Tag, i18n.T("端口跳跃暂不支持，只用主端口"), src)
 	}
 	if n.Detour != "" {
-		warn("node", n.Tag, "链式代理（dialer-proxy）暂不支持", src)
+		warn("node", n.Tag, i18n.T("链式代理（dialer-proxy）暂不支持"), src)
 	}
 	switch n.Protocol {
 	case "shadowsocks", "anytls", "wireguard":
 	default:
-		warn("node", n.Tag, "协议 "+n.Protocol+" 暂不支持（第二阶段）", src)
+		warn("node", n.Tag, i18n.T("协议 %s 暂不支持（第二阶段）", n.Protocol), src)
 	}
 	return out
 }
@@ -434,7 +435,7 @@ func dns(d ir.DNS, usable, outbounds map[string]bool, warn warnFn) DNS {
 		case "fakeip":
 			continue
 		default:
-			warn("dns", s.Tag, fmt.Sprintf("DNS 服务器类型 %s 暂不支持", s.Type), ir.Source{})
+			warn("dns", s.Tag, i18n.T("DNS 服务器类型 %s 暂不支持", s.Type), ir.Source{})
 		}
 	}
 	keep := func(tags []string) []string {
@@ -451,7 +452,7 @@ func dns(d ir.DNS, usable, outbounds map[string]bool, warn warnFn) DNS {
 		if s.Type == "race" {
 			m, f := keep(s.Members), keep(s.Fallback)
 			if len(m)+len(f) == 0 {
-				warn("dns", s.Tag, "竞速组的成员都不可用", ir.Source{})
+				warn("dns", s.Tag, i18n.T("竞速组的成员都不可用"), ir.Source{})
 				continue
 			}
 			ok[s.Tag] = true
@@ -467,20 +468,20 @@ func dns(d ir.DNS, usable, outbounds map[string]bool, warn warnFn) DNS {
 		}
 		detour := s.Detour
 		if detour != "" && !outbounds[detour] {
-			warn("dns", s.Tag, "经出站 "+detour+" 查询：引擎里没有这个出站，改为直连查询", ir.Source{})
+			warn("dns", s.Tag, i18n.T("经出站 %s 查询：引擎里没有这个出站，改为直连查询", detour), ir.Source{})
 			detour = ""
 		}
 		out.Servers = append(out.Servers, DNSServer{Tag: s.Tag, Type: typ, Address: s.Address,
 			Members: keep(s.Members), Fallback: keep(s.Fallback), Resolver: s.Resolver, Detour: detour})
 	}
 	if out.Final != "" && !ok[out.Final] {
-		warn("dns", out.Final, "final 服务器不可用，引擎改用第一个服务器", ir.Source{})
+		warn("dns", out.Final, i18n.T("final 服务器不可用，引擎改用第一个服务器"), ir.Source{})
 		out.Final = ""
 	}
 	for i, r := range d.Rules {
 		subject := fmt.Sprintf("dns#%d", i+1)
 		if len(r.Answer) == 0 && !ok[r.Server] {
-			warn("dns", subject, "服务器 "+r.Server+" 不可用，已跳过", ir.Source{})
+			warn("dns", subject, i18n.T("服务器 %s 不可用，已跳过", r.Server), ir.Source{})
 			continue
 		}
 		var cd Cond
@@ -492,7 +493,7 @@ func dns(d ir.DNS, usable, outbounds map[string]bool, warn warnFn) DNS {
 				continue
 			}
 		case r.Match.Logical != "":
-			warn("dns", subject, "逻辑条件的 DNS 规则暂不支持，已跳过", ir.Source{})
+			warn("dns", subject, i18n.T("逻辑条件的 DNS 规则暂不支持，已跳过"), ir.Source{})
 			continue
 		}
 		out.Rules = append(out.Rules, DNSRule{Cond: cd, QueryType: r.QueryType, Server: r.Server, Answer: r.Answer, PreferredBy: r.PreferredBy})

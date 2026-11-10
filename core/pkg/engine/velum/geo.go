@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"fmt"
+	"github.com/Foreverwzh/velum/core/pkg/i18n"
 	"net/netip"
 	"strings"
 
@@ -62,7 +63,7 @@ func (g GeoSource) geoip(code string) ([]ir.Cond, error) {
 		}
 	}
 	if len(cidrs) == 0 {
-		return nil, fmt.Errorf("geoip-%s：数据为空", code)
+		return nil, i18n.Errorf("geoip-%s：数据为空", code)
 	}
 	return []ir.Cond{{IPCIDR: cidrs}}, nil
 }
@@ -130,7 +131,7 @@ func (g GeoSource) geosite(name string) ([]ir.Cond, error) {
 		return nil, err
 	}
 	if len(c.Domain)+len(c.DomainSuffix)+len(c.DomainKeyword)+len(c.DomainRegex) == 0 {
-		return nil, fmt.Errorf("geosite-%s：没有条目", name)
+		return nil, i18n.Errorf("geosite-%s：没有条目", name)
 	}
 	return []ir.Cond{c}, nil
 }
