@@ -36,6 +36,7 @@ struct RootView: View {
             guard phase == .active else { return }
             (model.core as? RealCore)?.tunnel.reconcile()
             (model.core as? RustCore)?.tunnel.reconcile()
+            (model.core as? RustCore)?.foreground()
             // 只读文件，与用哪个核心无关（演示数据时不做）
             if model.core is RealCore || model.core is RustCore {
                 RealCore.syncTunnelMetrics()

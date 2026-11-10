@@ -21,12 +21,20 @@ final class TunnelController: NSObject, MobilebindTunnelHostProtocol, @unchecked
         get { lock.withLock { revoked } }
         set { lock.withLock { revoked = newValue } }
     }
+    /// 物理网络变了（换了网卡或类型；同一网卡上换 Wi-Fi 也会触发，由引擎按名称去重）。在后台队列上调用。
+    private var networkHandler: (() -> Void)?
+    var onNetworkChanged: (() -> Void)? {
+        get { lock.withLock { networkHandler } }
+        set { lock.withLock { networkHandler = newValue } }
+    }
+    private let networkQueue = DispatchQueue(label: "velum.network")
 
     private let monitor = NWPathMonitor()
     private var path: Network.NWPath?
     /// 第一次网络状态到达：启动时核心立刻会查询，不等就会被当成没有网络。
     private let firstPath = DispatchSemaphore(value: 0)
     private var gotPath = false
+    private var lastPhysical = ""
 
     override init() {
         super.init()
@@ -38,6 +46,17 @@ final class TunnelController: NSObject, MobilebindTunnelHostProtocol, @unchecked
                 return !self.gotPath
             }
             if first { firstPath.signal() }
+            // 隧道接口出现、消失也会触发：物理网卡变了才通知。只有一种例外：在 Wi-Fi 上换了另一个 Wi-Fi
+            // 网卡不变、从路径上看不出来，所以在 Wi-Fi 上每次都通知（引擎按「类型|名称|网卡」去重）
+            let iface = p.availableInterfaces.first(where: { $0.type != .other })
+            let phys = iface.map { "\($0.name)|\($0.type)" } ?? ""
+            let changed = lock.withLock { () -> Bool in
+                defer { self.lastPhysical = phys }
+                return self.lastPhysical != phys
+            }
+            if !first, changed || iface?.type == .wifi, let f = onNetworkChanged {
+                networkQueue.async { f() }
+            }
         }
         monitor.start(queue: DispatchQueue(label: "velum.path"))
         // 通知在主线程发出，而 statusChanged 要等 NE 的回调（回调也在主线程）：必须转到后台且不等待。

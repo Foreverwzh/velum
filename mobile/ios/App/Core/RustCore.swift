@@ -1,6 +1,6 @@
 // Rust 控制面（velum-engine 的 velum-core，经 VelumCore.xcframework）：取代 App 进程里的 Go daemon。
 // 订阅拉取、编译、生成隧道文件都在 Rust 里完成；这里只把 velum-core 的类型换成界面现在用的模型。
-// 过渡期用启动参数 -VelumRustCore YES 选用；流量、连接、规则解释、本地规则编辑、修复还没有移植，调用时报「尚未支持」。
+// 过渡期用启动参数 -VelumRustCore YES 选用；规则解释、本地规则编辑、修复还没有移植，调用时报「尚未支持」。
 import Foundation
 import NetworkExtension
 
@@ -19,6 +19,14 @@ final class RustCore: VelumCore, @unchecked Sendable {
         tunnel.onRevoked = { [started] in
             Task { try? await started.value.tunnelStopped() }
         }
+        tunnel.onNetworkChanged = { [started] in
+            Task.detached { try? await started.value.networkChanged() }
+        }
+    }
+
+    /// App 回到前台：订阅到了更新时间就重新拉取（App 挂起期间后台检查不运行）。
+    func foreground() {
+        Task.detached { [started] in try? await started.value.refreshIfDue() }
     }
 
     /// 核心的调用会阻塞（拉取订阅、等隧道连上）：放到后台线程，不占用协作线程池。
@@ -47,8 +55,12 @@ final class RustCore: VelumCore, @unchecked Sendable {
     // 隧道里只有 velum-engine，没有可切换的内核
     func setTunEngine(_ engine: String) async throws -> Status { try await status() }
 
-    func traffic() async throws -> Traffic { throw Self.unsupported() }
-    func connections() async throws -> [Connection] { throw Self.unsupported() }
+    func traffic() async throws -> Traffic {
+        let t = try await run { $0.traffic() }
+        return Traffic(upRate: Int64(t.upRate), downRate: Int64(t.downRate), active: Int(t.active))
+    }
+
+    func connections() async throws -> [Connection] { try await run { try $0.connections(limit: 200) }.map(Self.map) }
     func why(target: String) async throws -> WhyResponse { throw Self.unsupported() }
     func overlayItems() async throws -> [OverlayEntry] { throw Self.unsupported() }
     func editOverlay(add: Bool, entry: OverlayEntry) async throws -> Status { throw Self.unsupported() }
@@ -82,9 +94,23 @@ final class RustCore: VelumCore, @unchecked Sendable {
                       groups: groups, subscription: sub, profiles: profiles, network: nil)
     }
 
+    private static func map(_ s: VelumSourceRef) -> Source {
+        Source(kind: s.kind, file: s.file, line: s.line.map(Int.init), text: s.text)
+    }
+
+    private static func ms(_ v: Int64) -> Date { Date(timeIntervalSince1970: TimeInterval(v) / 1000) }
+
+    private static func map(_ c: VelumConnection) -> Connection {
+        Connection(id: Int(c.id), start: ms(c.start), end: c.end.map(ms), network: c.network, domain: c.domain,
+                   destination: c.destination, ruleIndex: c.rule.map(Int.init) ?? -1, rule: c.source.text ?? "",
+                   provenance: map(c.source), chain: c.chain, upload: Int64(c.upload), download: Int64(c.download),
+                   firstByteMs: c.firstByteMs.map(Int.init) ?? -1, durationMs: Int(c.durationMs),
+                   errors: c.error.map { [$0] }, canceled: nil, connectMs: c.connectMs.map(Int.init) ?? -1)
+    }
+
     private static func map(_ w: VelumWarning) -> Warning {
         Warning(category: w.category, kind: "", level: w.level.rawValue, reason: w.message, subject: w.subject.isEmpty ? nil : w.subject,
-                source: Source(kind: w.source.kind, file: w.source.file, line: w.source.line.map(Int.init), text: w.source.text))
+                source: map(w.source))
     }
 }
 
@@ -95,7 +121,7 @@ extension TunnelController: VelumHost {
 
     /// 当前物理网络：类型、Wi-Fi 名称（有 VPN 配置的 App 才取得到）、DNS。
     func currentNetwork() -> VelumNetworkInfo {
-        guard let iface = physicalInterface() else { return VelumNetworkInfo(kind: .none, ssid: "", dns: []) }
+        guard let iface = physicalInterface() else { return VelumNetworkInfo(kind: .none, ssid: "", iface: "", dns: []) }
         let kind: VelumNetworkKind = switch iface.type {
         case .wifi: .wifi
         case .cellular: .cellular
@@ -112,7 +138,7 @@ extension TunnelController: VelumHost {
             }
             if sem.wait(timeout: .now() + 1) == .success { ssid = box.value }
         }
-        return VelumNetworkInfo(kind: kind, ssid: ssid, dns: physicalDNS(iface))
+        return VelumNetworkInfo(kind: kind, ssid: ssid, iface: iface.name, dns: physicalDNS(iface))
     }
 }
 

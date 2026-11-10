@@ -8,6 +8,16 @@ final class DeviceRustCoreTests: XCTestCase {
         app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", text)).firstMatch.waitForExistence(timeout: timeout)
     }
 
+    /// 切换标签页：活动页搜索时弹出的键盘会挡住标签栏，先收起。
+    private func openTab(_ app: XCUIApplication, _ name: String) {
+        if app.keyboards.count > 0 { app.typeText("\n") }
+        let tab = app.tabBars.buttons[name]
+        for _ in 0..<3 where !tab.isSelected {
+            tab.tap()
+            Thread.sleep(forTimeInterval: 0.5)
+        }
+    }
+
     private func tap(_ s: XCUIElement) { s.switches.firstMatch.exists ? s.switches.firstMatch.tap() : s.tap() }
 
     func testRustCoreTunnel() throws {
@@ -65,6 +75,28 @@ final class DeviceRustCoreTests: XCTestCase {
         if !groupsShown { print("DEVICE_RUST_APP \(app.staticTexts.allElementsBoundByIndex.map(\.label))") }
         XCTAssertTrue(groupsShown)
         XCTAssertTrue(see(app, "正在保护", timeout: 10))
+        // 流量（隧道里引擎的计数，速率由核心算）
+        XCTAssertTrue(see(app, "条连接", timeout: 10), "状态页没有流量")
+
+        // 活动页：隧道里引擎的连接列表。按域名搜索：滚出屏幕的行不在界面树里
+        openTab(app, "活动")
+        Thread.sleep(forTimeInterval: 2)
+        var seen: [String] = []
+        let search = app.searchFields.firstMatch
+        for h in ["captive.apple.com", "github.com", "baidu.com"] {
+            if search.waitForExistence(timeout: 5) {
+                search.tap()
+                if let v = search.value as? String, !v.isEmpty, search.buttons.firstMatch.exists { search.buttons.firstMatch.tap() }
+                search.typeText(h)
+            }
+            if see(app, h, timeout: 8) { seen.append(h) }
+        }
+        if search.exists, search.buttons.firstMatch.exists { search.buttons.firstMatch.tap() }
+        let cancel = app.buttons["取消"].firstMatch
+        if cancel.exists { cancel.tap() }
+        print("DEVICE_RUST_SEEN \(seen)")
+        XCTAssertEqual(seen.count, 3, "有网址没出现在活动页：\(seen)")
+        openTab(app, "状态")
 
         let t2 = app.switches["连接"].firstMatch
         if t2.value as? String == "1" { tap(t2) }
