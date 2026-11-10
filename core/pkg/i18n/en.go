@@ -605,4 +605,8 @@ var en = map[string]string{
 	"geoip-%s：数据为空":                                    "geoip-%s: no data",
 	"geosite-%s：没有条目":                                  "geosite-%s: no entries",
 	"未知内核 %q（可选：空、velum）":                              "Unknown engine %q (choices: empty, velum)",
+	"本地引擎需要 velum-engine 的配置":                          "The local engine needs a velum-engine configuration",
+	"本地引擎未运行":                                          "The local engine is not running",
+	"本地引擎：%s":                                          "Local engine: %s",
+	"这个构建只支持 iOS 的分离模式（StartSplit）":                    "This build only supports the iOS split mode (StartSplit)",
 }

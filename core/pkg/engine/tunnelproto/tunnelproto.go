@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 
 	"github.com/Foreverwzh/velum/core/pkg/engine"
+	"github.com/Foreverwzh/velum/core/pkg/i18n"
 	"github.com/Foreverwzh/velum/core/pkg/ir"
 )
 
@@ -93,6 +94,33 @@ func Save(home string, c engine.Config) (string, error) {
 			if err := writeAtomic(filepath.Join(dir, name), data); err != nil {
 				return "", err
 			}
+		}
+	}
+	return m.Hash, writeAtomic(filepath.Join(dir, metaFile), b)
+}
+
+// LocalDir 是 App 内本地引擎（velum-engine 本地模式，没开隧道时用）的配置目录。
+func LocalDir(home string) string { return filepath.Join(home, "local") }
+
+// SaveLocal 写入本地引擎的配置（velum-engine）：文件与隧道目录相同（meta.json + velum-*.json），由 App 的 Swift 编译、启动。
+// 返回摘要。c.Velum 必须非空。
+func SaveLocal(home string, c engine.Config) (string, error) {
+	v := c.Velum
+	if v == nil {
+		return "", i18n.New("本地引擎需要 velum-engine 的配置")
+	}
+	dir := LocalDir(home)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", err
+	}
+	m := meta{Engine: EngineVelum, Policies: c.Policies, Hash: hashOf(c, nil, nil)}
+	b, err := json.Marshal(m)
+	if err != nil {
+		return "", err
+	}
+	for name, data := range map[string][]byte{VelumIRFile: v.IR, VelumRuleSetsFile: v.RuleSets, VelumMetaFile: v.Meta} {
+		if err := writeAtomic(filepath.Join(dir, name), data); err != nil {
+			return "", err
 		}
 	}
 	return m.Hash, writeAtomic(filepath.Join(dir, metaFile), b)

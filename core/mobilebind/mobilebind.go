@@ -26,8 +26,6 @@ import (
 	"github.com/Foreverwzh/velum/core/pkg/config"
 	"github.com/Foreverwzh/velum/core/pkg/daemon"
 	"github.com/Foreverwzh/velum/core/pkg/engine"
-	"github.com/Foreverwzh/velum/core/pkg/engine/singbox"
-	"github.com/Foreverwzh/velum/core/pkg/engine/singbox/render"
 	"github.com/Foreverwzh/velum/core/pkg/ipc"
 	"github.com/Foreverwzh/velum/core/pkg/logfile"
 	"github.com/Foreverwzh/velum/core/pkg/netsense"
@@ -115,15 +113,19 @@ func Start(home string, host Host) error {
 	if host == nil {
 		return i18n.New("host 不能为空")
 	}
-	return start(home, func(paths config.Paths, lf io.Writer, logger *log.Logger) *daemon.Daemon {
-		d := daemon.New(paths, singbox.New(singbox.Options{Log: lf}), logger)
-		d.Render = render.Renderer
+	return start(home, func(paths config.Paths, lf io.Writer, logger *log.Logger) (*daemon.Daemon, error) {
+		eng, err := newFullEngine(lf)
+		if err != nil {
+			return nil, err
+		}
+		d := daemon.New(paths, eng, logger)
+		d.Render = renderer
 		d.TUNOpener = opener{host}
 		d.NetSnapshot = func() (netsense.Snapshot, error) { return netSnapshot(host) }
 		if proxyHost != nil {
 			d.SysProxy = &hostProxy{h: proxyHost}
 		}
-		return d
+		return d, nil
 	})
 }
 
@@ -143,14 +145,14 @@ func StartSplit(home string, host TunnelHost) error {
 		socket = a
 	}
 	mu.Unlock()
-	return start(home, func(paths config.Paths, lf io.Writer, logger *log.Logger) *daemon.Daemon {
-		se := newSplitEngine(home, host, singbox.New(singbox.Options{Log: lf}))
+	return start(home, func(paths config.Paths, lf io.Writer, logger *log.Logger) (*daemon.Daemon, error) {
+		se := newSplitEngine(home, host, newLocalEngine(home, host, lf))
 		se.onAdopt = TunRequested
 		d := daemon.New(paths, se, logger)
-		d.Render = render.Renderer
+		d.Render = renderer
 		d.SystemConnectivity = true
 		d.NetSnapshot = func() (netsense.Snapshot, error) { return snapshot(host.Network()) }
-		return d
+		return d, nil
 	})
 }
 
@@ -207,7 +209,7 @@ func loopbackAddr() (string, error) {
 	return ipc.TCPAddr(l.Addr().String(), hex.EncodeToString(b)), nil
 }
 
-func start(home string, build func(config.Paths, io.Writer, *log.Logger) *daemon.Daemon) error {
+func start(home string, build func(config.Paths, io.Writer, *log.Logger) (*daemon.Daemon, error)) error {
 	mu.Lock()
 	defer mu.Unlock()
 	if cur != nil {
@@ -225,8 +227,12 @@ func start(home string, build func(config.Paths, io.Writer, *log.Logger) *daemon
 		return err
 	}
 	logger := log.New(lf, "[velumd] ", log.LstdFlags|log.Lmicroseconds)
-	daemon.RuleSetLoader = singbox.LoadRuleSetFile
-	d := build(paths, lf, logger)
+	setupRuleSets()
+	d, err := build(paths, lf, logger)
+	if err != nil {
+		_ = lf.Close()
+		return err
+	}
 
 	inst := &instance{d: d, done: make(chan struct{}), lf: lf}
 	errc := make(chan error, 1)

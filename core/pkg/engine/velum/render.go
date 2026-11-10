@@ -35,6 +35,8 @@ type Config struct {
 	HijackDNS bool `json:"hijack_dns"`
 	// HijackDNSAfter：接管 DNS 之前的规则数，这些规则只按 IP 判断，命中就不接管。
 	HijackDNSAfter int `json:"hijack_dns_after"`
+	// Listen 是本地代理入口（SOCKS5 / HTTP），只在没有 TUN 的本地模式下使用（App 进程里经代理拉取）。
+	Listen string `json:"listen,omitempty"`
 }
 
 type Node struct {
@@ -176,6 +178,9 @@ func Render(p *compiler.Plan) *Result { return RenderWith(p, Options{}) }
 func RenderWith(p *compiler.Plan, opt Options) *Result {
 	c := p.IR
 	r := &Result{Config: Config{SchemaVersion: SchemaVersion, IPv6: c.IPv6}, Loaded: map[string][]ir.Cond{}}
+	if p.Options.Listen.IsValid() {
+		r.Config.Listen = p.Options.Listen.String()
+	}
 	warn := func(kind, subject, reason string, src ir.Source) {
 		r.Warnings = append(r.Warnings, Warning{Kind: kind, Subject: subject, Reason: reason, Source: src})
 	}

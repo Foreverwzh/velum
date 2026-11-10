@@ -49,6 +49,10 @@ func (f *fakeTunnel) TunnelCall(req string) (string, error) {
 	return string(b), nil
 }
 
+func (f *fakeTunnel) LocalStart() error                    { return nil }
+func (f *fakeTunnel) LocalStop()                           {}
+func (f *fakeTunnel) LocalCall(req string) (string, error) { return "{}", nil }
+
 func (f *fakeTunnel) count(op string) int {
 	n := 0
 	for _, c := range f.calls {

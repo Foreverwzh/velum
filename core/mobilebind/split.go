@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/Foreverwzh/velum/core/pkg/engine"
-	"github.com/Foreverwzh/velum/core/pkg/engine/singbox"
 	"github.com/Foreverwzh/velum/core/pkg/engine/tunnelproto"
 )
 
@@ -26,6 +25,28 @@ type TunnelHost interface {
 	TunnelActive() bool
 	// TunnelCall 发送一条消息（tunnelproto.Request 的 JSON），返回回复。
 	TunnelCall(req string) (string, error)
+	// LocalStart 按 tunnelproto.LocalDir 里的配置（重新）启动 App 内的 velum-engine 本地引擎（没开隧道时用）。
+	LocalStart() error
+	// LocalStop 停止本地引擎。
+	LocalStop()
+	// LocalCall 给本地引擎发一条消息（tunnelproto.Request 的 JSON），返回回复。
+	LocalCall(req string) (string, error)
+}
+
+// localEngine 是没开隧道时 App 内的本地内核：sing-box（默认构建）或 velum-engine（velumonly）。
+type localEngine interface {
+	Restart(ctx context.Context, cfg engine.Config) error
+	Pause() error
+	Stop() error
+	Running() bool
+	Connections(limit int) []engine.Connection
+	Subscribe() (<-chan engine.Connection, func())
+	Selected(tag string) string
+	Delay(tag string) int
+	SelectMember(group, member string) error
+	TestGroup(ctx context.Context, group string) (map[string]int, error)
+	Traffic() engine.Traffic
+	Resolve(ctx context.Context, domain string) ([]netip.Addr, error)
 }
 
 // stateTTL 是引擎状态的缓存时间：一次刷新要查几百次选择和延迟，不能每次都发消息给扩展。
@@ -36,7 +57,7 @@ const stateTTL = time.Second
 type splitEngine struct {
 	home  string
 	host  TunnelHost
-	local *singbox.Engine
+	local localEngine
 	// onAdopt 在发现隧道已被系统拉起、而保存的开关是关时调用。
 	onAdopt func()
 
@@ -54,7 +75,7 @@ type splitEngine struct {
 // errTunnelDown 表示隧道扩展没在运行：不发消息，直接失败。
 var errTunnelDown = errors.New("tunnel is not running")
 
-func newSplitEngine(home string, host TunnelHost, local *singbox.Engine) *splitEngine {
+func newSplitEngine(home string, host TunnelHost, local localEngine) *splitEngine {
 	return &splitEngine{home: home, host: host, local: local, selected: tunnelproto.LoadSelected(home)}
 }
 
