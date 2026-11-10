@@ -2,7 +2,9 @@
 // 路由和 DNS 的写法来自 macOS 扩展（desktop/extension），各条约束的来历见 spikes/mn-netext/README.md。
 import Darwin
 import Foundation
+#if !VELUM_ONLY
 import Iostunnel
+#endif
 import Network
 import NetworkExtension
 import os
@@ -71,14 +73,14 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
 
     /// 交给核心，并记下来给设置页显示：切换不对时要能看出隧道认为自己在什么网络。
     private func report(_ kind: String, _ ssid: String, _ ifname: String) {
-        if let velum { velum.setNetwork(kind: kind, ssid: ssid, ifname: ifname) } else { IostunnelNetworkChanged(kind, ssid) }
+        if let velum { velum.setNetwork(kind: kind, ssid: ssid, ifname: ifname) } else { goNetworkChanged(kind, ssid) }
         guard let group = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroup) else { return }
         try? "\(kind)\n\(ssid)\n".write(to: group.appendingPathComponent("velum/tunnel/network.txt"), atomically: true, encoding: .utf8)
     }
 
     override func wake() {
         log.notice("设备唤醒")
-        if velum == nil { IostunnelSetSleeping(false) }
+        if velum == nil { goSetSleeping(false) }
         memQueue.async { [weak self] in self?.startMemoryTimer() }
         netQueue.async { [weak self] in
             guard let self else { return }
@@ -89,7 +91,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
     override func sleep(completionHandler: @escaping () -> Void) {
         log.notice("设备休眠")
         memQueue.sync { stopMemoryTimer() }
-        if velum == nil { IostunnelSetSleeping(true) }
+        if velum == nil { goSetSleeping(true) }
         completionHandler()
     }
 
@@ -153,10 +155,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
                 return error as NSError
             }
         }
-        IostunnelSetLocale(Locale.preferredLanguages.first ?? "")
-        var err: NSError?
-        IostunnelStart(home.path, TunHost(provider: self), &err)
-        return err
+        return goStart(home, self)
     }
 
     /// 重新加载时配置换了内核（设置里切换 velum-engine）：停掉当前的，启动另一个。没换时返回 nil，照常交给内核。
@@ -171,7 +170,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
             v.stop()
             velum = nil
         } else {
-            IostunnelStop()
+            goStop()
         }
         let err = startEngine(home)
         reportNetwork(pathMonitor.currentPath, retries: 3)
@@ -185,7 +184,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         memQueue.sync { stopMemoryTimer() }
         pathMonitor.cancel()
         DispatchQueue.global().async {
-            if let v = self.velum { v.stop() } else { IostunnelStop() }
+            if let v = self.velum { v.stop() } else { goStop() }
             completionHandler()
         }
     }
@@ -197,7 +196,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
             } else if let v = self.velum {
                 completionHandler?(v.handle(messageData))
             } else {
-                completionHandler?(IostunnelHandle(messageData))
+                completionHandler?(goHandle(messageData))
             }
         }
     }
@@ -224,6 +223,7 @@ struct TunRequest: Decodable {
     var dns: [String]?
 }
 
+#if !VELUM_ONLY
 final class TunHost: NSObject, IostunnelHostProtocol {
     weak var provider: PacketTunnelProvider?
     init(provider: PacketTunnelProvider) { self.provider = provider }
@@ -248,6 +248,29 @@ final class TunHost: NSObject, IostunnelHostProtocol {
         if let setErr { throw setErr }
     }
 }
+#endif
+
+// sing-box 内核（Iostunnel，Go）。上架构建（VELUM_ONLY）不含它：只有 velum-engine。
+#if VELUM_ONLY
+private func goStart(_: URL, _: PacketTunnelProvider) -> NSError? {
+    tunnelError(String(localized: "配置不是 velum-engine 的"))
+}
+private func goStop() {}
+private func goNetworkChanged(_: String, _: String) {}
+private func goSetSleeping(_: Bool) {}
+private func goHandle(_: Data) -> Data? { Data(#"{"error":"sing-box 内核不可用"}"#.utf8) }
+#else
+private func goStart(_ home: URL, _ provider: PacketTunnelProvider) -> NSError? {
+    IostunnelSetLocale(Locale.preferredLanguages.first ?? "")
+    var err: NSError?
+    IostunnelStart(home.path, TunHost(provider: provider), &err)
+    return err
+}
+private func goStop() { IostunnelStop() }
+private func goNetworkChanged(_ kind: String, _ ssid: String) { IostunnelNetworkChanged(kind, ssid) }
+private func goSetSleeping(_ v: Bool) { IostunnelSetSleeping(v) }
+private func goHandle(_ d: Data) -> Data? { IostunnelHandle(d) }
+#endif
 
 /// 隧道网络参数：sing-box（核心经 OpenTun 请求）与 velum-engine 共用。
 func tunnelSettings(_ r: TunRequest) -> NEPacketTunnelNetworkSettings {

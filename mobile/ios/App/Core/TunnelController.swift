@@ -227,6 +227,23 @@ final class TunnelController: NSObject, MobilebindTunnelHostProtocol, @unchecked
         return s
     }
 
+    // MARK: 本地引擎（velum-engine，没开隧道时）
+
+    private let local = LocalEngine()
+
+    func localStart() throws { try local.start() }
+
+    func localStop() { local.stop() }
+
+    func localCall(_ req: String?, error: NSErrorPointer) -> String {
+        do {
+            return try local.call(req ?? "")
+        } catch let e {
+            error?.pointee = e as NSError
+            return ""
+        }
+    }
+
     /// 当前物理网络。隧道开着时系统解析器返回的是隧道的 DNS，这时用切换前记下的值。
     func network() -> String {
         if !lock.withLock({ gotPath }), firstPath.wait(timeout: .now() + 1) == .success { firstPath.signal() }
