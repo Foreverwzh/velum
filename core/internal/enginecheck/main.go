@@ -251,6 +251,19 @@ func targets(c *ir.Config, perSet int, loaded map[string][]ir.Cond) []target {
 		}
 		add(target{Domain: d, Resolved: ip, Port: 443, Network: "tcp"})
 	}
+	// 嗅探：应用直接用 IP 连接，域名来自 TLS SNI / HTTP Host（域名 + 真实目标 IP，不再解析）
+	n := len(out)
+	for i := 0; i < n && i < 600; i++ {
+		t := out[i]
+		if t.Domain == "" || t.IP != "" {
+			continue
+		}
+		ip := netip.AddrFrom4([4]byte{byte(1 + rng.IntN(222)), byte(rng.IntN(256)), byte(rng.IntN(256)), byte(rng.IntN(256))}).String()
+		if i%2 == 0 && len(geoIPs) > 0 {
+			ip = geoIPs[rng.IntN(len(geoIPs))]
+		}
+		add(target{Domain: t.Domain, IP: ip, Port: 443, Network: "tcp"})
+	}
 	// 端口 / 网络维度：同一批域名换成 UDP 443、TCP 80
 	base := len(out)
 	for i := 0; i < base && i < 200; i++ {

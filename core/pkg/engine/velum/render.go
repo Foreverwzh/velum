@@ -25,6 +25,10 @@ type Config struct {
 	Final         Action  `json:"final"`
 	DNS           DNS     `json:"dns"`
 	IPv6          bool    `json:"ipv6"`
+	// Sniff：直接用 IP 发起的 TCP 连接，从首包（TLS SNI、HTTP Host）取域名匹配规则，不改目标地址。
+	Sniff bool `json:"sniff"`
+	// SniffAfter：嗅探之前的规则数。这些规则只按 IP 判断，命中就不嗅探（如 TCP 握手前就拒绝 IPv6）。
+	SniffAfter int `json:"sniff_after"`
 }
 
 type Node struct {
@@ -234,6 +238,16 @@ func RenderWith(p *compiler.Plan, opt Options) *Result {
 		}
 	}
 	for i, rule := range c.Rules {
+		if rule.Action.Kind == ir.ActionSniff {
+			// 引擎先按 IP 判断 sniff 之前的规则，没命中再嗅探
+			if !r.Config.Sniff {
+				r.Config.Sniff, r.Config.SniffAfter = true, len(r.Config.Rules)
+			}
+			if rule.Match.Cond != nil || rule.Match.Logical != "" {
+				warn("rule", fmt.Sprintf("#%d", i+1), "带条件的 sniff 按无条件处理", rule.Source)
+			}
+			continue
+		}
 		a, ok := action(rule.Action, rule.Source, warn)
 		if !ok {
 			continue
@@ -296,9 +310,6 @@ func action(a ir.Action, src ir.Source, warn warnFn) (Action, bool) {
 		return Action{Kind: "reject"}, true
 	case ir.ActionResolve:
 		// 引擎遇到可能命中的 IP 规则时自己解析，不需要这条
-		return Action{}, false
-	case ir.ActionSniff:
-		warn("rule", "sniff", "协议嗅探暂不支持：直接用 IP 连接（非 fake-ip）时匹配不到域名规则", src)
 		return Action{}, false
 	case ir.ActionHijackDNS:
 		warn("rule", "hijack-dns", "接管发往其他 DNS 服务器的查询暂不支持（隧道 DNS 本身由引擎应答）", src)

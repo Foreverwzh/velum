@@ -117,3 +117,26 @@ func TestRenderDNS(t *testing.T) {
 		t.Errorf("final / strategy / fakeip：%+v", out)
 	}
 }
+
+// sniff：第一条无条件 sniff 打开引擎的嗅探，不产生告警，也不占规则下标。
+func TestRenderSniff(t *testing.T) {
+	c := &ir.Config{
+		Rules: []ir.Rule{
+			{Action: ir.Action{Kind: ir.ActionSniff}},
+			{Match: ir.Leaf(ir.Cond{DomainSuffix: []string{"cn"}}), Action: ir.Action{Kind: ir.ActionRoute, Outbound: ir.OutboundDirect}},
+		},
+		Final: ir.Action{Kind: ir.ActionRoute, Outbound: ir.OutboundDirect},
+	}
+	r := Render(&compiler.Plan{IR: c})
+	if !r.Config.Sniff || r.Config.SniffAfter != 0 || len(r.Warnings) != 0 || len(r.RuleIndex) != 1 || r.RuleIndex[0] != 1 {
+		t.Fatalf("sniff=%v 告警 %+v 下标 %v", r.Config.Sniff, r.Warnings, r.RuleIndex)
+	}
+	c.Rules[0], c.Rules[1] = c.Rules[1], c.Rules[0]
+	r = Render(&compiler.Plan{IR: c})
+	if !r.Config.Sniff || r.Config.SniffAfter != 1 || len(r.Warnings) != 0 {
+		t.Fatalf("sniff 之前的规则数应为 1：sniff=%v after=%d 告警 %+v", r.Config.Sniff, r.Config.SniffAfter, r.Warnings)
+	}
+	if r = Render(&compiler.Plan{IR: &ir.Config{Final: c.Final}}); r.Config.Sniff {
+		t.Fatal("没有 sniff 规则时不应打开")
+	}
+}
