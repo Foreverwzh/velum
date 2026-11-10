@@ -7,7 +7,7 @@ cd "$(dirname "$0")/.."
 ios=$(pwd)
 out=build/velumonly
 mkdir -p "$out"
-[ -d build/VelumEngine.xcframework ] || { echo "缺少 build/VelumEngine.xcframework：先运行 scripts/engine.sh" >&2; exit 1; }
+[ -d build/VelumEngine.xcframework ] && [ -d build/VelumCore.xcframework ] || { echo "缺少 build/VelumEngine.xcframework：先运行 scripts/engine.sh" >&2; exit 1; }
 cd ../../core
 TAGS="$(sed -n 's/^TAGS ?= //p' Makefile),velumonly"
 export GOPROXY="${GOPROXY:-https://goproxy.cn,direct}"

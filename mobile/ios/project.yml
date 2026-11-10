@@ -21,6 +21,8 @@ targets:
     sources:
       - App
       - Shared
+      # velum-core 的 Swift 接口（scripts/engine.sh 从 velum-engine 生成：swift-bridge 桥接、typeshare 生成的类型、类型化包装）
+      - build/VelumCoreSwift
       # 第三方版权声明（scripts/notices.sh 生成）
       - path: build/ThirdPartyNotices.txt
         buildPhase: resources
@@ -56,8 +58,9 @@ targets:
         embed: true
       - framework: build/Mobilebind.xcframework
         embed: false
-      # velum-engine（闭源，不进本仓库）：scripts/engine.sh 从本机的 velum-engine 编译到 build/。App 里只用它编译路由文件
-      - framework: build/VelumEngine.xcframework
+      # velum-engine（闭源，不进本仓库）：scripts/engine.sh 从本机的 velum-engine 编译到 build/。
+      # App 只能链接一个 Rust 静态库：VelumCore 含控制面 velum-core，也含引擎的 C 接口（编译路由文件、本地引擎）
+      - framework: build/VelumCore.xcframework
         embed: false
       # BoringSSL 含 C++ 代码
       - sdk: libc++.tbd

@@ -1,4 +1,4 @@
-// 控制隧道扩展：Go 核心经 TunnelHost 回调这里。调用都发生在 Go 的线程上，可以阻塞，绝不会在主线程。
+// 控制隧道扩展：核心（Go 经 TunnelHost，Rust 经 VelumHost）回调这里。调用都发生在核心的后台线程上，可以阻塞，绝不会在主线程。
 import Foundation
 import Mobilebind
 import Network
@@ -15,6 +15,12 @@ final class TunnelController: NSObject, MobilebindTunnelHostProtocol, @unchecked
     /// 正在由核心主动启停：这期间的状态变化不是「被系统断开」。
     private var transitioning = false
     private var wasActive = false
+    /// 隧道被系统断开时通知核心；没有设置时通知 Go 核心。
+    private var revoked: (() -> Void)?
+    var onRevoked: (() -> Void)? {
+        get { lock.withLock { revoked } }
+        set { lock.withLock { revoked = newValue } }
+    }
 
     private let monitor = NWPathMonitor()
     private var path: Network.NWPath?
@@ -67,7 +73,8 @@ final class TunnelController: NSObject, MobilebindTunnelHostProtocol, @unchecked
             defer { wasActive = active }
             return wasActive && !active && !transitioning
         }
-        if notify { MobilebindTunRevoked() }
+        guard notify else { return }
+        if let f = onRevoked { f() } else { MobilebindTunRevoked() }
     }
 
     // MARK: 配置
@@ -197,34 +204,32 @@ final class TunnelController: NSObject, MobilebindTunnelHostProtocol, @unchecked
     }
 
     func tunnelCall(_ req: String?, error: NSErrorPointer) -> String {
-        // 隧道没在运行时 sendProviderMessage 的回调可能永远不来，每次都要等满 25 秒；
-        // 而核心在持读锁时会连续查询几百次（每个策略组、每个成员），切换开关就被一直卡住。
-        guard tunnelActive(), let session = current()?.connection as? NETunnelProviderSession, let data = req?.data(using: .utf8) else {
-            error?.pointee = CoreError.message(String(localized: "隧道未运行")) as NSError
-            return ""
-        }
-        // 重新加载前先编译（velum-engine）：扩展收到 reload 时直接加载新的路由文件
-        if let r = try? JSONSerialization.jsonObject(with: data) as? [String: Any], r["op"] as? String == "reload" {
-            do {
-                try compileVelum()
-            } catch let e {
-                error?.pointee = e as NSError
-                return ""
-            }
-        }
-        let sem = DispatchSemaphore(value: 0)
-        var out: Data?
         do {
-            try session.sendProviderMessage(data) { out = $0; sem.signal() }
+            return String(decoding: try call(Data((req ?? "").utf8)), as: UTF8.self)
         } catch let e {
             error?.pointee = e as NSError
             return ""
         }
-        guard sem.wait(timeout: .now() + 25) == .success, let out, let s = String(data: out, encoding: .utf8) else {
-            error?.pointee = CoreError.message(String(localized: "隧道没有响应")) as NSError
-            return ""
+    }
+
+    /// 发消息给隧道扩展（JSON 进、JSON 出）。
+    func call(_ data: Data) throws -> Data {
+        // 隧道没在运行时 sendProviderMessage 的回调可能永远不来，每次都要等满 25 秒；
+        // 而核心在持读锁时会连续查询几百次（每个策略组、每个成员），切换开关就被一直卡住。
+        guard tunnelActive(), let session = current()?.connection as? NETunnelProviderSession else {
+            throw CoreError.message(String(localized: "隧道未运行"))
         }
-        return s
+        // 重新加载前先编译（velum-engine）：扩展收到 reload 时直接加载新的路由文件
+        if let r = try? JSONSerialization.jsonObject(with: data) as? [String: Any], r["op"] as? String == "reload" {
+            try compileVelum()
+        }
+        let sem = DispatchSemaphore(value: 0)
+        var out: Data?
+        try session.sendProviderMessage(data) { out = $0; sem.signal() }
+        guard sem.wait(timeout: .now() + 25) == .success, let out else {
+            throw CoreError.message(String(localized: "隧道没有响应"))
+        }
+        return out
     }
 
     // MARK: 本地引擎（velum-engine，没开隧道时）
@@ -244,18 +249,29 @@ final class TunnelController: NSObject, MobilebindTunnelHostProtocol, @unchecked
         }
     }
 
-    /// 当前物理网络。隧道开着时系统解析器返回的是隧道的 DNS，这时用切换前记下的值。
+    /// 当前物理网络（Go 核心的格式）。
     func network() -> String {
+        guard let iface = physicalInterface() else { return "" }
+        let n: [String: Any] = ["iface": iface.name, "dns": physicalDNS(iface)]
+        return (try? JSONSerialization.data(withJSONObject: n)).flatMap { String(data: $0, encoding: .utf8) } ?? ""
+    }
+
+    /// 当前的物理网络接口；没有网络时为 nil。
+    func physicalInterface() -> NWInterface? {
         if !lock.withLock({ gotPath }), firstPath.wait(timeout: .now() + 1) == .success { firstPath.signal() }
         let p = lock.withLock { path }
         // 隧道开着时列表里也有隧道接口（类型 other），要跳过它才是物理网络
-        guard let p, p.status == .satisfied, let iface = p.availableInterfaces.first(where: { $0.type != .other }) else { return "" }
+        guard let p, p.status == .satisfied else { return nil }
+        return p.availableInterfaces.first(where: { $0.type != .other })
+    }
+
+    /// 物理网络的 DNS 服务器。隧道开着时系统解析器返回的是隧道的 DNS，这时用切换前记下的值。
+    func physicalDNS(_ iface: NWInterface) -> [String] {
         var dns = Self.resolvers().filter { !$0.hasPrefix("172.19.") && !$0.hasPrefix("fdfe:dcba:") }
         let key = "dns." + iface.name
         if dns.isEmpty { dns = UserDefaults.standard.stringArray(forKey: key) ?? [] }
         else { UserDefaults.standard.set(dns, forKey: key) }
-        let n: [String: Any] = ["iface": iface.name, "dns": dns]
-        return (try? JSONSerialization.data(withJSONObject: n)).flatMap { String(data: $0, encoding: .utf8) } ?? ""
+        return dns
     }
 
     private static func resolvers() -> [String] {

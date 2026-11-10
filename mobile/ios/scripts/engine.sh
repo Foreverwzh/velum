@@ -1,5 +1,8 @@
 #!/bin/sh
-# 准备 build/VelumEngine.xcframework（velum-engine，闭源，不在本仓库）与它的第三方声明 build/THIRD_PARTY_RUST.txt：
+# 准备 velum-engine（闭源，不在本仓库）的产物与它的第三方声明 build/THIRD_PARTY_RUST.txt：
+# - build/VelumEngine.xcframework：隧道扩展用的引擎；
+# - build/VelumCore.xcframework + build/VelumCoreSwift/：App 用的控制面 velum-core（含引擎的 C 接口）与它的 Swift 源文件。
+# 来源：
 # - 本机有 velum-engine 源码（VELUM_ENGINE_DIR，默认与本仓库同级的 velum-engine）：从源码编译；
 # - 否则（CI），或设了 VELUM_ENGINE_DOWNLOAD=1：按 engine.lock 从私有仓库的 GitHub Release 下载并校验 sha256，
 #   需要 gh 与能读那个仓库的令牌（GH_TOKEN）。
@@ -9,8 +12,9 @@ src="${VELUM_ENGINE_DIR:-$(cd ../../.. && pwd)/velum-engine}"
 mkdir -p build
 if [ -z "${VELUM_ENGINE_DOWNLOAD:-}" ] && [ -x "$src/scripts/build-xcframework.sh" ]; then
   "$src/scripts/build-xcframework.sh"
-  rm -rf build/VelumEngine.xcframework
-  cp -R "$src/ios/build/VelumEngine.xcframework" build/
+  "$src/scripts/build-core-xcframework.sh"
+  rm -rf build/VelumEngine.xcframework build/VelumCore.xcframework build/VelumCoreSwift
+  cp -R "$src/ios/build/VelumEngine.xcframework" "$src/ios/build/VelumCore.xcframework" "$src/ios/build/VelumCoreSwift" build/
   (cd "$src" && python3 scripts/notices.py "$OLDPWD/build/THIRD_PARTY_RUST.txt" >/dev/null)
   echo "velum-engine：从源码编译（${src}）"
 else
@@ -31,4 +35,4 @@ else
   rm -rf "$dl"
   echo "velum-engine：下载 ios-v${v}（已校验 sha256）"
 fi
-du -sh build/VelumEngine.xcframework
+du -sh build/VelumEngine.xcframework build/VelumCore.xcframework 2>/dev/null || true

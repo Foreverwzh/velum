@@ -9,6 +9,8 @@ struct VelumApp: App {
             return AppModel(core: DemoCore(DemoCore.Scenario(rawValue: name) ?? .protected))
         }
         #endif
+        // 过渡期：启动参数 -VelumRustCore YES 改用 Rust 控制面（velum-core）
+        if UserDefaults.standard.bool(forKey: "VelumRustCore") { return AppModel(core: RustCore()) }
         return AppModel(core: RealCore())
     }()
 

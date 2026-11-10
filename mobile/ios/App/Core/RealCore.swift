@@ -33,7 +33,7 @@ final class RealCore: VelumCore, @unchecked Sendable {
     }
 
     /// 数据放在 App Group，扩展才读得到。模拟器未签名时取不到 App Group：改用 App 自己的目录（模拟器也运行不了隧道）。
-    private static func home() -> URL {
+    static func home() -> URL {
         let fm = FileManager.default
         let base = fm.containerURL(forSecurityApplicationGroupIdentifier: TunnelController.group)
             ?? fm.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
