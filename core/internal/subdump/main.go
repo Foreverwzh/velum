@@ -4,6 +4,10 @@
 //	go run ./internal/subdump -batch DIR          解析 DIR 下每个样例（*.yaml / *.json），结果写到 DIR/<名字>.go.out
 //	go run ./internal/subdump -live -out DIR      取本机 Velum 的当前订阅，连同读到的 provider 内容一起存成样例
 //	go run ./internal/subdump -corpus DIR         从各包测试代码里抽取内联的订阅样例
+//	go run ./internal/subdump -compile DIR        有 <名字>.plan.json 的样例再编译一次（compiler.Compile），结果写到 <名字>.plan.go.out
+//
+// <名字>.plan.json 是中立格式的编译输入（与 velum-plan 的 Options 相同的 snake_case 字段，外加 overlay 原文），
+// 两边各自转成自己的类型。
 //
 // 样例旁边可以有同名的 .reads 目录（reads.json + 内容文件）：provider 读取按 (path, url) 回放，
 // 没记录的按本地路径读（相对路径以样例所在目录为基准）。含节点凭据的样例只放在 git 忽略的目录里，权限 0600。
@@ -19,6 +23,7 @@ import (
 	"go/parser"
 	"go/token"
 	"io/fs"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"sort"
@@ -26,7 +31,10 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/Foreverwzh/velum/core/pkg/compiler"
 	"github.com/Foreverwzh/velum/core/pkg/config"
+	"github.com/Foreverwzh/velum/core/pkg/ir"
+	"github.com/Foreverwzh/velum/core/pkg/overlay"
 	"github.com/Foreverwzh/velum/core/pkg/source"
 	"github.com/Foreverwzh/velum/core/pkg/subscription"
 )
@@ -57,6 +65,7 @@ func main() {
 	out := flag.String("out", "", "-live 的输出目录")
 	home := flag.String("home", "", "Velum 目录（默认与 velumd 相同）")
 	corpus := flag.String("corpus", "", "从测试代码抽取样例到这个目录")
+	compile := flag.String("compile", "", "编译样例目录")
 	flag.Parse()
 	switch {
 	case *batch != "":
@@ -65,6 +74,8 @@ func main() {
 		fail(runLive(*out, *home))
 	case *corpus != "":
 		fail(runCorpus(*corpus))
+	case *compile != "":
+		fail(runCompile(*compile))
 	default:
 		flag.Usage()
 		os.Exit(2)
@@ -79,7 +90,7 @@ func fail(err error) {
 }
 
 func isSample(name string) bool {
-	return (strings.HasSuffix(name, ".yaml") || strings.HasSuffix(name, ".json")) && !strings.HasSuffix(name, ".meta.json")
+	return (strings.HasSuffix(name, ".yaml") || strings.HasSuffix(name, ".json")) && !strings.HasSuffix(name, ".meta.json") && !strings.HasSuffix(name, ".plan.json")
 }
 
 func runBatch(dir string) error {
@@ -106,6 +117,23 @@ func runBatch(dir string) error {
 }
 
 func parseSample(path string) ([]byte, error) {
+	cfg, err := parseSub(path)
+	var o output
+	if err != nil {
+		o.Error = err.Error()
+	} else {
+		o.Config = cfg
+	}
+	b, err := json.MarshalIndent(o, "", " ")
+	if err != nil {
+		// 例如 Options 里有 JSON 不能表示的值（NaN、非字符串键的映射）
+		b, _ = json.Marshal(output{Error: "marshal: " + err.Error()})
+	}
+	return b, nil
+}
+
+// parseSub 解析一个样例（provider 读取按 .reads 回放）；解析崩溃记为错误。
+func parseSub(path string) (cfg *ir.Config, err error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
@@ -146,27 +174,13 @@ func parseSample(path string) ([]byte, error) {
 	for _, d := range m.BaseDirs {
 		opts.BaseDirs = append(opts.BaseDirs, filepath.Join(dir, d))
 	}
-	var o output
-	func() {
-		// 解析崩溃（Go 版的缺陷）也记成一个结果，不中断整批
-		defer func() {
-			if r := recover(); r != nil {
-				o = output{Error: fmt.Sprintf("panic: %v", r)}
-			}
-		}()
-		cfg, err := subscription.Parse(data, opts)
-		if err != nil {
-			o.Error = err.Error()
-		} else {
-			o.Config = cfg
+	// 解析崩溃（Go 版的缺陷）也记成一个结果，不中断整批
+	defer func() {
+		if r := recover(); r != nil {
+			cfg, err = nil, fmt.Errorf("panic: %v", r)
 		}
 	}()
-	b, err := json.MarshalIndent(o, "", " ")
-	if err != nil {
-		// 例如 Options 里有 JSON 不能表示的值（NaN、非字符串键的映射）
-		b, _ = json.Marshal(output{Error: "marshal: " + err.Error()})
-	}
-	return b, nil
+	return subscription.Parse(data, opts)
 }
 
 // runLive 把本机 Velum 的当前订阅及其 provider 读取存成样例 DIR/live.yaml（+ live.yaml.reads/）。
@@ -290,4 +304,143 @@ func runCorpus(out string) error {
 	})
 	fmt.Fprintf(os.Stderr, "subdump: 抽取 %d 个样例\n", n)
 	return err
+}
+
+// planInput 是中立格式的编译输入。
+type planInput struct {
+	Options struct {
+		Mode        string            `json:"mode"`
+		SystemProxy bool              `json:"system_proxy"`
+		Listen      string            `json:"listen"`
+		Platform    string            `json:"platform"`
+		Selections  map[string]string `json:"selections"`
+		DomainFirst bool              `json:"domain_first"`
+		TUN         struct {
+			Address     string   `json:"address"`
+			Address6    string   `json:"address6"`
+			MTU         uint32   `json:"mtu"`
+			Include     []string `json:"include"`
+			Exclude     []string `json:"exclude"`
+			DNSHijack   bool     `json:"dns_hijack"`
+			AllowSVCB   bool     `json:"allow_svcb"`
+			IncludeApps []string `json:"include_apps"`
+			ExcludeApps []string `json:"exclude_apps"`
+		} `json:"tun"`
+		Env *struct {
+			SplitVPNs []struct {
+				Iface       string   `json:"iface"`
+				Routes      []string `json:"routes"`
+				Domains     []string `json:"domains"`
+				Nameservers []string `json:"nameservers"`
+			} `json:"split_vpns"`
+			SystemDNSDomains []string `json:"system_dns_domains"`
+			MDNS             bool     `json:"mdns"`
+			SystemResolvers  []struct {
+				Domain      string   `json:"domain"`
+				Nameservers []string `json:"nameservers"`
+			} `json:"system_resolvers"`
+			PhysicalDNS []string `json:"physical_dns"`
+			Bypass      []string `json:"bypass"`
+		} `json:"env"`
+	} `json:"options"`
+	Overlay string `json:"overlay"`
+}
+
+func prefixes(ss []string) []netip.Prefix {
+	var out []netip.Prefix
+	for _, s := range ss {
+		out = append(out, netip.MustParsePrefix(s))
+	}
+	return out
+}
+
+func (in planInput) compilerOptions() compiler.Options {
+	o := in.Options
+	opts := compiler.Options{Mode: o.Mode, SystemProxy: o.SystemProxy, Platform: o.Platform, Selections: o.Selections, DomainFirst: o.DomainFirst}
+	if o.Mode == "" {
+		opts.Mode = compiler.ModeProxy
+	}
+	if o.Listen != "" {
+		opts.Listen = netip.MustParseAddrPort(o.Listen)
+	}
+	t := &opts.TUN
+	if o.TUN.Address != "" {
+		t.Address = netip.MustParsePrefix(o.TUN.Address)
+	}
+	if o.TUN.Address6 != "" {
+		t.Address6 = netip.MustParsePrefix(o.TUN.Address6)
+	}
+	t.MTU, t.Include, t.Exclude = o.TUN.MTU, prefixes(o.TUN.Include), prefixes(o.TUN.Exclude)
+	t.DNSHijack, t.AllowSVCB, t.IncludeApps, t.ExcludeApps = o.TUN.DNSHijack, o.TUN.AllowSVCB, o.TUN.IncludeApps, o.TUN.ExcludeApps
+	if e := o.Env; e != nil {
+		env := &compiler.Environment{SystemDNSDomains: e.SystemDNSDomains, MDNS: e.MDNS, PhysicalDNS: e.PhysicalDNS, Bypass: prefixes(e.Bypass)}
+		for _, v := range e.SplitVPNs {
+			env.SplitVPNs = append(env.SplitVPNs, compiler.EnvVPN{Iface: v.Iface, Routes: prefixes(v.Routes), Domains: v.Domains, Nameservers: v.Nameservers})
+		}
+		for _, r := range e.SystemResolvers {
+			env.SystemResolvers = append(env.SystemResolvers, compiler.EnvResolver{Domain: r.Domain, Nameservers: r.Nameservers})
+		}
+		opts.Env = env
+	}
+	return opts
+}
+
+// runCompile 编译有 .plan.json 的样例。
+func runCompile(dir string) error {
+	ents, err := os.ReadDir(dir)
+	if err != nil {
+		return err
+	}
+	n := 0
+	for _, e := range ents {
+		if e.IsDir() || !isSample(e.Name()) {
+			continue
+		}
+		path := filepath.Join(dir, e.Name())
+		raw, err := os.ReadFile(strings.TrimSuffix(path, filepath.Ext(path)) + ".plan.json")
+		if err != nil {
+			continue
+		}
+		var in planInput
+		if err := json.Unmarshal(raw, &in); err != nil {
+			return fmt.Errorf("%s: %w", e.Name(), err)
+		}
+		var o struct {
+			Plan  *compiler.Plan `json:"plan,omitempty"`
+			Error string         `json:"error,omitempty"`
+		}
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					o.Error = fmt.Sprintf("panic: %v", r)
+				}
+			}()
+			sub, err := parseSub(path)
+			if err != nil {
+				o.Error = err.Error()
+				return
+			}
+			ov, err := overlay.Parse([]byte(in.Overlay))
+			if err != nil {
+				o.Error = "overlay: " + err.Error()
+				return
+			}
+			p, err := compiler.Compile(sub, ov, in.compilerOptions())
+			if err != nil {
+				o.Error = err.Error()
+				return
+			}
+			o.Plan = p
+		}()
+		b, err := json.MarshalIndent(o, "", " ")
+		if err != nil {
+			b, _ = json.Marshal(map[string]string{"error": "marshal: " + err.Error()})
+		}
+		if err := os.WriteFile(path+".plan.go.out", b, 0o600); err != nil {
+			return err
+		}
+		n++
+	}
+	fmt.Fprintf(os.Stderr, "subdump: 编译 %d 个样例\n", n)
+	return nil
 }
