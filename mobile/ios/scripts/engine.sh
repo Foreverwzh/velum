@@ -12,7 +12,7 @@ if [ -z "${VELUM_ENGINE_DOWNLOAD:-}" ] && [ -x "$src/scripts/build-xcframework.s
   rm -rf build/VelumEngine.xcframework
   cp -R "$src/ios/build/VelumEngine.xcframework" build/
   (cd "$src" && python3 scripts/notices.py "$OLDPWD/build/THIRD_PARTY_RUST.txt" >/dev/null)
-  echo "velum-engine：从源码编译（$src）"
+  echo "velum-engine：从源码编译（${src}）"
 else
   lock() { sed -n "s/^$1=//p" engine.lock; }
   repo=$(lock repo) v=$(lock version) sum=$(lock sha256) nsum=$(lock notices_sha256)

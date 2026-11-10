@@ -14,9 +14,13 @@ final class LocalEngine: @unchecked Sendable {
 
     /// （重新）启动：编译配置，以本地模式启动引擎。
     func start() throws {
-        guard let p = Self.paths else { throw CoreError.message(String(localized: "取不到 App Group")) }
         lock.lock()
         defer { lock.unlock() }
+        try startLocked()
+    }
+
+    private func startLocked(retried: Bool = false) throws {
+        guard let p = Self.paths else { throw CoreError.message(String(localized: "取不到 App Group")) }
         stopLocked()
         guard try VelumFiles.ensureCompiled(p) else { throw CoreError.message(String(localized: "配置不是 velum-engine 的")) }
         let config = try Data(contentsOf: p.ir)
@@ -24,7 +28,15 @@ final class LocalEngine: @unchecked Sendable {
         let h = config.withUnsafeBytes { c in
             velum_engine_start_local(c.bindMemory(to: UInt8.self).baseAddress, c.count, p.router.path, p.rules.path, &msg, msg.count)
         }
-        guard let h else { throw CoreError.message(String(cString: msg)) }
+        guard let h else {
+            let m = String(cString: msg)
+            // 引擎升级后路由文件格式不兼容：重新编译一次再试
+            if VelumFiles.isStaleRouter(m), !retried {
+                VelumFiles.invalidate(p)
+                return try startLocked(retried: true)
+            }
+            throw CoreError.message(m)
+        }
         if let m = try? Data(contentsOf: p.ruleMeta) {
             _ = m.withUnsafeBytes { velum_engine_set_meta(h, $0.bindMemory(to: UInt8.self).baseAddress, $0.count) }
         }

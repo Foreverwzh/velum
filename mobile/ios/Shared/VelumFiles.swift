@@ -34,6 +34,14 @@ enum VelumFiles {
     /// 配置要求用 velum-engine。
     static func selected(_ p: Paths) -> Bool { meta(p)?.engine == engineName }
 
+    /// 让下一次 ensureCompiled 重新编译（引擎升级后路由文件格式不兼容时）。
+    static func invalidate(_ p: Paths) {
+        try? FileManager.default.removeItem(at: p.stamp)
+    }
+
+    /// 引擎报路由文件无效（格式版本不符等）。
+    static func isStaleRouter(_ message: String) -> Bool { message.contains("路由文件无效") }
+
     /// 内核是 velum-engine 且编译产物缺失或过期时编译。返回是否用 velum-engine。
     @discardableResult
     static func ensureCompiled(_ p: Paths) throws -> Bool {

@@ -21,6 +21,8 @@ final class VelumTunnel {
     private var tick = 0
     /// 最近一次的网络（重新加载后要再报给新引擎）。
     private var net = ("", "", "")
+    /// 设备是否在休眠（重新加载后的新引擎沿用）。
+    private var sleeping = false
 
     init(provider: PacketTunnelProvider, home: URL) {
         self.provider = provider
@@ -69,7 +71,7 @@ final class VelumTunnel {
         startWatchdog()
     }
 
-    private func startLocked() throws {
+    private func startLocked(retried: Bool = false) throws {
         // App 平时已经编译好；App 升级后还没打开过等情况下这里兜底编译
         guard try VelumFiles.ensureCompiled(paths) else { throw tunnelError(String(localized: "配置不是 velum-engine 的")) }
         guard let provider, let fd = provider.tunFD() else { throw tunnelError(String(localized: "找不到 utun")) }
@@ -82,7 +84,14 @@ final class VelumTunnel {
         }
         guard let h else {
             close(owned)
-            throw tunnelError(String(cString: msg))
+            let m = String(cString: msg)
+            // 引擎升级后路由文件格式不兼容：重新编译一次再试
+            if VelumFiles.isStaleRouter(m), !retried {
+                note("路由文件无效，重新编译：\(m)")
+                VelumFiles.invalidate(paths)
+                return try startLocked(retried: true)
+            }
+            throw tunnelError(m)
         }
         engine = h
         if let m = try? Data(contentsOf: paths.ruleMeta) {
@@ -99,6 +108,7 @@ final class VelumTunnel {
         if !net.0.isEmpty || !net.2.isEmpty {
             velum_engine_set_network(h, net.0, net.1, net.2)
         }
+        if sleeping { velum_engine_set_sleeping(h, true) }
         log.notice("velum-engine \(String(cString: velum_engine_version()), privacy: .public) 已启动")
         note("velum-engine \(String(cString: velum_engine_version())) 已启动（net=\(net.0) if=\(net.2)）")
     }
@@ -114,6 +124,15 @@ final class VelumTunnel {
         watchdog?.cancel()
         watchdog = nil
         lock.withLock { stopLocked() }
+    }
+
+    /// 设备休眠 / 唤醒：休眠时自动组暂停测速。
+    func setSleeping(_ v: Bool) {
+        lock.withLock {
+            sleeping = v
+            if let e = engine { velum_engine_set_sleeping(e, v) }
+        }
+        note(v ? "sleep" : "wake")
     }
 
     /// 网络变了：ssid-policy 与系统 DNS（按物理网卡查询）。

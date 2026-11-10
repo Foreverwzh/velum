@@ -80,7 +80,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
 
     override func wake() {
         log.notice("设备唤醒")
-        if velum == nil { goSetSleeping(false) }
+        if let velum { velum.setSleeping(false) } else { goSetSleeping(false) }
         memQueue.async { [weak self] in self?.startMemoryTimer() }
         netQueue.async { [weak self] in
             guard let self else { return }
@@ -91,7 +91,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
     override func sleep(completionHandler: @escaping () -> Void) {
         log.notice("设备休眠")
         memQueue.sync { stopMemoryTimer() }
-        if velum == nil { goSetSleeping(true) }
+        if let velum { velum.setSleeping(true) } else { goSetSleeping(true) }
         completionHandler()
     }
 
