@@ -166,6 +166,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         let want = VelumFiles.selected(VelumFiles.Paths(dir: home.appendingPathComponent("tunnel")))
         guard want != (velum != nil) else { return nil }
         log.notice("切换内核：\(want ? "velum-engine" : "sing-box", privacy: .public)")
+        VelumTunnel.note(home.appendingPathComponent("tunnel"), "切换内核：\(want ? "velum-engine" : "sing-box")")
         if let v = velum {
             v.stop()
             velum = nil

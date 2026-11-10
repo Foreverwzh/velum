@@ -365,6 +365,14 @@ func (d *Daemon) build(mode fetchMode) (*state, error) {
 	return st, nil
 }
 
+// sameVelum 表示两次的 velum-engine 配置相同（都没有也算相同）。
+func sameVelum(a, b *engine.VelumConfig) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return bytes.Equal(a.IR, b.IR) && bytes.Equal(a.RuleSets, b.RuleSets) && bytes.Equal(a.Meta, b.Meta)
+}
+
 // renderVelum 直接由 Plan 渲染 velum-engine 的配置（不经 sing-box 配置）。GEOIP / GEOSITE 数据经 Fetcher 取，缓存一天。
 func renderVelum(p *compiler.Plan, f *source.Fetcher) (*engine.VelumConfig, []ir.Warning, error) {
 	geo := &velum.GeoSource{Fetch: func(url string) ([]byte, error) {
@@ -549,7 +557,9 @@ func (d *Daemon) reload(ctx context.Context) error {
 	// RoutePlan 也要比较：macOS / Android 的路由、系统 DNS、按应用分流由平台层（helper / VpnService）执行，不在内核配置里
 	// 物理网络的 DNS 不在内核配置里（见 compiler.Plan.PhysicalDNS）：先更新，换 Wi-Fi 时只有它变化就不必重启
 	d.setPhysicalDNS(st)
-	if old != nil && d.Engine.Running() && bytes.Equal(old.rendered.JSON, st.rendered.JSON) && reflect.DeepEqual(old.plan.Route, st.plan.Route) {
+	// velum-engine 的配置也要比较：只切换 iOS 扩展的内核（tun.engine）时 sing-box 配置不变，但扩展要换内核
+	if old != nil && d.Engine.Running() && bytes.Equal(old.rendered.JSON, st.rendered.JSON) && reflect.DeepEqual(old.plan.Route, st.plan.Route) &&
+		sameVelum(old.velum, st.velum) {
 		// 内核配置未变化：不重启引擎（避免无谓断开连接），只更新状态（告警、拉取时间等）
 		d.mu.Lock()
 		d.st, d.lastErr = st, ""

@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/Foreverwzh/velum/core/pkg/compiler"
+	"github.com/Foreverwzh/velum/core/pkg/engine"
 	"github.com/Foreverwzh/velum/core/pkg/ir"
 	"github.com/Foreverwzh/velum/core/pkg/source"
 )
@@ -41,5 +42,21 @@ func TestRenderVelumFromPlan(t *testing.T) {
 	}
 	if len(warns) == 0 || warns[0].Category != "velum-engine" {
 		t.Fatalf("进程规则应当产出告警：%+v", warns)
+	}
+}
+
+// 只切换内核（velum-engine 配置出现或消失）也算配置变化：sing-box 配置不变时 Reload 不能跳过。
+func TestSameVelum(t *testing.T) {
+	a := &engine.VelumConfig{IR: []byte(`{}`), RuleSets: []byte(`[]`), Meta: []byte(`{}`)}
+	b := &engine.VelumConfig{IR: []byte(`{}`), RuleSets: []byte(`[]`), Meta: []byte(`{}`)}
+	if !sameVelum(nil, nil) || !sameVelum(a, b) {
+		t.Fatal("相同的配置应当相同")
+	}
+	if sameVelum(nil, a) || sameVelum(a, nil) {
+		t.Fatal("切换内核应当算变化")
+	}
+	b.IR = []byte(`{"ipv6":true}`)
+	if sameVelum(a, b) {
+		t.Fatal("IR 变化应当算变化")
 	}
 }

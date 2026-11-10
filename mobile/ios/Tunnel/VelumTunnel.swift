@@ -18,6 +18,7 @@ final class VelumTunnel {
     private let lock = NSLock()
     private var engine: OpaquePointer?
     private var watchdog: DispatchSourceTimer?
+    private var tick = 0
     /// 最近一次的网络（重新加载后要再报给新引擎）。
     private var net = ("", "", "")
 
@@ -27,17 +28,44 @@ final class VelumTunnel {
         paths = VelumFiles.Paths(dir: home.appendingPathComponent("tunnel"))
     }
 
+    /// 写一行到 tunnel/velum.log（App 打开时复制到 Documents/logs，调试时从设备取出）。超过 512KB 时清空重写。
+    static func note(_ dir: URL, _ s: String) {
+        let url = dir.appendingPathComponent("velum.log")
+        let line = "\(ISO8601DateFormatter().string(from: Date())) \(s)\n"
+        if let a = try? FileManager.default.attributesOfItem(atPath: url.path), (a[.size] as? Int ?? 0) > 512 * 1024 {
+            try? FileManager.default.removeItem(at: url)
+        }
+        if let h = try? FileHandle(forWritingTo: url) {
+            h.seekToEndOfFile()
+            h.write(Data(line.utf8))
+            try? h.close()
+        } else {
+            try? line.write(to: url, atomically: true, encoding: .utf8)
+        }
+    }
+
+    private func note(_ s: String) { Self.note(paths.dir, s) }
+
     /// 设置隧道参数并启动引擎。
     func start() throws {
         guard let provider else { throw tunnelError("没有 provider") }
         let routes = VelumFiles.meta(paths)?.routes ?? ["0.0.0.0/1", "128.0.0.0/1", "::/1", "8000::/1"]
+        note("start: routes=\(routes.count)")
         let req = TunRequest(mtu: 1500, inet4: [Self.tunAddr4], inet6: [Self.tunAddr6], routes: routes, dns: [Self.dns4])
         let sem = DispatchSemaphore(value: 0)
         var setErr: Error?
         provider.setTunnelNetworkSettings(tunnelSettings(req)) { setErr = $0; sem.signal() }
         sem.wait()
-        if let setErr { throw setErr }
-        try lock.withLock { try startLocked() }
+        if let setErr {
+            note("setTunnelNetworkSettings 失败：\(setErr.localizedDescription)")
+            throw setErr
+        }
+        do {
+            try lock.withLock { try startLocked() }
+        } catch {
+            note("启动失败：\(error.localizedDescription)")
+            throw error
+        }
         startWatchdog()
     }
 
@@ -72,6 +100,7 @@ final class VelumTunnel {
             velum_engine_set_network(h, net.0, net.1, net.2)
         }
         log.notice("velum-engine \(String(cString: velum_engine_version()), privacy: .public) 已启动")
+        note("velum-engine \(String(cString: velum_engine_version())) 已启动（net=\(net.0) if=\(net.2)）")
     }
 
     private func stopLocked() {
@@ -93,6 +122,7 @@ final class VelumTunnel {
             net = (kind, ssid, ifname)
             if let e = engine { velum_engine_set_network(e, kind, ssid, ifname) }
         }
+        note("network: \(kind) if=\(ifname) ssid=\(!ssid.isEmpty)")
     }
 
     /// App 消息。reload：重新加载配置（重启引擎，连接会断开）；其余交给引擎。
@@ -100,6 +130,7 @@ final class VelumTunnel {
         let op = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["op"] as? String
         return lock.withLock {
             if op == "reload" {
+                note("reload")
                 stopLocked()
                 do {
                     try startLocked()
@@ -136,9 +167,14 @@ final class VelumTunnel {
         t.setEventHandler { [weak self] in
             guard let self else { return }
             var s = VelumStats()
-            let exited = lock.withLock { () -> Bool in
-                guard let e = self.engine else { return false }
-                return velum_engine_stats(e, &s) && s.stack_exited != 0
+            let (ok, exited) = lock.withLock { () -> (Bool, Bool) in
+                guard let e = self.engine else { return (false, false) }
+                let ok = velum_engine_stats(e, &s)
+                return (ok, ok && s.stack_exited != 0)
+            }
+            tick += 1
+            if ok, tick % 2 == 0 {
+                note("stats: in=\(s.packets_in)/\(s.bytes_in)B out=\(s.packets_out)/\(s.bytes_out)B tcp=\(s.tcp_active)/\(s.tcp_total) udp=\(s.udp_active)/\(s.udp_total) dns=\(s.dns_queries) dial_err=\(s.dial_errors) proxied=\(s.proxied_tcp)/\(s.proxied_udp) dns_err=\(s.dns_upstream_errors) tun_err=\(s.tun_read_errors)/\(s.tun_write_errors) fake=\(s.fake_ips) mem=\(String(format: "%.1f", footprintMiB().current))MB")
             }
             if exited {
                 log.error("velum-engine 协议栈意外退出（errno \(s.last_errno, privacy: .public)），断开隧道")

@@ -72,6 +72,7 @@ final class RealCore: VelumCore, @unchecked Sendable {
             (tunnelLog, "tunnel.log"),
             (URL(fileURLWithPath: tunnelLog.path + ".1"), "tunnel.log.1"),
             (URL(fileURLWithPath: MobilebindLogPath(home.path)), "app.log"),
+            (home.appendingPathComponent("tunnel/velum.log"), "velum.log"),
         ]
         for (src, name) in sources {
             let to = dest.appendingPathComponent(name)
