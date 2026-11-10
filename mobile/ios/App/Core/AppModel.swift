@@ -197,4 +197,5 @@ enum Route: Hashable {
     case subscriptions
     case rules
     case warnings
+    case notices
 }

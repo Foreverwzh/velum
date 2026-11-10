@@ -3,6 +3,8 @@
 #
 #   sh scripts/build-ios.sh            出 build/ipa/Velum.ipa，再用 Transporter 或 Xcode 上传
 #   sh scripts/build-ios.sh --upload   出包后直接传到 App Store Connect（发版流水线用这个）
+#   sh scripts/build-ios.sh --store    上架构建：不含 sing-box（velum-engine，需要本机有 velum-engine 源码），附第三方声明；
+#                                      可与 --upload 一起用
 #
 # 版本号取 VELUM_VERSION，没设就取当前提交上的 v* 标签。Apple 只认纯数字的 x.y.z，所以去掉 -rc.N：
 # 同一版本的 rc 和正式版共用一个版本号，在 TestFlight 里靠构建号区分。构建号默认取 UTC 时间
@@ -16,11 +18,14 @@ cd "$(dirname "$0")/.."
 die() { echo "✗ $*" >&2; exit 1; }
 
 upload=false
-case "${1:-}" in
-  "") ;;
-  --upload) upload=true ;;
-  *) die "不认识的参数：$1（只有 --upload）" ;;
-esac
+store=false
+for a in "$@"; do
+  case "$a" in
+    --upload) upload=true ;;
+    --store) store=true ;;
+    *) die "不认识的参数：$a（只有 --upload、--store）" ;;
+  esac
+done
 
 version="${VELUM_VERSION:-}"
 if [ -z "$version" ]; then
@@ -58,11 +63,20 @@ fi
 
 echo "▶ iOS $marketing ($build_number)，出自 $version"
 # 发布包只要真机架构
-TARGETS=ios/arm64 sh scripts/core.sh
-xcodegen generate
+project=Velum.xcodeproj
+if $store; then
+  # 不含 sing-box：引擎从本机的 velum-engine 编译，Go 核心用 velumonly 标签，附第三方声明
+  sh scripts/engine.sh
+  sh scripts/notices.sh
+  TARGETS=ios/arm64 sh scripts/velumonly.sh
+  project=VelumStore.xcodeproj
+else
+  TARGETS=ios/arm64 sh scripts/core.sh
+  xcodegen generate
+fi
 rm -rf "$archive" "$export_dir"
 xcodebuild archive -quiet \
-  -project Velum.xcodeproj -scheme Velum -configuration Release \
+  -project "$project" -scheme Velum -configuration Release \
   -destination generic/platform=iOS -archivePath "$archive" "${signing[@]}" \
   MARKETING_VERSION="$marketing" CURRENT_PROJECT_VERSION="$build_number"
 xcodebuild -exportArchive -quiet \

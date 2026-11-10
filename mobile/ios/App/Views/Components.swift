@@ -162,6 +162,7 @@ extension View {
             case .subscriptions: SubscriptionsView()
             case .rules: LocalRulesView()
             case .warnings: WarningsView()
+            case .notices: NoticesView()
             }
         }
     }

@@ -18,7 +18,13 @@ targets:
   Velum:
     type: application
     platform: iOS
-    sources: [App, Shared]
+    sources:
+      - App
+      - Shared
+      # 第三方版权声明（scripts/notices.sh 生成）
+      - path: build/ThirdPartyNotices.txt
+        buildPhase: resources
+        optional: true
     info:
       path: App/Info.plist
       properties:

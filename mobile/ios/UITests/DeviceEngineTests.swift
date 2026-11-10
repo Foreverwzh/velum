@@ -14,18 +14,26 @@ final class DeviceEngineTests: XCTestCase {
         Thread.sleep(forTimeInterval: 6)
     }
 
-    private func setEngine(_ app: XCUIApplication, velum: Bool) {
-        // 活动页搜索时弹出的键盘会挡住标签栏：先收起
+    /// 上架构建（VELUM_ONLY）只有 velum-engine，没有内核开关。
+    private var velumOnly: Bool { ProcessInfo.processInfo.environment["VELUM_ONLY"] != nil }
+
+    /// 切换标签页：活动页搜索时弹出的键盘会挡住标签栏，先收起。
+    private func openTab(_ app: XCUIApplication, _ name: String) {
         if app.keyboards.count > 0 { app.typeText("\n") }
-        for name in ["取消", "关闭", "Cancel", "Close"] where app.keyboards.count > 0 {
-            let b = app.buttons[name].firstMatch
-            if b.exists { b.tap() }
+        for b in ["取消", "关闭", "Cancel", "Close"] where app.keyboards.count > 0 {
+            let x = app.buttons[b].firstMatch
+            if x.exists { x.tap() }
         }
-        let tab = app.tabBars.buttons["设置"]
+        let tab = app.tabBars.buttons[name]
         for _ in 0..<3 where !tab.isSelected {
             tab.tap()
             Thread.sleep(forTimeInterval: 0.5)
         }
+    }
+
+    private func setEngine(_ app: XCUIApplication, velum: Bool) {
+        if velumOnly { return }
+        openTab(app, "设置")
         let t = app.switches["使用 velum-engine 内核"].firstMatch
         // 页面可能停在上次滚动的位置：先回到顶部再往下找
         for _ in 0..<4 where !t.isHittable { app.swipeDown() }
@@ -61,6 +69,17 @@ final class DeviceEngineTests: XCTestCase {
             if later.waitForExistence(timeout: 3) { later.tap() }
         }
 
+        // 上一次测试中途失败时隧道可能还开着：先断开，从「未连接」开始
+        openTab(app, "状态")
+        let t0 = app.switches["连接"].firstMatch
+        if t0.waitForExistence(timeout: 20), t0.value as? String == "1" {
+            t0.switches.firstMatch.exists ? t0.switches.firstMatch.tap() : t0.tap()
+            XCTAssertTrue(see(app, "未连接", timeout: 20), "断不开上一次留下的隧道")
+        }
+        if velumOnly {
+            // 隧道没开时由 App 内的 velum-engine 本地引擎提供策略组状态
+            XCTAssertTrue(see(app, "已选线路", timeout: 30), "本地引擎没有提供策略组状态")
+        }
         setEngine(app, velum: true)
         app.tabBars.buttons["状态"].tap()
         let toggle = app.switches["连接"].firstMatch
@@ -95,13 +114,19 @@ final class DeviceEngineTests: XCTestCase {
         if cancel.exists { cancel.tap() }
         print("DEVICE_ENGINE_SEEN \(seen)")
 
-        // 恢复：切回 sing-box 内核，再断开
-        setEngine(app, velum: false)
-        app.tabBars.buttons["状态"].tap()
-        XCTAssertTrue(see(app, "正在保护", timeout: 40), "切回 sing-box 后隧道没有连上")
+        // 恢复：切回 sing-box 内核（上架构建没有 sing-box，跳过），再断开
+        if !velumOnly {
+            setEngine(app, velum: false)
+            openTab(app, "状态")
+            XCTAssertTrue(see(app, "正在保护", timeout: 40), "切回 sing-box 后隧道没有连上")
+        }
+        openTab(app, "状态")
         let t2 = app.switches["连接"].firstMatch
         if t2.value as? String == "1" { t2.switches.firstMatch.exists ? t2.switches.firstMatch.tap() : t2.tap() }
         XCTAssertTrue(see(app, "未连接", timeout: 20))
+        if velumOnly {
+            XCTAssertTrue(see(app, "已选线路", timeout: 30), "断开后本地引擎没有恢复")
+        }
         XCTAssertEqual(seen.count, 3, "有网址没出现在活动页：\(seen)")
     }
 }

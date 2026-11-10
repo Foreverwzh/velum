@@ -87,6 +87,9 @@ struct SettingsView: View {
                 }
                 Section("关于") {
                     LabeledContent("版本", value: model.status?.version ?? "—")
+                    if NoticesView.available {
+                        NavigationLink(value: Route.notices) { Text("第三方组件") }
+                    }
                     if model.status?.tunOn == true, let m = (model.core as? RealCore)?.tunnelMemory() {
                         // 隧道受系统内存上限约束，超过会被杀掉：这里能直接看到离上限还有多远
                         let text = String(format: "%.0f / %.0f / %.0f MB", m.current, m.peak, m.limit)

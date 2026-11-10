@@ -209,3 +209,4 @@
 "使用 velum-engine 内核" = "Use the velum-engine core";
 "内核（测试）" = "Core (testing)";
 "隧道改用 velum-engine。切换后隧道会重新加载，现有连接会断开。" = "The tunnel uses velum-engine instead. Switching reloads the tunnel and drops current connections.";
+"第三方组件" = "Third-party components";
