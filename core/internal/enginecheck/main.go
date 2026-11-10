@@ -25,6 +25,7 @@ import (
 
 	"github.com/Foreverwzh/velum/core/pkg/compiler"
 	"github.com/Foreverwzh/velum/core/pkg/config"
+	sbrender "github.com/Foreverwzh/velum/core/pkg/engine/singbox/render"
 	"github.com/Foreverwzh/velum/core/pkg/engine/velum"
 	"github.com/Foreverwzh/velum/core/pkg/explain"
 	"github.com/Foreverwzh/velum/core/pkg/ir"
@@ -105,6 +106,14 @@ func main() {
 	write("rule_sets.json", r.RuleSets)
 	write("rule_index.json", r.RuleIndex)
 	write("warnings.json", r.Warnings)
+	// Velum 给 sing-box 的 DNS 设置（只取 dns 部分，完整配置里有节点凭据），供 velum-tools dns-diff 与 sing-box 对照
+	if sb, err := sbrender.Render(plan, sbrender.Options{LogLevel: "warn"}); err != nil {
+		fmt.Fprintln(os.Stderr, "渲染 sing-box 配置失败：", err)
+	} else {
+		var full map[string]json.RawMessage
+		fail(json.Unmarshal(sb.JSON, &full))
+		fail(os.WriteFile(filepath.Join(*out, "singbox-dns.json"), full["dns"], 0o600))
+	}
 
 	ts := targets(plan.IR, *perSet, r.Loaded)
 	tf, err := os.OpenFile(filepath.Join(*out, "targets.jsonl"), os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
