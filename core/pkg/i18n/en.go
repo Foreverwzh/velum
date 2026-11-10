@@ -584,7 +584,6 @@ var en = map[string]string{
 	"带条件的 resolve 按无条件处理（解析点取这条规则的位置）":                           "A conditional resolve is treated as unconditional (the resolve point is this rule's position)",
 	"带条件的 sniff 按无条件处理":                                "A conditional sniff is treated as unconditional",
 	"无条件规则（sniff / resolve 等动作之外）暂不支持，已跳过":             "Unconditional rules (other than actions such as sniff / resolve) are not supported yet; skipped",
-	"改写目标地址（hosts 覆盖）暂不支持":                             "Rewriting the destination (hosts override) is not supported yet",
 	"drop 按 reject 处理":                                 "drop is treated as reject",
 	"只支持「protocol: dns → hijack-dns」，带其他条件的接管 DNS 已跳过": "Only “protocol: dns → hijack-dns” is supported; DNS hijacking with other conditions is skipped",
 	"未知动作，已跳过":                                         "Unknown action; skipped",
@@ -608,4 +607,5 @@ var en = map[string]string{
 	"本地引擎：%s":                                          "Local engine: %s",
 	"这个构建只支持 iOS 的分离模式（StartSplit）":                    "This build only supports the iOS split mode (StartSplit)",
 	"逻辑规则里有空条件，已跳过":                                    "A logical rule has an empty condition; skipped",
+	"经代理时改写目标地址暂不支持，按原目标连接":                            "Rewriting the destination through a proxy is not supported yet; the original destination is used",
 }

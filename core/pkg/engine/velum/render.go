@@ -328,12 +328,16 @@ func action(a ir.Action, src ir.Source, warn warnFn) (Action, bool) {
 	case ir.ActionRoute:
 		switch a.Outbound {
 		case ir.OutboundDirect, "":
+			if a.OverrideAddress != "" {
+				// hosts 覆盖：直连并把目标改写到这个地址
+				return Action{Kind: "redirect", Target: a.OverrideAddress}, true
+			}
 			return Action{Kind: "direct"}, true
 		case ir.OutboundReject:
 			return Action{Kind: "reject"}, true
 		}
 		if a.OverrideAddress != "" {
-			warn("rule", a.Outbound, i18n.T("改写目标地址（hosts 覆盖）暂不支持"), src)
+			warn("rule", a.Outbound, i18n.T("经代理时改写目标地址暂不支持，按原目标连接"), src)
 		}
 		return Action{Kind: "route", Target: a.Outbound}, true
 	case ir.ActionReject:

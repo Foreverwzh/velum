@@ -130,6 +130,9 @@ func main() {
 		rep := explain.WhyWith(plan, et, r.Loaded)
 		d := rep.Decision
 		t.RuleIndex, t.Action, t.Uncertain = d.RuleIndex, normalize(d.Action, d.Outbound), d.Uncertain
+		if t.Action == "direct" && d.OverrideAddress != "" {
+			t.Action = "redirect:" + d.OverrideAddress // hosts 覆盖
+		}
 		if t.Domain != "" && rep.DNS.Applicable {
 			t.DNSServer = rep.DNS.Server
 			if len(rep.DNS.Answer) > 0 {

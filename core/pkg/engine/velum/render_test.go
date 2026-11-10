@@ -220,3 +220,14 @@ func TestRenderLogicalRules(t *testing.T) {
 		t.Fatalf("DNS 逻辑规则：%+v", d)
 	}
 }
+
+// hosts 覆盖：直连 + 改写地址 → redirect。
+func TestRenderHostsOverride(t *testing.T) {
+	c := &ir.Config{Rules: []ir.Rule{{Match: ir.Leaf(ir.Cond{Domain: []string{"dev.test"}}),
+		Action: ir.Action{Kind: ir.ActionRoute, Outbound: ir.OutboundDirect, OverrideAddress: "10.0.0.5"}}},
+		Final: ir.Action{Kind: ir.ActionRoute, Outbound: ir.OutboundDirect}}
+	r := Render(&compiler.Plan{IR: c})
+	if a := r.Config.Rules[0].Action; a.Kind != "redirect" || a.Target != "10.0.0.5" || len(r.Warnings) != 0 {
+		t.Fatalf("动作：%+v，告警：%+v", a, r.Warnings)
+	}
+}
