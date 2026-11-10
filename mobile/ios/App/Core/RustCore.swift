@@ -1,6 +1,6 @@
 // Rust 控制面（velum-engine 的 velum-core，经 VelumCore.xcframework）：取代 App 进程里的 Go daemon。
 // 订阅拉取、编译、生成隧道文件都在 Rust 里完成；这里只把 velum-core 的类型换成界面现在用的模型。
-// 过渡期用启动参数 -VelumRustCore YES 选用。规则解释由运行中的引擎回答（与真实连接同一段决策），不再逐条推演。
+// 默认的核心（开发构建可用 -VelumGoCore YES 改用 Go 版对照）。规则解释由运行中的引擎回答（与真实连接同一段决策），不再逐条推演。
 import Foundation
 import Network
 import NetworkExtension
@@ -10,10 +10,15 @@ final class RustCore: VelumCore, @unchecked Sendable {
     private let started: Task<CoreClient, Error>
 
     init() {
-        let home = RealCore.home()
+        let home = AppFiles.home()
         let host = tunnel
         started = Task.detached(priority: .userInitiated) {
             try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+            // 核心返回的错误、告警、修复步骤跟随系统语言（iOS 切换语言时 App 会重启）：中文以外用英文
+            if !(Locale.preferredLanguages.first ?? "zh").hasPrefix("zh"),
+               let url = Bundle.main.url(forResource: "core-en", withExtension: "json") {
+                try? CoreClient.setTranslations(try? Data(contentsOf: url))
+            }
             return try CoreClient(home: home.path, host: host)
         }
         // 系统断开了隧道（用户在系统设置里断开、被别的 VPN 取代）：告诉核心，开关跟着关掉

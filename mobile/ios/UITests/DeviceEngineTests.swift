@@ -54,7 +54,7 @@ final class DeviceEngineTests: XCTestCase {
         guard ProcessInfo.processInfo.environment["VELUM_DEVICE"] != nil else { throw XCTSkip("只在真机上运行（VELUM_DEVICE）") }
         continueAfterFailure = false
         let app = XCUIApplication()
-        app.launchArguments = ["-AppleLanguages", "(zh-Hans)"]
+        app.launchArguments = ["-AppleLanguages", "(zh-Hans)", "-VelumGoCore", "YES"]
         app.launch()
 
         // 还没有订阅：首次引导

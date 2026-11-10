@@ -40,6 +40,8 @@ struct SettingsView: View {
                     Text("先匹配所有域名规则，都没命中才解析 DNS 并匹配 IP 规则，可以少查 DNS。排在前面的 IP 规则不再优先于后面的域名规则。")
                 }
                 #if !VELUM_ONLY
+                // 只有 Go 核心（对照用）能在 sing-box 与 velum-engine 之间切换；Rust 控制面只有 velum-engine
+                if model.core is RealCore {
                 Section {
                     Toggle(isOn: Binding(get: { model.status?.tunEngine == "velum" },
                                          set: { v in Task { await model.setTunEngine(v) } })) {
@@ -49,6 +51,7 @@ struct SettingsView: View {
                     Text("内核（测试）")
                 } footer: {
                     Text("隧道改用 velum-engine。切换后隧道会重新加载，现有连接会断开。")
+                }
                 }
                 #endif
                 Section {
@@ -83,19 +86,19 @@ struct SettingsView: View {
                 } header: {
                     Text("排查")
                 } footer: {
-                    if steps == nil { Text("重新检测网络、拉取订阅、加载内核，然后测速。") }
+                    if steps == nil { Text("重新拉取订阅和规则、检查隧道、测速，再实际访问一次互联网。") }
                 }
                 Section("关于") {
                     LabeledContent("版本", value: model.status?.version ?? "—")
                     if NoticesView.available {
                         NavigationLink(value: Route.notices) { Text("第三方组件") }
                     }
-                    if model.status?.tunOn == true, let m = (model.core as? RealCore)?.tunnelMemory() {
+                    if model.status?.tunOn == true, model.isRealCore, let m = AppFiles.tunnelMemory() {
                         // 隧道受系统内存上限约束，超过会被杀掉：这里能直接看到离上限还有多远
                         let text = String(format: "%.0f / %.0f / %.0f MB", m.current, m.peak, m.limit)
                         LabeledContent("隧道内存（当前 / 峰值 / 上限）", value: text).monospacedDigit()
                     }
-                    if model.status?.tunOn == true, let n = (model.core as? RealCore)?.tunnelNetwork() {
+                    if model.status?.tunOn == true, model.isRealCore, let n = AppFiles.tunnelNetwork() {
                         LabeledContent("隧道看到的网络", value: networkText(n))
                     }
                     Link(destination: URL(string: "https://github.com/Foreverwzh/velum")!) {

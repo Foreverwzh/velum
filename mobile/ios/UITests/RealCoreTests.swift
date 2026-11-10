@@ -17,7 +17,7 @@ final class RealCoreTests: XCTestCase {
         guard let url = ProcessInfo.processInfo.environment["SUB_URL"] else { throw XCTSkip("没有 SUB_URL") }
         continueAfterFailure = false
         let app = XCUIApplication()
-        app.launchArguments = ["-AppleLanguages", "(zh-Hans)"]
+        app.launchArguments = ["-AppleLanguages", "(zh-Hans)", "-VelumGoCore", "YES"]
         app.launch()
 
         // 全新安装：首次引导，真实拉取并转换订阅
@@ -51,7 +51,7 @@ final class RealCoreTests: XCTestCase {
         guard ProcessInfo.processInfo.environment["SUB_URL"] != nil else { throw XCTSkip("没有 SUB_URL") }
         continueAfterFailure = false
         let app = XCUIApplication()
-        app.launchArguments = ["-AppleLanguages", "(zh-Hans)"]
+        app.launchArguments = ["-AppleLanguages", "(zh-Hans)", "-VelumGoCore", "YES"]
         app.launch()
         see(app, "未连接", timeout: 30)
         see(app, "已选线路")

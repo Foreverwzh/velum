@@ -1,10 +1,9 @@
 // 控制隧道扩展：核心（Go 经 TunnelHost，Rust 经 VelumHost）回调这里。调用都发生在核心的后台线程上，可以阻塞，绝不会在主线程。
 import Foundation
-import Mobilebind
 import Network
 import NetworkExtension
 
-final class TunnelController: NSObject, MobilebindTunnelHostProtocol, @unchecked Sendable {
+final class TunnelController: NSObject, @unchecked Sendable {
     static let group = "group.io.github.foreverwzh.velum"
     static let tunnelBundleID = "io.github.foreverwzh.velum.tunnel"
     private static let startTimeout: TimeInterval = 30
@@ -15,7 +14,7 @@ final class TunnelController: NSObject, MobilebindTunnelHostProtocol, @unchecked
     /// 正在由核心主动启停：这期间的状态变化不是「被系统断开」。
     private var transitioning = false
     private var wasActive = false
-    /// 隧道被系统断开时通知核心；没有设置时通知 Go 核心。
+    /// 隧道被系统断开时通知核心。
     private var revoked: (() -> Void)?
     var onRevoked: (() -> Void)? {
         get { lock.withLock { revoked } }
@@ -93,7 +92,7 @@ final class TunnelController: NSObject, MobilebindTunnelHostProtocol, @unchecked
             return wasActive && !active && !transitioning
         }
         guard notify else { return }
-        if let f = onRevoked { f() } else { MobilebindTunRevoked() }
+        onRevoked?()
     }
 
     // MARK: 配置
@@ -150,9 +149,9 @@ final class TunnelController: NSObject, MobilebindTunnelHostProtocol, @unchecked
         return e
     }
 
-    // MARK: MobilebindTunnelHost
+    // MARK: 核心的宿主（开关隧道、发给扩展的消息、当前网络）
 
-    /// 扩展读取的共享目录（与 RealCore.home() 下的 tunnel 目录相同）。
+    /// 扩展读取的共享目录（与 AppFiles.home() 下的 tunnel 目录相同）。
     private static var velumPaths: VelumFiles.Paths? {
         FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: group)
             .map { VelumFiles.Paths(dir: $0.appendingPathComponent("velum/tunnel")) }
@@ -222,15 +221,6 @@ final class TunnelController: NSObject, MobilebindTunnelHostProtocol, @unchecked
         }
     }
 
-    func tunnelCall(_ req: String?, error: NSErrorPointer) -> String {
-        do {
-            return String(decoding: try call(Data((req ?? "").utf8)), as: UTF8.self)
-        } catch let e {
-            error?.pointee = e as NSError
-            return ""
-        }
-    }
-
     /// 发消息给隧道扩展（JSON 进、JSON 出）。
     func call(_ data: Data) throws -> Data {
         // 隧道没在运行时 sendProviderMessage 的回调可能永远不来，每次都要等满 25 秒；
@@ -249,30 +239,6 @@ final class TunnelController: NSObject, MobilebindTunnelHostProtocol, @unchecked
             throw CoreError.message(String(localized: "隧道没有响应"))
         }
         return out
-    }
-
-    // MARK: 本地引擎（velum-engine，没开隧道时）
-
-    private let local = LocalEngine()
-
-    func localStart() throws { try local.start() }
-
-    func localStop() { local.stop() }
-
-    func localCall(_ req: String?, error: NSErrorPointer) -> String {
-        do {
-            return try local.call(req ?? "")
-        } catch let e {
-            error?.pointee = e as NSError
-            return ""
-        }
-    }
-
-    /// 当前物理网络（Go 核心的格式）。
-    func network() -> String {
-        guard let iface = physicalInterface() else { return "" }
-        let n: [String: Any] = ["iface": iface.name, "dns": physicalDNS(iface)]
-        return (try? JSONSerialization.data(withJSONObject: n)).flatMap { String(data: $0, encoding: .utf8) } ?? ""
     }
 
     /// 当前的物理网络接口；没有网络时为 nil。

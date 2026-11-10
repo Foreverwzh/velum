@@ -170,7 +170,6 @@
 "连接后，所有应用的流量经 Velum 分流" = "Once connected, all apps' traffic is routed by Velum";
 "连接详情" = "Connection details";
 "配置有问题" = "Configuration problem";
-"重新检测网络、拉取订阅、加载内核，然后测速。" = "Detects the network, fetches the subscription, loads the core, then tests nodes.";
 "重试" = "Retry";
 "错误" = "Errors";
 "问一问" = "Ask";
@@ -210,3 +209,6 @@
 "内核（测试）" = "Core (testing)";
 "隧道改用 velum-engine。切换后隧道会重新加载，现有连接会断开。" = "The tunnel uses velum-engine instead. Switching reloads the tunnel and drops current connections.";
 "第三方组件" = "Third-party components";
+"重新拉取订阅和规则、检查隧道、测速，再实际访问一次互联网。" = "Fetches the subscription and rules again, checks the tunnel, tests nodes, then actually reaches the internet once.";
+"还没有连接：这是连接后会怎么走（与隧道里的规则相同）" = "Not connected: this is how it would go once connected (same rules as the tunnel)";
+"未知类型 %@" = "Unknown kind %@";

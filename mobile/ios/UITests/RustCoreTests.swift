@@ -1,4 +1,4 @@
-// 用 Rust 控制面（velum-core，启动参数 -VelumRustCore YES）走一遍：拉取订阅、编译、本地引擎、切换节点。
+// 用 Rust 控制面（velum-core，默认的核心）走一遍：拉取订阅、编译、本地引擎、切换节点。
 // 需要一个本机订阅，经 SUB_URL 传入；没有时跳过。模拟器不能运行隧道扩展，「连接」应当如实报错并回到未连接。
 import XCTest
 
@@ -15,7 +15,7 @@ final class RustCoreTests: XCTestCase {
 
     private func launch() -> XCUIApplication {
         let app = XCUIApplication()
-        app.launchArguments = ["-AppleLanguages", "(zh-Hans)", "-VelumRustCore", "YES"]
+        app.launchArguments = ["-AppleLanguages", "(zh-Hans)"]
         app.launch()
         return app
     }
@@ -103,4 +103,24 @@ final class RustCoreTests: XCTestCase {
         see(app, "经 日本 01 转发")
         shot("rust-rule-undone")
     }
+
+    /// 英文系统：核心返回的文字（修复步骤等）用 App 附带的英文表。
+    func test4EnglishFromCore() throws {
+        guard ProcessInfo.processInfo.environment["SUB_URL"] != nil else { throw XCTSkip("没有 SUB_URL") }
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["-AppleLanguages", "(en)"]
+        app.launch()
+        XCTAssertTrue(app.tabBars.buttons.element(boundBy: 2).waitForExistence(timeout: 30))
+        app.tabBars.buttons.element(boundBy: 2).tap()
+        let fix = app.buttons.containing(NSPredicate(format: "label CONTAINS[c] 'repair'")).firstMatch
+        for _ in 0..<6 where !fix.isHittable { app.swipeUp() }
+        XCTAssertTrue(fix.waitForExistence(timeout: 5), "\(app.buttons.allElementsBoundByIndex.map(\.label))")
+        fix.tap()
+        see(app, "Fetch the subscription and rule sets again", timeout: 90)
+        see(app, "Reach the internet", timeout: 60)
+        see(app, "captive.apple.com, ", timeout: 30) // 经本地引擎实际访问到了
+        shot("rust-english-repair")
+    }
 }
+

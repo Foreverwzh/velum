@@ -65,10 +65,10 @@ echo "▶ iOS $marketing ($build_number)，出自 $version"
 # 发布包只要真机架构
 project=Velum.xcodeproj
 if $store; then
-  # 不含 sing-box：引擎从本机的 velum-engine 编译，Go 核心用 velumonly 标签，附第三方声明
+  # 不含 Go：App 用 Rust 控制面，隧道用 velum-engine（从本机的 velum-engine 编译或按 engine.lock 下载），附第三方声明
   sh scripts/engine.sh
   sh scripts/notices.sh
-  TARGETS=ios/arm64 sh scripts/velumonly.sh
+  sh scripts/velumonly.sh
   project=VelumStore.xcodeproj
 else
   TARGETS=ios/arm64 sh scripts/core.sh

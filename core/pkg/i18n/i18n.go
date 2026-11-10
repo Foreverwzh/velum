@@ -57,6 +57,9 @@ func Detect() string {
 	return En
 }
 
+// English 返回英文表（中文源文字 → 英文）。iOS 的 Rust 核心按同样的键查找：编译 App 时导出成 JSON 交给它。
+func English() map[string]string { return en }
+
 func lookup(src string) string {
 	if english.Load() {
 		if s, ok := en[src]; ok {

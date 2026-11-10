@@ -4,6 +4,15 @@ import SwiftUI
 @MainActor @Observable
 final class AppModel {
     let core: VelumCore
+
+    /// 真实的核心（不是演示数据）：可以读写 App Group 里的文件。
+    var isRealCore: Bool {
+        #if DEBUG
+        return !(core is DemoCore)
+        #else
+        return true
+        #endif
+    }
     var status: Status?
     var traffic: Traffic?
     var connections: [Connection] = []

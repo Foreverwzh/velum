@@ -20,19 +20,28 @@ if [ -z "${VELUM_ENGINE_DOWNLOAD:-}" ] && [ -x "$src/scripts/build-xcframework.s
 else
   lock() { sed -n "s/^$1=//p" engine.lock; }
   repo=$(lock repo) v=$(lock version) sum=$(lock sha256) nsum=$(lock notices_sha256)
-  [ -n "$repo" ] && [ -n "$v" ] && [ -n "$sum" ] && [ -n "$nsum" ] || { echo "engine.lock 不完整" >&2; exit 1; }
+  csum=$(lock core_sha256) ssum=$(lock core_swift_sha256)
+  [ -n "$repo" ] && [ -n "$v" ] && [ -n "$sum" ] && [ -n "$nsum" ] && [ -n "$csum" ] && [ -n "$ssum" ] ||
+    { echo "engine.lock 不完整" >&2; exit 1; }
   dl=build/engine-download
   rm -rf "$dl"
   mkdir -p "$dl"
   gh release download "ios-v$v" --repo "$repo" --dir "$dl" \
-    --pattern "VelumEngine-$v.xcframework.zip" --pattern THIRD_PARTY_RUST.txt
+    --pattern "VelumEngine-$v.xcframework.zip" --pattern "VelumCore-$v.xcframework.zip" \
+    --pattern "VelumCoreSwift-$v.zip" --pattern THIRD_PARTY_RUST.txt
   check() { [ "$(shasum -a 256 "$1" | cut -d' ' -f1)" = "$2" ] || { echo "$1 的 sha256 与 engine.lock 不符" >&2; exit 1; }; }
   check "$dl/VelumEngine-$v.xcframework.zip" "$sum"
+  check "$dl/VelumCore-$v.xcframework.zip" "$csum"
+  check "$dl/VelumCoreSwift-$v.zip" "$ssum"
   check "$dl/THIRD_PARTY_RUST.txt" "$nsum"
-  rm -rf build/VelumEngine.xcframework
+  rm -rf build/VelumEngine.xcframework build/VelumCore.xcframework build/VelumCoreSwift
   ditto -x -k "$dl/VelumEngine-$v.xcframework.zip" build/
+  ditto -x -k "$dl/VelumCore-$v.xcframework.zip" build/
+  ditto -x -k "$dl/VelumCoreSwift-$v.zip" build/
   cp "$dl/THIRD_PARTY_RUST.txt" build/THIRD_PARTY_RUST.txt
   rm -rf "$dl"
   echo "velum-engine：下载 ios-v${v}（已校验 sha256）"
 fi
 du -sh build/VelumEngine.xcframework build/VelumCore.xcframework 2>/dev/null || true
+# 核心返回的文字的英文表（App 按系统语言交给核心）
+sh scripts/core-i18n.sh

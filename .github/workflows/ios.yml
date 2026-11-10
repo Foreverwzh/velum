@@ -37,12 +37,9 @@ jobs:
         with:
           go-version-file: core/go.mod
           cache-dependency-path: core/go.sum
-      - name: gomobile + xcodegen
-        working-directory: core
-        run: |
-          v=$(go list -m -f '{{.Version}}' golang.org/x/mobile)
-          go install golang.org/x/mobile/cmd/gomobile@$v golang.org/x/mobile/cmd/gobind@$v
-          brew install xcodegen
+      # 上架构建不含 Go；Go 只用来导出核心文字的英文表（scripts/core-i18n.sh），不用 gomobile
+      - name: xcodegen
+        run: brew install xcodegen
       # 签名分两段，都是自动签名：
       # - 导出时用 App Store Connect API 密钥走云端托管的分发证书，私钥不出 Apple，CI 上不放分发证书。
       # - 归档时 Xcode 要一张本机有私钥的开发证书。不给的话它每次用密钥新建一张，团队里越攒越多，
@@ -80,7 +77,7 @@ jobs:
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$pw" "$keychain"
           existing="$(security list-keychains -d user | sed 's/[\" ]//g')"
           security list-keychains -d user -s "$keychain" $existing
-      # 上架构建不含 sing-box：预编译的 velum-engine（私有仓库的 Release，版本与 sha256 见 mobile/ios/engine.lock）
+      # 上架构建不含 Go：App 用 Rust 控制面（VelumCore），隧道用 velum-engine，都是预编译的（私有仓库的 Release，版本与 sha256 见 mobile/ios/engine.lock）
       # 用 VELUM_ENGINE_TOKEN 下载（只读那个仓库内容的 fine-grained 令牌）
       - name: build and upload to TestFlight
         env:

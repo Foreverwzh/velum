@@ -27,6 +27,9 @@ targets:
       - path: build/ThirdPartyNotices.txt
         buildPhase: resources
         optional: true
+      # Rust 核心返回的文字的英文表（scripts/core-i18n.sh 生成）
+      - path: build/core-en.json
+        buildPhase: resources
     info:
       path: App/Info.plist
       properties:

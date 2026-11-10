@@ -1,5 +1,6 @@
-// App 内的 velum-engine 本地引擎（没开隧道时测速、解析、切换节点、经代理拉取）：Go 核心经 TunnelHost 的
+// Go 核心用的 App 内 velum-engine 本地引擎（Rust 控制面自己在进程内运行本地引擎，不用这个）：Go 核心经 TunnelHost 的
 // LocalStart / LocalStop / LocalCall 调这里。配置在 home/local（tunnelproto.LocalDir），先编译再以本地模式启动。
+#if !VELUM_ONLY
 import Foundation
 import VelumEngine
 
@@ -71,3 +72,4 @@ final class LocalEngine: @unchecked Sendable {
         return String(cString: p)
     }
 }
+#endif

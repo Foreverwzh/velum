@@ -1,4 +1,4 @@
-// 真机：Rust 控制面（-VelumRustCore YES）开关隧道。只在设了 VELUM_DEVICE 时运行（TEST_RUNNER_VELUM_DEVICE=1）。
+// 真机：Rust 控制面（默认的核心）开关隧道。只在设了 VELUM_DEVICE 时运行（TEST_RUNNER_VELUM_DEVICE=1）。
 // 订阅沿用 Go 版保存的（第一次启动时 velum-core 从 profiles.yaml / config.yaml 导入）；没有时用 SUB_URL 添加。
 // 用系统浏览器打开网址产生经隧道的流量（测试进程自己可能没有「无线数据」权限），结束时断开。
 import XCTest
@@ -24,12 +24,12 @@ final class DeviceRustCoreTests: XCTestCase {
         guard ProcessInfo.processInfo.environment["VELUM_DEVICE"] != nil else { throw XCTSkip("只在真机上运行（VELUM_DEVICE）") }
         continueAfterFailure = false
         let app = XCUIApplication()
-        app.launchArguments = ["-AppleLanguages", "(zh-Hans)", "-VelumRustCore", "YES"]
+        app.launchArguments = ["-AppleLanguages", "(zh-Hans)"]
         app.launch()
-        // 中途失败也要断开：重新打开 App 关掉开关（-VelumRustCore 的核心会停掉隧道）
+        // 中途失败也要断开：重新打开 App 关掉开关
         addTeardownBlock {
             let a = XCUIApplication()
-            a.launchArguments = ["-AppleLanguages", "(zh-Hans)", "-VelumRustCore", "YES"]
+            a.launchArguments = ["-AppleLanguages", "(zh-Hans)"]
             a.activate()
             let t = a.switches["连接"].firstMatch
             if t.waitForExistence(timeout: 20), t.value as? String == "1" { self.tap(t) }
@@ -96,7 +96,19 @@ final class DeviceRustCoreTests: XCTestCase {
         if cancel.exists { cancel.tap() }
         print("DEVICE_RUST_SEEN \(seen)")
         XCTAssertEqual(seen.count, 3, "有网址没出现在活动页：\(seen)")
+
+        // 一键修复（隧道开着）：重新拉取并加载、测速、经隧道实际访问一次
+        openTab(app, "设置")
+        let fix = app.buttons["一键修复"].firstMatch
+        for _ in 0..<6 where !fix.isHittable { app.swipeUp() }
+        XCTAssertTrue(fix.waitForExistence(timeout: 5), "设置里没有一键修复")
+        fix.tap()
+        let reached = see(app, "访问互联网", timeout: 120)
+        print("DEVICE_RUST_REPAIR \(app.staticTexts.allElementsBoundByIndex.map(\.label).filter { $0.contains("毫秒") || $0.contains("节点") || $0.contains("重新") || $0.contains("访问") })")
+        XCTAssertTrue(reached, "修复没有完成")
+        XCTAssertTrue(see(app, "captive.apple.com，", timeout: 5), "修复时经隧道访问互联网失败")
         openTab(app, "状态")
+        XCTAssertTrue(see(app, "正在保护", timeout: 60), "修复后隧道没有恢复")
 
         let t2 = app.switches["连接"].firstMatch
         if t2.value as? String == "1" { tap(t2) }
