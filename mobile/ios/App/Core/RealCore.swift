@@ -41,7 +41,7 @@ final class RealCore: VelumCore, @unchecked Sendable {
     }
 
     /// 把隧道的 MetricKit 报告复制到 App 自己的 Documents：调试时能从设备上取出来（App Group 取不到）。
-    func syncTunnelMetrics() {
+    static func syncTunnelMetrics() {
         let fm = FileManager.default
         let dest = fm.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("metrickit", isDirectory: true)
         try? fm.createDirectory(at: dest, withIntermediateDirectories: true)
@@ -62,7 +62,7 @@ final class RealCore: VelumCore, @unchecked Sendable {
     /// （xcrun devicectl device copy from --domain-type appDataContainer --domain-identifier io.github.foreverwzh.velum --source Documents/logs）。
     /// 包括隧道扩展的内核日志（含轮转出的 .1）、App 内 daemon 的日志，以及隧道配置里的 dns 部分
     /// （查 DNS 规则用；不导出整份配置，里面有节点密码）。源文件不存在时删掉旧副本，免得拿到过期日志。
-    func syncLogs() {
+    static func syncLogs() {
         let fm = FileManager.default
         let dest = fm.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("logs", isDirectory: true)
         try? fm.createDirectory(at: dest, withIntermediateDirectories: true)
