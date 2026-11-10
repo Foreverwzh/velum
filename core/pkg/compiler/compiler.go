@@ -356,10 +356,12 @@ func Compile(sub *ir.Config, ov *overlay.Overlay, opts Options) (*Plan, error) {
 	if opts.Mode == ModeTUN && sub.IPv6Disabled {
 		src := ir.Source{Kind: ir.SourceSubscription, Text: i18n.T("ipv6: false（拒绝 IPv6 连接，应用回落到 IPv4）")}
 		rules = append(rules, ir.Rule{Match: ir.Leaf(ir.Cond{IPCIDR: []string{"::/0"}, NoResolve: true}), Action: ir.Action{Kind: ir.ActionReject}, Source: src})
-		// TCP 在嗅探之前就拒绝：嗅探要等首个数据包，TUN 已在本地完成握手，此时拒绝应用收到的是「连接被重置」，
+		// 在嗅探之前就拒绝：嗅探要等首个数据包，TUN 已在本地完成握手，此时拒绝应用收到的是「连接被重置」，
 		// 有的网络库（如 Claude Code）不会换 IPv4 重试；握手前拒绝则是「连接被拒绝」，应用随即尝试下一个地址。
+		// UDP 同样握手前拒绝（回 ICMP port unreachable）：否则在嗅探之后被拦截时只是静默丢包，
+		// QUIC（如微信在有 IPv6 的网络里优先尝试 IPv6）只能逐个等超时，迟迟不回落到 IPv4。
 		// 显式经 VPN / overlay 直连的 IPv6 网段与 TUN 自身网段不受影响（它们的规则在嗅探之后，这里先放行）。
-		m := ir.Leaf(ir.Cond{IPCIDR: []string{"::/0"}, Network: []string{"tcp"}, NoResolve: true})
+		m := ir.Leaf(ir.Cond{IPCIDR: []string{"::/0"}, NoResolve: true})
 		if keep := keptIPv6(opts, ov); len(keep) > 0 {
 			m = ir.Match{Logical: "and", Children: []ir.Match{m,
 				{Logical: "or", Invert: true, Children: []ir.Match{ir.Leaf(ir.Cond{IPCIDR: keep, NoResolve: true})}}}}

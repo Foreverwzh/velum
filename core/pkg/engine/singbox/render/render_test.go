@@ -415,7 +415,7 @@ func TestRenderDNSDetourToGroup(t *testing.T) {
 func TestRenderImmediateReject(t *testing.T) {
 	plan := buildPlan(t, compiler.ModeTUN)
 	plan.IR.Rules = append([]ir.Rule{
-		{Match: ir.Leaf(ir.Cond{IPCIDR: []string{"::/0"}, Network: []string{"tcp"}, NoResolve: true}), Action: ir.Action{Kind: ir.ActionReject, Immediate: true}},
+		{Match: ir.Leaf(ir.Cond{IPCIDR: []string{"::/0"}, NoResolve: true}), Action: ir.Action{Kind: ir.ActionReject, Immediate: true}},
 		{Match: ir.Leaf(ir.Cond{IPCIDR: []string{"192.0.2.0/24"}, NoResolve: true}), Action: ir.Action{Kind: ir.ActionReject}},
 	}, plan.IR.Rules...)
 	r, err := render.Render(plan, render.Options{})
@@ -427,8 +427,8 @@ func TestRenderImmediateReject(t *testing.T) {
 		t.Fatal(err)
 	}
 	first, second := opts.Route.Rules[0].DefaultOptions.RuleAction, opts.Route.Rules[1].DefaultOptions.RuleAction
-	if first.Action != C.RuleActionTypeReject {
-		t.Fatalf("握手前拒绝应渲染为 reject 动作：%+v", first)
+	if first.Action != C.RuleActionTypeReject || !first.RejectOptions.NoDrop {
+		t.Fatalf("握手前拒绝应渲染为 reject 动作，且频繁触发时不退化为静默丢弃：%+v", first)
 	}
 	if second.Action != C.RuleActionTypeRoute || second.RouteOptions.Outbound != ir.OutboundReject {
 		t.Fatalf("普通拒绝应经拦截出站：%+v", second)

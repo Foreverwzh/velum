@@ -414,6 +414,9 @@ func routeRule(r ir.Rule) (obj, error) {
 	case ir.ActionReject:
 		if a.Immediate {
 			o["action"] = "reject"
+			// sing-box 默认在 30 秒内拒绝超过 50 次后改为静默丢弃；握手前拒绝是为了让应用立即回落（如微信一次发出几十个 IPv6 QUIC 请求），
+			// 回 RST / ICMP 的代价很小，不能退化成丢弃
+			o["no_drop"] = true
 			break
 		}
 		o["action"] = "route"

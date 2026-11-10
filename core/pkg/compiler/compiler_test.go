@@ -738,9 +738,9 @@ func TestIPv6DisabledRejectsInTUN(t *testing.T) {
 	}
 }
 
-// ipv6: false 时 TCP 在嗅探之前就拒绝（握手前回绝，应用换 IPv4 重试，而不是握手后被重置）；
+// ipv6: false 时 TCP 与 UDP 都在嗅探之前就拒绝（TCP 回绝、UDP 回 port unreachable，应用随即换 IPv4，而不是被重置或等超时）；
 // 分流 VPN 与 overlay 声明的 IPv6 网段、TUN 自身网段放行，交给嗅探之后的规则。
-func TestIPv6DisabledRejectsTCPBeforeSniff(t *testing.T) {
+func TestIPv6DisabledRejectsBeforeSniff(t *testing.T) {
 	s, err := subscription.Parse([]byte("ipv6: false\n"+sub), subscription.Options{})
 	if err != nil {
 		t.Fatal(err)
@@ -757,8 +757,8 @@ func TestIPv6DisabledRejectsTCPBeforeSniff(t *testing.T) {
 	if r.Action.Kind != ir.ActionReject || !r.Action.Immediate || r.Match.Logical != "and" || len(r.Match.Children) != 2 {
 		t.Fatalf("首条规则应是握手前拒绝 IPv6：%+v", r)
 	}
-	if c := r.Match.Children[0].Cond; c == nil || !slices.Equal(c.IPCIDR, []string{"::/0"}) || !slices.Equal(c.Network, []string{"tcp"}) {
-		t.Fatalf("应只匹配 IPv6 的 TCP：%+v", r.Match.Children[0])
+	if c := r.Match.Children[0].Cond; c == nil || !slices.Equal(c.IPCIDR, []string{"::/0"}) || len(c.Network) != 0 {
+		t.Fatalf("应匹配所有 IPv6 连接（TCP 与 UDP）：%+v", r.Match.Children[0])
 	}
 	keep := r.Match.Children[1]
 	if !keep.Invert || keep.Children[0].Cond == nil ||
