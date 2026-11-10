@@ -74,4 +74,33 @@ final class RustCoreTests: XCTestCase {
         see(again, "日本 01", timeout: 30)
         shot("rust-relaunch")
     }
+
+    /// 接着上面（订阅已保存）：查一个地址怎么走（引擎回答）、加本地规则后结论跟着变、撤销后变回去。
+    func test3WhyAndLocalRule() throws {
+        guard ProcessInfo.processInfo.environment["SUB_URL"] != nil else { throw XCTSkip("没有 SUB_URL") }
+        continueAfterFailure = false
+        let app = launch()
+        see(app, "未连接", timeout: 30)
+        app.buttons["搜索节点，或查询任意网址的线路"].tap()
+        let f = app.searchFields.firstMatch
+        XCTAssertTrue(f.waitForExistence(timeout: 5))
+        Thread.sleep(forTimeInterval: 0.6)
+        f.tap()
+        f.typeText("www.example.org")
+        see(app, "DOMAIN-SUFFIX,example.org,PROXY") // 命中规则的原文，来自订阅
+        f.typeText("\n")
+        see(app, "经 日本 01 转发") // 上一条测试选了日本 01
+        see(app, "规则 #1") // 订阅的第 1 条规则（Velum 自己生成的规则不计）
+        see(app, "来自 sub.yaml")
+        shot("rust-explain")
+        app.buttons["添加本地规则…"].tap()
+        see(app, "将写入本地规则")
+        app.buttons["添加"].tap()
+        see(app, "本地规则已生效")
+        see(app, "直连，不经过节点")
+        shot("rust-rule-done")
+        app.buttons["撤销"].tap()
+        see(app, "经 日本 01 转发")
+        shot("rust-rule-undone")
+    }
 }

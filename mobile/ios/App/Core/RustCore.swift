@@ -1,7 +1,8 @@
 // Rust 控制面（velum-engine 的 velum-core，经 VelumCore.xcframework）：取代 App 进程里的 Go daemon。
 // 订阅拉取、编译、生成隧道文件都在 Rust 里完成；这里只把 velum-core 的类型换成界面现在用的模型。
-// 过渡期用启动参数 -VelumRustCore YES 选用；规则解释、本地规则编辑、修复还没有移植，调用时报「尚未支持」。
+// 过渡期用启动参数 -VelumRustCore YES 选用。规则解释由运行中的引擎回答（与真实连接同一段决策），不再逐条推演。
 import Foundation
+import Network
 import NetworkExtension
 
 final class RustCore: VelumCore, @unchecked Sendable {
@@ -39,7 +40,6 @@ final class RustCore: VelumCore, @unchecked Sendable {
         }
     }
 
-    private static func unsupported() -> CoreError { CoreError.message(String(localized: "尚未支持")) }
 
     func status() async throws -> Status { Self.map(try await run { $0.status() }) }
     func warnings() async throws -> [Warning] { try await run { $0.warnings() }.map(Self.map) }
@@ -61,10 +61,21 @@ final class RustCore: VelumCore, @unchecked Sendable {
     }
 
     func connections() async throws -> [Connection] { try await run { try $0.connections(limit: 200) }.map(Self.map) }
-    func why(target: String) async throws -> WhyResponse { throw Self.unsupported() }
-    func overlayItems() async throws -> [OverlayEntry] { throw Self.unsupported() }
-    func editOverlay(add: Bool, entry: OverlayEntry) async throws -> Status { throw Self.unsupported() }
-    func repair() async throws -> [RepairStep] { throw Self.unsupported() }
+    func why(target: String) async throws -> WhyResponse { Self.map(try await run { try $0.why(target) }) }
+
+    func overlayItems() async throws -> [OverlayEntry] {
+        try await run { try $0.overlayItems() }.map { OverlayEntry(kind: $0.kind.rawValue, value: $0.value, ip: $0.ip) }
+    }
+
+    func editOverlay(add: Bool, entry: OverlayEntry) async throws -> Status {
+        guard let kind = VelumOverlayKind(rawValue: entry.kind) else { throw CoreError.message(String(localized: "未知类型 \(entry.kind)")) }
+        let e = VelumOverlayEntry(kind: kind, value: entry.value, ip: entry.ip, line: nil)
+        return Self.map(try await run { try $0.editOverlay(add: add, entry: e) })
+    }
+
+    func repair() async throws -> [RepairStep] {
+        try await run { $0.repair() }.map { RepairStep(name: $0.name, ok: $0.ok, detail: $0.detail, warn: nil) }
+    }
 
     // MARK: 类型转换（界面换成 Velum* 类型后删除）
 
@@ -102,10 +113,28 @@ final class RustCore: VelumCore, @unchecked Sendable {
 
     private static func map(_ c: VelumConnection) -> Connection {
         Connection(id: Int(c.id), start: ms(c.start), end: c.end.map(ms), network: c.network, domain: c.domain,
-                   destination: c.destination, ruleIndex: c.rule.map(Int.init) ?? -1, rule: c.source.text ?? "",
+                   destination: c.destination, ruleIndex: ruleNumber(c.rule, c.source), rule: c.source.text ?? "",
                    provenance: map(c.source), chain: c.chain, upload: Int64(c.upload), download: Int64(c.download),
                    firstByteMs: c.firstByteMs.map(Int.init) ?? -1, durationMs: Int(c.durationMs),
                    errors: c.error.map { [$0] }, canceled: nil, connectMs: c.connectMs.map(Int.init) ?? -1)
+    }
+
+    /// 给用户看的规则序号：在它的出处（订阅、本地规则）里是第几条；没有命中规则时为 -1。
+    private static func ruleNumber(_ rule: UInt32?, _ source: VelumSourceRef) -> Int {
+        guard let rule else { return -1 }
+        return source.ordinal.map(Int.init) ?? Int(rule) + 1
+    }
+
+    private static func map(_ e: VelumExplain) -> WhyResponse {
+        let isIP = IPv4Address(e.host) != nil || IPv6Address(e.host) != nil
+        let target = WhyReport.Target(raw: e.target, domain: isIP ? nil : e.host, ip: isIP ? e.host : nil, port: Int(e.port))
+        let dns = WhyReport.DNS(applicable: e.dnsServer != nil, server: e.dnsServer, answer: nil, source: nil)
+        let decision = WhyReport.Decision(ruleIndex: ruleNumber(e.rule, e.source), action: e.action.rawValue,
+                                          outbound: e.chain.first, source: map(e.source), uncertain: nil)
+        let notes = e.fromTunnel ? nil : [String(localized: "还没有连接：这是连接后会怎么走（与隧道里的规则相同）")]
+        let report = WhyReport(target: target, dns: dns, rules: nil, decision: decision, notes: notes)
+        return WhyResponse(report: report, chain: e.chain, resolved: e.resolved.isEmpty ? nil : e.resolved,
+                           resolvedBy: e.resolved.isEmpty ? nil : "engine", resolveError: e.resolveError)
     }
 
     private static func map(_ w: VelumWarning) -> Warning {
