@@ -28,7 +28,18 @@ final class VelumTunnel {
         self.provider = provider
         self.home = home
         paths = VelumFiles.Paths(dir: home.appendingPathComponent("tunnel"))
+        Self.loadTranslations()
     }
+
+    /// 引擎给用户看的文字（连接失败的原因等）跟随系统语言：中文以外用英文表（与 App 共用 core-en.json）。
+    private static let translationsOnce: Void = {
+        guard !(Locale.preferredLanguages.first ?? "zh").hasPrefix("zh"),
+              let url = Bundle.main.url(forResource: "core-en", withExtension: "json"),
+              let data = try? Data(contentsOf: url) else { return }
+        _ = data.withUnsafeBytes { velum_engine_set_translations($0.bindMemory(to: UInt8.self).baseAddress, $0.count) }
+    }()
+
+    private static func loadTranslations() { _ = translationsOnce }
 
     /// 写一行到 tunnel/velum.log（App 打开时复制到 Documents/logs，调试时从设备取出）。超过 512KB 时清空重写。
     static func note(_ dir: URL, _ s: String) {

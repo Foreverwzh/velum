@@ -14,6 +14,12 @@ ios, src = sys.argv[1], sys.argv[2]
 cat = json.load(open(f"{ios}/build/go-en.json"))
 own = json.load(open(f"{ios}/i18n/core-en.json"))
 cat.update(own)
+# 译文要保留原文的占位符（个数、顺序都一样：tf 按顺序替换）
+verbs = lambda s: re.findall(r"%[sdq]", s)
+bad = [k for k, v in own.items() if verbs(k) != verbs(v)]
+if bad:
+    print("这些译文的占位符与原文不一致：", *bad, sep="\n  ", file=sys.stderr)
+    sys.exit(1)
 json.dump(cat, open(f"{ios}/build/core-en.json", "w"), ensure_ascii=False, sort_keys=True)
 os.remove(f"{ios}/build/go-en.json")
 if os.path.isdir(f"{src}/crates"):

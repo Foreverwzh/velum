@@ -75,7 +75,12 @@ targets:
   VelumTunnel:
     type: app-extension
     platform: iOS
-    sources: [Tunnel, Shared]
+    sources:
+      - Tunnel
+      - Shared
+      # 引擎给用户看的文字的英文表（与 App 共用，scripts/core-i18n.sh 生成）
+      - path: build/core-en.json
+        buildPhase: resources
     info:
       path: Tunnel/Info.plist
       properties:
