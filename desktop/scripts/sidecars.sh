@@ -34,10 +34,10 @@ mkdir -p "$root/desktop/src-tauri/binaries"
 for b in $bins; do
   cp "$out/$b$ext" "$root/desktop/src-tauri/binaries/$b-$triple$ext"
 done
-# 核心：macOS 默认是 Rust 的 velumd、vlu（velum-engine，见 engine.sh；VELUM_CORE=go 用 Go 的）。
-# velum-helper 仍是 Go 的（helper 模式的 TUN；Rust 的 velumd 在 macOS 上的 TUN 走网络扩展）。Windows 还是 Go。
-core="${VELUM_CORE:-}"
-[ -n "$core" ] || { [ "$goos" = darwin ] && core=rust || core=go; }
+# 核心：默认是 Go 的；VELUM_CORE=rust 用 Rust 的 velumd、vlu（velum-engine，见 engine.sh）。
+# macOS 暂不默认 Rust：Rust 的 velumd 还不支持 helper 模式的 TUN（只有网络扩展），而有的企业 VPN 只能与 helper 模式共存。
+# velum-helper 始终是 Go 的。Windows 只有 Go。
+core="${VELUM_CORE:-go}"
 res="$root/desktop/src-tauri/core-res"
 mkdir -p "$res"
 if [ "$core" = rust ]; then

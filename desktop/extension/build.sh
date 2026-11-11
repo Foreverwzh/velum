@@ -26,9 +26,10 @@ group=$team.dev.velum
 : "${APPLE_SIGNING_IDENTITY:?需要 APPLE_SIGNING_IDENTITY（Developer ID Application）}"
 cd "$here"
 
-# 核心：VELUM_CORE=rust（默认）为 velum-engine 的 velum-macext 静态库（desktop/scripts/engine.sh：本机有源码就编译，
-# 否则按 desktop/engine.lock 下载）；go 为 Go 的 Mobilebind.xcframework。build/core.xcconfig 给出头文件、链接参数与编译条件。
-core="${VELUM_CORE:-rust}"
+# 核心：VELUM_CORE=go（默认）为 Go 的 Mobilebind.xcframework；rust 为 velum-engine 的 velum-macext 静态库
+# （desktop/scripts/engine.sh：本机有源码就编译，否则按 desktop/engine.lock 下载）。与 sidecars.sh 的默认一致：
+# Rust 的 velumd 支持 helper 模式的 TUN 之前，macOS 默认仍是 Go。build/core.xcconfig 给出头文件、链接参数与编译条件。
+core="${VELUM_CORE:-go}"
 mkdir -p build
 case "$core" in
   go)
