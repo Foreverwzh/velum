@@ -34,4 +34,20 @@ mkdir -p "$root/desktop/src-tauri/binaries"
 for b in $bins; do
   cp "$out/$b$ext" "$root/desktop/src-tauri/binaries/$b-$triple$ext"
 done
-echo "sidecars: $triple"
+# 核心：macOS 默认是 Rust 的 velumd、vlu（velum-engine，见 engine.sh；VELUM_CORE=go 用 Go 的）。
+# velum-helper 仍是 Go 的（helper 模式的 TUN；Rust 的 velumd 在 macOS 上的 TUN 走网络扩展）。Windows 还是 Go。
+core="${VELUM_CORE:-}"
+[ -n "$core" ] || { [ "$goos" = darwin ] && core=rust || core=go; }
+res="$root/desktop/src-tauri/core-res"
+mkdir -p "$res"
+if [ "$core" = rust ]; then
+  sh "$root/desktop/scripts/engine.sh" core "$triple" "$root/desktop/src-tauri/binaries/rust-$triple"
+  for b in velumd vlu; do
+    cp "$root/desktop/src-tauri/binaries/rust-$triple/$b" "$root/desktop/src-tauri/binaries/$b-$triple$ext"
+  done
+fi
+# App 包的 Resources：核心报告的版本（与 App 相同，App 据此判断后台核心是否要重启）与核心的英文表
+version="${VELUM_VERSION:-$(sed -n 's/^  "version": "\(.*\)",$/\1/p' "$root/desktop/src-tauri/tauri.conf.json")}"
+printf '%s\n' "$version" > "$res/VERSION"
+sh "$root/core/scripts/core-i18n.sh" "$res/core-en.json" >/dev/null
+echo "sidecars: ${triple}（核心 ${core}，版本 ${version}）"

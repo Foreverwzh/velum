@@ -9,8 +9,7 @@
         "Library/SystemExtensions/dev.velum.desktop.tunnel.systemextension": "extension/dev.velum.desktop.tunnel.systemextension",
         "MacOS/velumd": "extension/bin/velumd",
         "MacOS/velum-helper": "extension/bin/velum-helper",
-        "MacOS/vlu": "extension/bin/vlu",
-        "Resources/core-en.json": "extension/bin/core-en.json"
+        "MacOS/vlu": "extension/bin/vlu"
       }
     }
   }

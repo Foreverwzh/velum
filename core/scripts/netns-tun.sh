@@ -3,7 +3,7 @@
 #   cli 198.51.100.2 ── r（路由器，也是「互联网」192.0.2.1、内网 10.9.9.9）── srv 203.0.113.10（velumd 跑在这里）
 # 用法：sudo bash netns-tun.sh <velumd 与 vlu 所在目录>
 # 同样的拓扑也有 IPv6：cli 2001:db8:1::2 ── r（「互联网」2001:db8:9::1）── srv 2001:db8:2::10
-# 覆盖：对外服务不受接管影响（TCP 长连接、新连接、通配地址的 UDP，IPv4 和 IPv6）、默认排除网段、重定向端口不对外、
+# 覆盖：对外服务不受接管影响（TCP 长连接、新连接、通配地址的 UDP，IPv4 和 IPv6）、默认排除网段、没有对外的监听端口、
 # kill -9 后的清理、规则不累积、不动别人的规则。
 # 不覆盖：回退定时器（依赖 systemd，在虚拟机上验证）、真实节点。
 set -u
@@ -143,11 +143,11 @@ newconn() { $C timeout 5 python3 -c 'import socket;c=socket.create_connection(("
 udp() { $C timeout 4 python3 -c 'import socket;s=socket.socket(socket.AF_INET,socket.SOCK_DGRAM);s.settimeout(3);s.sendto(b"u",("203.0.113.10",5353));d,a=s.recvfrom(5);print("通" if a==("203.0.113.10",5353) else "来源错误 %s:%d"%a)' 2>/dev/null || echo 不通; }
 newconn6() { $C timeout 5 python3 -c 'import socket;c=socket.create_connection(("2001:db8:2::10",2222),timeout=4);c.settimeout(4);c.sendall(b"y");assert c.recv(5)==b"y"' 2>/dev/null && echo 通 || echo 不通; }
 udp6() { $C timeout 4 python3 -c 'import socket;s=socket.socket(socket.AF_INET6,socket.SOCK_DGRAM);s.settimeout(3);s.sendto(b"u",("2001:db8:2::10",5353));d,a=s.recvfrom(5);print("通" if a[:2]==("2001:db8:2::10",5353) else "来源错误 %s:%d"%a[:2])' 2>/dev/null || echo 不通; }
-# 重定向端口监听所有地址：外部连接必须被拒绝，否则就是开放的透明代理入口
-redirect_port() { $S ss -ltnH 2>/dev/null | awk '$4 ~ /^\*:/ {split($4,a,":"); print a[2]}' | head -1; }
-probe_port() { $C timeout 5 python3 -c 'import socket,sys;c=socket.socket();c.settimeout(3);c.connect(("203.0.113.10",int(sys.argv[1])));print("可连接")' "$1" 2>/dev/null || echo 被拒绝; }
+# velumd 不能在对外地址上监听：否则就是开放的透明代理入口（接管用策略路由，没有重定向端口）
+open_ports() { $S ss -ltnpH 2>/dev/null | grep velumd | awk '$4 !~ /^(127\.|\[::1\])/' | wc -l | tr -d ' '; }
 out_http() { $S curl -s --noproxy '*' -m 5 "http://$1/" 2>/dev/null | grep -q internet-ok && echo 通 || echo 不通; }
-nft_tables() { $S nft list tables 2>/dev/null | grep -c 'inet sing-box'; }
+# 接管：Velum 的策略路由规则（查路由表 7894，见 velum-engine 的 tun.rs）在不在
+takeover() { $S ip -4 rule 2>/dev/null | grep -q 'lookup 7894' && echo 1 || echo 0; }
 rules() { $S ip -4 rule; $S ip -6 rule; }
 
 cat >"$work/sub.yaml" <<YAML
@@ -167,12 +167,11 @@ subscription:
 network_sense:
   enabled: false
 YAML
-mkdir -p /run/velum /var/lib/velum
 
 start_velumd() {
-  # PATH 里不能有 resolvectl：sing-tun 用它设置 TUN 网卡的 DNS，而 systemd-resolved 在 netns 外面，
-  # 请求里的网卡序号是 netns 内的，会把 DNS 设到主机上序号相同的另一张网卡
-  $S env VELUM_SERVICE=1 PATH=/nonexistent "$bin/velumd" --home "$work" --foreground >>"$work/velumd.out" 2>&1 &
+  # PATH 里不能有 resolvectl：systemd-resolved 在 netns 外面，netns 里不该去查或改它（ip 按绝对路径找）
+  # 以 root 运行即可开 TUN，不用服务模式：本地接口与数据都在 $work，不碰 /run/velum、/var/lib/velum
+  $S env PATH=/nonexistent "$bin/velumd" --home "$work" >>"$work/velumd.out" 2>&1 &
   velumd_pid=$!
   for _ in $(seq 1 100); do
     # 本地接口先就绪，配置随后才加载完；加载期间开关请求会被拒绝
@@ -183,7 +182,7 @@ start_velumd() {
 }
 wait_tun() {
   for _ in $(seq 1 100); do
-    [ "$(nft_tables)" = 1 ] && return 0
+    [ "$(takeover)" = 1 ] && return 0
     sleep 0.1
   done
   return 1
@@ -218,7 +217,7 @@ sleep 1.5
 echo "=== 接管"
 start_velumd
 out="$("$vlu" tun on 2>&1)"; echo "  $out" | head -2
-wait_tun; check "nft 表已建立" "$(nft_tables)" 1
+wait_tun; check "接管规则已建立" "$(takeover)" 1
 check "TUN 网卡" "$($S ip -br link show velum0 2>/dev/null | wc -l | tr -d ' ')" 1
 sleep 1
 check "已有连接未断" "$(tail -1 "$work/long.log")" ok
@@ -231,9 +230,7 @@ check "内网可达" "$(out_http 10.9.9.9)" 通
 check "IPv6 新连接" "$(newconn6)" 通
 check "IPv6 通配地址的 UDP" "$(udp6)" 通
 check "IPv6 出站" "$(out_http '[2001:db8:9::1]')" 通
-port="$(redirect_port)"
-check "找到重定向端口" "$([ -n "$port" ] && echo 是 || echo 否)" 是
-check "重定向端口不对外" "$(probe_port "$port")" 被拒绝
+check "没有对外的监听端口" "$(open_ports)" 0
 sleep 0.5
 conns="$("$vlu" conns 2>&1)"
 check "出站经过 Velum" "$(echo "$conns" | grep -c '192\.0\.2\.1' | awk '{print ($1>0)?"是":"否"}')" 是
@@ -243,16 +240,17 @@ check "内网不进隧道" "$(echo "$conns" | grep -c '10\.9\.9\.9' | tr -d ' ')
 echo "=== 崩溃三次：每次清理后再启动（systemd 单元就是这样做的）"
 for i in 1 2 3; do
   crash
-  [ "$i" != 1 ] || check "崩溃后有残留（否则这个测试什么也没验证）" "$(nft_tables)" 1
+  [ "$i" != 1 ] || check "崩溃后有残留（否则这个测试什么也没验证）" "$(takeover)" 1
+  [ "$i" != 1 ] || check "崩溃后（只剩规则、没有网卡）出站照常" "$(out_http 192.0.2.1)" 通
   $S "$bin/velumd" service cleanup-net || { echo "  ✗ cleanup-net 失败"; failed=1; }
-  check "第 $i 次：nft 表已清除" "$(nft_tables)" 0
+  check "第 $i 次：接管规则已清除" "$(takeover)" 0
   check "第 $i 次：连接保护表已清除" "$($S nft list tables 2>/dev/null | grep -c velum-guard)" 0
   check "第 $i 次：ip rule 恢复原样，别人的规则还在" "$(rules)" "$base"
   check "第 $i 次：出站" "$(out_http 192.0.2.1)" 通
   check "第 $i 次：UDP" "$(udp)" 通
   check "第 $i 次：IPv6 出站" "$(out_http '[2001:db8:9::1]')" 通
   start_velumd
-  wait_tun; check "第 $i 次：重启后接管恢复" "$(nft_tables)" 1
+  wait_tun; check "第 $i 次：重启后接管恢复" "$(takeover)" 1
 done
 check "多次崩溃后长连接未断" "$(tail -1 "$work/long.log")" ok
 check "接管恢复后：UDP" "$(udp)" 通
@@ -260,8 +258,8 @@ check "接管恢复后：出站" "$(out_http 192.0.2.1)" 通
 
 echo "=== 正常关闭"
 "$vlu" tun off >/dev/null 2>&1
-for _ in $(seq 1 50); do [ "$(nft_tables)" = 0 ] && break; sleep 0.1; done
-check "关闭后没有 nft 表" "$(nft_tables)" 0
+for _ in $(seq 1 50); do [ "$(takeover)" = 0 ] && break; sleep 0.1; done
+check "关闭后没有接管规则" "$(takeover)" 0
 check "关闭后没有连接保护表" "$($S nft list tables 2>/dev/null | grep -c velum-guard)" 0
 check "全程服务端先发包的连接未断" "$(tail -1 "$work/push.log" | cut -c1-40)" ok
 check "关闭后 ip rule 恢复原样" "$(rules)" "$base"

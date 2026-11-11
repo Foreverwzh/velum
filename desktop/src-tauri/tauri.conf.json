@@ -49,7 +49,11 @@
     ],
     "macOS": {
       "signingIdentity": "-",
-      "minimumSystemVersion": "12.0"
+      "minimumSystemVersion": "12.0",
+      "files": {
+        "Resources/VERSION": "core-res/VERSION",
+        "Resources/core-en.json": "core-res/core-en.json"
+      }
     }
   },
   "plugins": {

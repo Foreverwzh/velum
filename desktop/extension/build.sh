@@ -26,10 +26,9 @@ group=$team.dev.velum
 : "${APPLE_SIGNING_IDENTITY:?需要 APPLE_SIGNING_IDENTITY（Developer ID Application）}"
 cd "$here"
 
-# 核心：VELUM_CORE=go（默认）为 Go 的 Mobilebind.xcframework；rust 为 velum-engine 的 velum-macext 静态库
-# （VELUM_ENGINE_DIR 指向 velum-engine 的源码，默认与 Velum 同级）。build/core.xcconfig 给出头文件、链接参数与编译条件。
-core="${VELUM_CORE:-go}"
-engine="${VELUM_ENGINE_DIR:-$(cd "$root/.." && pwd)/velum-engine}"
+# 核心：VELUM_CORE=rust（默认）为 velum-engine 的 velum-macext 静态库（desktop/scripts/engine.sh：本机有源码就编译，
+# 否则按 desktop/engine.lock 下载）；go 为 Go 的 Mobilebind.xcframework。build/core.xcconfig 给出头文件、链接参数与编译条件。
+core="${VELUM_CORE:-rust}"
 mkdir -p build
 case "$core" in
   go)
@@ -44,7 +43,7 @@ OTHER_LDFLAGS = -framework Mobilebind -lresolv
 EOF
     ;;
   rust)
-    VELUM_VERSION="$version" sh "$engine/scripts/build-macext.sh" "$here/build/macext" >/dev/null
+    sh "$root/desktop/scripts/engine.sh" macext "$here/build/macext"
     cat >build/core.xcconfig <<EOF
 SWIFT_INCLUDE_PATHS = \$(PROJECT_DIR)/build/macext/include
 LIBRARY_SEARCH_PATHS = \$(PROJECT_DIR)/build/macext/lib
@@ -54,8 +53,8 @@ EOF
     ;;
   *) echo "VELUM_CORE 只能是 go 或 rust" >&2; exit 1 ;;
 esac
-# 核心的英文表（Rust 核心随扩展打包、按语言加载；也放进 App 给 Rust 的 velumd 用）
-VELUM_ENGINE_DIR="$engine" sh "$root/core/scripts/core-i18n.sh" "$here/build/core-en.json" >/dev/null
+# 核心的英文表（Rust 核心随扩展打包、按语言加载）
+sh "$root/core/scripts/core-i18n.sh" "$here/build/core-en.json" >/dev/null
 
 xcodegen generate -q
 rm -rf build/Velum.xcarchive build/export "$out"
@@ -144,17 +143,12 @@ fi
 # sidecar：与 Tauri 打包时相同的构建（velum-helper 只接受同一团队签名的 velumd），以 hardened runtime 签名、不带 entitlements
 # 目标架构与 tauri build --target 一致（TAURI_ENV_TARGET_TRIPLE，如 x86_64-apple-darwin），默认本机；扩展本身总是 arm64 + x86_64
 triple="${TAURI_ENV_TARGET_TRIPLE:-$(rustc -vV | sed -n 's/^host: //p')}"
-TAURI_ENV_TARGET_TRIPLE=$triple VELUM_TEAM_ID=$team sh "$root/desktop/scripts/sidecars.sh" >/dev/null
+# sidecars.sh 按同一个 VELUM_CORE 取 velumd、vlu（Rust 或 Go），velum-helper 是 Go 的
+TAURI_ENV_TARGET_TRIPLE=$triple VELUM_TEAM_ID=$team VELUM_CORE=$core sh "$root/desktop/scripts/sidecars.sh" >/dev/null
 mkdir -p "$out/bin"
 for b in velumd velum-helper vlu; do
   cp "$root/desktop/src-tauri/binaries/$b-$triple" "$out/bin/$b"
 done
-# Rust 核心：velumd、vlu 换成 velum-engine 的（velum-helper 仍是 Go 的，Rust 的 velumd 不用它）
-if [ "$core" = rust ]; then
-  (cd "$engine" && VELUM_VERSION="$version" MACOSX_DEPLOYMENT_TARGET=12.0 cargo build -q --release --target "$triple" -p velum-daemon --bins)
-  cp "$engine/target/$triple/release/velumd" "$engine/target/$triple/release/vlu" "$out/bin/"
-fi
-cp build/core-en.json "$out/bin/core-en.json"
 for b in velumd velum-helper vlu; do
   codesign --force --options runtime --timestamp -s "$APPLE_SIGNING_IDENTITY" "$out/bin/$b"
 done

@@ -1,6 +1,8 @@
 name: linux
 
-# 打包 Linux 命令行压缩包（velumd、vlu）并实际跑一遍冒烟测试；release.yml 调用时产物随 Release 发布。
+# 打包 Linux 命令行压缩包（Rust 核心：velumd、vlu，网页界面，见 core/scripts/linux-package.sh）并实际跑一遍冒烟测试；
+# release.yml 调用时产物随 Release 发布。velumd、vlu 按 desktop/engine.lock 从 velum-engine 的私有 Release 下载
+#（VELUM_ENGINE_TOKEN 只读那个仓库）。
 on:
   push:
     branches: ["**"] # 只按分支触发；推送版本标签由 release.yml 调用
@@ -15,6 +17,9 @@ on:
       version:
         type: string
         required: true
+    secrets:
+      VELUM_ENGINE_TOKEN:
+        required: false
 
 concurrency:
   group: linux-${{ github.ref }}
@@ -26,14 +31,15 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - {os: ubuntu-latest, arch: x64}
-          - {os: ubuntu-24.04-arm, arch: arm64}
+          - {os: ubuntu-latest, arch: x64, triple: x86_64-unknown-linux-gnu}
+          - {os: ubuntu-24.04-arm, arch: arm64, triple: aarch64-unknown-linux-gnu}
     runs-on: ${{ matrix.os }}
     env:
       GOPROXY: https://proxy.golang.org,direct
       VELUM_VERSION: ${{ inputs.version }}
     steps:
       - uses: actions/checkout@v7
+      # Go 只用来生成核心的英文表（core/scripts/core-i18n.sh 导出 Go 版的条目）
       - uses: actions/setup-go@v7
         with:
           go-version-file: core/go.mod
@@ -41,19 +47,15 @@ jobs:
       # bun 版本由 mise.toml 固定
       - uses: jdx/mise-action@v5
       - name: build web ui
-        run: sh core/scripts/webui.sh
-      - name: build
+        working-directory: desktop
+        run: bun install --frozen-lockfile && bun run build
+      - name: package
+        env:
+          GH_TOKEN: ${{ secrets.VELUM_ENGINE_TOKEN }}
         run: |
-          v="${VELUM_VERSION:-dev}"
-          name="Velum-$v-linux-${{ matrix.arch }}"
-          tags="$(sed -n 's/^TAGS ?= //p' core/Makefile),webui"
-          ldflags="-s -w"
-          [ -z "$VELUM_VERSION" ] || ldflags="$ldflags -X github.com/Foreverwzh/velum/core/pkg/daemon.Version=$VELUM_VERSION"
-          mkdir -p "dist-pkg/$name"
-          # 静态链接：不依赖目标系统的 glibc 版本
-          (cd core && CGO_ENABLED=0 go build -tags "$tags" -trimpath -ldflags "$ldflags" -o "../dist-pkg/$name/" ./cmd/velumd ./cmd/vlu)
-          cp LICENSE NOTICE.md core/scripts/install.sh "dist-pkg/$name/"
-          file "dist-pkg/$name/velumd" | grep -q "statically linked" || { file "dist-pkg/$name/velumd"; exit 1; }
+          [ -n "$GH_TOKEN" ] || { echo "没配置 VELUM_ENGINE_TOKEN（读 velum-engine 的 Release）"; exit 1; }
+          name="Velum-${VELUM_VERSION:-dev}-linux-${{ matrix.arch }}"
+          sh core/scripts/linux-package.sh ${{ matrix.triple }} "dist-pkg/$name"
           echo "PKG_NAME=$name" >> "$GITHUB_ENV"
       - name: smoke
         run: sh core/scripts/smoke.sh "dist-pkg/$PKG_NAME"

@@ -42,6 +42,7 @@
  "加密方式 %s 不受支持（流加密不安全、已被淘汰），这个节点用不了": "Cipher %s is not supported (stream ciphers are insecure and obsolete); this node cannot be used",
  "取 geo 数据失败：%s": "Failed to get geo data: %s",
  "取不到用户目录：设置 VELUM_HOME": "Cannot find the user directory: set VELUM_HOME",
+ "启动 velum 服务失败（可能需要 sudo systemctl start velum）：%s": "Could not start the velum service (sudo systemctl start velum may be needed): %s",
  "响应格式不对：%s": "Unexpected response format: %s",
  "在 Velum App 里更新": "update in the Velum app",
  "地址无效：%s": "Invalid address: %s",

@@ -43,6 +43,7 @@ jobs:
     uses: ./.github/workflows/linux.yml
     with:
       version: ${{ needs.version.outputs.version }}
+    secrets: inherit
 
   publish:
     needs: [desktop, mobile, linux]

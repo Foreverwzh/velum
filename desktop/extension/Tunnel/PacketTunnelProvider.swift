@@ -305,6 +305,8 @@ enum Core {
             return n.isEmpty ? nil : strdup(n)
         }
         // 语言：扩展以 root 运行，取扩展自己的首选语言；英文表随扩展打包
+        // 核心报告的版本用扩展的版本（与 App 相同）：核心是预编译的，App 靠这个版本判断后台核心是否要重启
+        velum_core_set_version(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String)
         let lang = Locale.preferredLanguages.first ?? "en"
         let tr = Bundle.main.path(forResource: "core-en", ofType: "json")
         guard let e = velum_core_start(home, socket, lang, tr, h) else { return nil }
