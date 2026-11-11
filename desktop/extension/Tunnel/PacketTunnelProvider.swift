@@ -1,8 +1,14 @@
-// 在系统扩展里运行完整的 Velum 核心（core/mobilebind，与 Android 相同的入口）。
-// 核心经 Host.openTun 申请 TUN：这里设置隧道网络参数，再把系统建好的 utun 的 FD 交给核心。
+// 在系统扩展里运行完整的 Velum 核心：Go 版（core/mobilebind，与 Android 相同的入口），
+// 或 Rust 版（velum-engine 的 velum-macext，编译条件 VELUM_RUST_CORE，见 build.sh 的 VELUM_CORE=rust）。
+// 两者的宿主能力相同：核心经 Host.openTun 申请 TUN（这里设置隧道网络参数，再把系统建好的 utun 的 FD 交给核心），
+// 经 Host.setProxy 设置系统代理，经 Host.network 取物理网络。
 // 验证过程与各条约束的来历（F1～F10）见 spikes/mn-netext/README.md。
 import Foundation
+#if VELUM_RUST_CORE
+import VelumMacExt
+#else
 import Mobilebind
+#endif
 import NetworkExtension
 import SystemConfiguration
 import os
@@ -25,14 +31,11 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
             return completionHandler(error)
         }
         // 本地接口：App 指定的回环 TCP + 令牌（界面与 vlu 以用户身份连接，Q2）
-        MobilebindSetSocket(options?["socket"] as? String ?? "")
-        log.notice("启动核心 \(MobilebindVersion(), privacy: .public)，目录 \(home.path, privacy: .public)")
+        let socket = options?["socket"] as? String ?? ""
+        log.notice("启动核心 \(Core.version(), privacy: .public)，目录 \(home.path, privacy: .public)")
         forwardCoreLog(home)
         DispatchQueue.global().async {
-            var err: NSError?
-            let host = Host(provider: self)
-            MobilebindSetProxyHost(host)
-            MobilebindStart(home.path, host, &err)
+            let err = Core.start(home: home.path, socket: socket, host: Host(provider: self))
             let ms = Int(Date().timeIntervalSince(started) * 1000)
             if let err {
                 log.error("核心启动失败（\(ms)ms）：\(err, privacy: .public)")
@@ -48,7 +51,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         stopping = true
         logTimer?.cancel()
         DispatchQueue.global().async {
-            MobilebindStop()
+            Core.stop()
             log.notice("核心已停止")
             completionHandler()
         }
@@ -86,7 +89,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
     private func forwardCoreLog(_ home: URL) {
         let t = DispatchSource.makeTimerSource(queue: .global())
         t.schedule(deadline: .now() + 1, repeating: 2)
-        let logPath = MobilebindLogPath(home.path)
+        let logPath = Core.logPath(home.path)
         // 从文件末尾开始：日志文件跨次保留，从头读会把历史日志重新转发一遍
         var offset: UInt64 = (try? FileManager.default.attributesOfItem(atPath: logPath)[.size] as? UInt64) ?? 0
         t.setEventHandler {
@@ -135,7 +138,7 @@ struct ProxyRequest: Decodable {
 // 隧道参数由两部分组成：TUN（地址、路由、DNS，核心开启 TUN 时设置）与系统代理（NEProxySettings，核心接管系统代理时设置）。
 // setTunnelNetworkSettings 整体替换，任一部分变化都按当前两部分重新下发；两部分都没有时清空（隧道保持连接，Q1）。
 // 系统代理放在隧道参数里：隧道停止或扩展崩溃时系统一并撤销，不会残留指向 Velum 的系统代理（MN.5）。
-final class Host: NSObject, MobilebindHostProtocol, MobilebindProxyHostProtocol {
+final class Host: NSObject {
     weak var provider: PacketTunnelProvider?
     init(provider: PacketTunnelProvider) { self.provider = provider }
 
@@ -143,7 +146,8 @@ final class Host: NSObject, MobilebindHostProtocol, MobilebindProxyHostProtocol 
     private var tun: TunRequest?
     private var proxy: ProxyRequest?
 
-    func openTun(_ req: String?, ret0_: UnsafeMutablePointer<Int32>?) throws {
+    /// 按核心的请求设置隧道参数，返回 utun FD 的副本（所有权交给核心）。
+    func openTun(_ req: String?) throws -> Int32 {
         guard let provider, let data = req?.data(using: .utf8) else { throw err("没有 provider") }
         let r = try JSONDecoder().decode(TunRequest.self, from: data)
         log.notice("openTun \(req ?? "", privacy: .public)")
@@ -152,7 +156,7 @@ final class Host: NSObject, MobilebindHostProtocol, MobilebindProxyHostProtocol 
         guard let fd = provider.tunFD() else { throw err("找不到 utun FD") }
         let ms = Int(Date().timeIntervalSince(started) * 1000)
         log.notice("隧道参数已设置（\(ms)ms），utun FD \(fd)")
-        ret0_?.pointee = dup(fd) // 所有权交给核心：给一个副本，核心关闭时不影响系统持有的 FD
+        return dup(fd) // 所有权交给核心：给一个副本，核心关闭时不影响系统持有的 FD
     }
 
     // 核心关闭 TUN（FD 已由核心关闭）：去掉 TUN 部分，系统随即撤销路由与 DNS；隧道正在停止时系统会撤销全部参数
@@ -237,10 +241,6 @@ final class Host: NSObject, MobilebindHostProtocol, MobilebindProxyHostProtocol 
         return s
     }
 
-    func findOwner(_ proto: Int32, srcAddr: String?, srcPort: Int32, dstAddr: String?, dstPort: Int32, error: NSErrorPointer) -> String {
-        ""
-    }
-
     // 当前物理网络：接口、网关与其 DNS。不读 State:/Network/Global/IPv4：有其他全局隧道（或我们自己全局接管）时那是隧道的 utun（F5），
     // 改为在各网络服务中找带网关的非隧道接口，主服务优先。核心在沙盒里取不到 DHCP DNS，用这里的 DNS 补上。
     func network() -> String {
@@ -266,6 +266,88 @@ final class Host: NSObject, MobilebindHostProtocol, MobilebindProxyHostProtocol 
         return (try? JSONSerialization.data(withJSONObject: n)).flatMap { String(data: $0, encoding: .utf8) } ?? ""
     }
 }
+
+// 两种核心的入口。
+enum Core {
+    #if VELUM_RUST_CORE
+    static func version() -> String { take(velum_core_version()) }
+    static func logPath(_ home: String) -> String { take(velum_core_log_path(home)) }
+    static func stop() { velum_core_stop() }
+
+    /// 启动核心（本地接口就绪后返回）；失败时返回原因。Host 由核心一直持有（扩展进程只启动一次核心）。
+    static func start(home: String, socket: String, host: Host) -> Error? {
+        var h = VelumHost()
+        h.ctx = Unmanaged.passRetained(host).toOpaque()
+        h.open_tun = { ctx, req, errOut in
+            let host = Unmanaged<Host>.fromOpaque(ctx!).takeUnretainedValue()
+            do {
+                return try host.openTun(req.map { String(cString: $0) })
+            } catch {
+                errOut?.pointee = strdup(error.localizedDescription)
+                return -1
+            }
+        }
+        h.close_tun = { ctx in
+            Unmanaged<Host>.fromOpaque(ctx!).takeUnretainedValue().closeTun()
+        }
+        h.set_proxy = { ctx, req, errOut in
+            let host = Unmanaged<Host>.fromOpaque(ctx!).takeUnretainedValue()
+            do {
+                try host.setProxy(req.map { String(cString: $0) })
+                return 0
+            } catch {
+                errOut?.pointee = strdup(error.localizedDescription)
+                return -1
+            }
+        }
+        h.network = { ctx in
+            let n = Unmanaged<Host>.fromOpaque(ctx!).takeUnretainedValue().network()
+            return n.isEmpty ? nil : strdup(n)
+        }
+        // 语言：扩展以 root 运行，取扩展自己的首选语言；英文表随扩展打包
+        let lang = Locale.preferredLanguages.first ?? "en"
+        let tr = Bundle.main.path(forResource: "core-en", ofType: "json")
+        guard let e = velum_core_start(home, socket, lang, tr, h) else { return nil }
+        return err(take(e))
+    }
+
+    private static func take(_ p: UnsafeMutablePointer<CChar>?) -> String {
+        guard let p else { return "" }
+        defer { velum_free(p) }
+        return String(cString: p)
+    }
+    #else
+    static func version() -> String { MobilebindVersion() }
+    static func logPath(_ home: String) -> String { MobilebindLogPath(home) }
+    static func stop() { MobilebindStop() }
+
+    static func start(home: String, socket: String, host: Host) -> Error? {
+        var e: NSError?
+        MobilebindSetSocket(socket)
+        let gh = GoHost(host)
+        MobilebindSetProxyHost(gh)
+        MobilebindStart(home, gh, &e)
+        return e
+    }
+    #endif
+}
+
+#if !VELUM_RUST_CORE
+/// Go 核心的回调接口（gomobile 生成的协议）转给 Host。
+final class GoHost: NSObject, MobilebindHostProtocol, MobilebindProxyHostProtocol {
+    let host: Host
+    init(_ host: Host) { self.host = host }
+    func openTun(_ req: String?, ret0_: UnsafeMutablePointer<Int32>?) throws {
+        ret0_?.pointee = try host.openTun(req)
+    }
+    func closeTun() { host.closeTun() }
+    func setProxy(_ req: String?) throws { try host.setProxy(req) }
+    func network() -> String { host.network() }
+    func findOwner(_ proto: Int32, srcAddr: String?, srcPort: Int32, dstAddr: String?, dstPort: Int32, error: NSErrorPointer) -> String {
+        ""
+    }
+}
+#endif
 
 func err(_ s: String) -> NSError {
     NSError(domain: "dev.velum.desktop.tunnel", code: 1, userInfo: [NSLocalizedDescriptionKey: s])

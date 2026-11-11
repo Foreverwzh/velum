@@ -37,7 +37,16 @@ targets:
   VelumTunnel:
     type: system-extension
     platform: macOS
-    sources: [Tunnel]
+    sources:
+      - Tunnel
+      # 核心的英文表（build.sh 生成；Rust 核心按语言加载，Go 核心不用）
+      - path: build/core-en.json
+        optional: true
+        buildPhase: resources
+    # 核心的头文件、链接参数与编译条件（build.sh 按 VELUM_CORE 生成：Go 的 Mobilebind 或 Rust 的 velum-macext）
+    configFiles:
+      Debug: build/core.xcconfig
+      Release: build/core.xcconfig
     info:
       path: Tunnel/Info.plist
       properties:
@@ -63,8 +72,6 @@ targets:
       # 系统扩展的包名必须与 bundle ID 相同（F4）
       PRODUCT_NAME: dev.velum.desktop.tunnel
       PRODUCT_MODULE_NAME: VelumTunnel
-      FRAMEWORK_SEARCH_PATHS: $(PROJECT_DIR)/build/Mobilebind.xcframework/macos-arm64_x86_64
-      OTHER_LDFLAGS: [-framework, Mobilebind, -lresolv]
     dependencies:
       - sdk: NetworkExtension.framework
       - sdk: SystemConfiguration.framework

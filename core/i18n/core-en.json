@@ -48,6 +48,7 @@
  "域名无效：": "Invalid domain: ",
  "字段 %s 未映射": "Field %s is not mapped",
  "字段 %s 的值无效（应为%s），已忽略": "Field %s has an invalid value (expected %s); ignored",
+ "平台没有交出 TUN": "The platform did not provide a TUN",
  "应用失败，已改回原内容：": "Could not apply; restored the previous content: ",
  "开关的值无效：%q（可选 on / off / config）": "Invalid switch value %q (use on / off / config)",
  "引擎暂不支持 %s，已忽略": "The engine does not support %s yet; ignored",

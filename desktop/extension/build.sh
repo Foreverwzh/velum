@@ -26,12 +26,36 @@ group=$team.dev.velum
 : "${APPLE_SIGNING_IDENTITY:?需要 APPLE_SIGNING_IDENTITY（Developer ID Application）}"
 cd "$here"
 
-# Go 核心 → Mobilebind.xcframework（与 sidecars.sh 相同的构建标签与版本号）
-tags="$(sed -n 's/^TAGS ?= //p' "$root/core/Makefile")"
-ldflags="-s -w"
-[ -n "${VELUM_VERSION:-}" ] && ldflags="$ldflags -X github.com/Foreverwzh/velum/core/pkg/daemon.Version=$VELUM_VERSION"
-(cd "$root/core" && PATH="$(go env GOPATH)/bin:$PATH" gomobile bind -target macos -tags "$tags" -trimpath -ldflags "$ldflags" \
-  -o "$here/build/Mobilebind.xcframework" ./mobilebind)
+# 核心：VELUM_CORE=go（默认）为 Go 的 Mobilebind.xcframework；rust 为 velum-engine 的 velum-macext 静态库
+# （VELUM_ENGINE_DIR 指向 velum-engine 的源码，默认与 Velum 同级）。build/core.xcconfig 给出头文件、链接参数与编译条件。
+core="${VELUM_CORE:-go}"
+engine="${VELUM_ENGINE_DIR:-$(cd "$root/.." && pwd)/velum-engine}"
+mkdir -p build
+case "$core" in
+  go)
+    tags="$(sed -n 's/^TAGS ?= //p' "$root/core/Makefile")"
+    ldflags="-s -w"
+    [ -n "${VELUM_VERSION:-}" ] && ldflags="$ldflags -X github.com/Foreverwzh/velum/core/pkg/daemon.Version=$VELUM_VERSION"
+    (cd "$root/core" && PATH="$(go env GOPATH)/bin:$PATH" gomobile bind -target macos -tags "$tags" -trimpath -ldflags "$ldflags" \
+      -o "$here/build/Mobilebind.xcframework" ./mobilebind)
+    cat >build/core.xcconfig <<EOF
+FRAMEWORK_SEARCH_PATHS = \$(PROJECT_DIR)/build/Mobilebind.xcframework/macos-arm64_x86_64
+OTHER_LDFLAGS = -framework Mobilebind -lresolv
+EOF
+    ;;
+  rust)
+    VELUM_VERSION="$version" sh "$engine/scripts/build-macext.sh" "$here/build/macext" >/dev/null
+    cat >build/core.xcconfig <<EOF
+SWIFT_INCLUDE_PATHS = \$(PROJECT_DIR)/build/macext/include
+LIBRARY_SEARCH_PATHS = \$(PROJECT_DIR)/build/macext/lib
+OTHER_LDFLAGS = -lvelum_macext -lresolv -lc++ -framework Security -framework SystemConfiguration -framework CoreFoundation
+SWIFT_ACTIVE_COMPILATION_CONDITIONS = \$(inherited) VELUM_RUST_CORE
+EOF
+    ;;
+  *) echo "VELUM_CORE 只能是 go 或 rust" >&2; exit 1 ;;
+esac
+# 核心的英文表（Rust 核心随扩展打包、按语言加载；也放进 App 给 Rust 的 velumd 用）
+VELUM_ENGINE_DIR="$engine" sh "$root/core/scripts/core-i18n.sh" "$here/build/core-en.json" >/dev/null
 
 xcodegen generate -q
 rm -rf build/Velum.xcarchive build/export "$out"
@@ -40,7 +64,8 @@ ext_name=dev.velum.desktop.tunnel.systemextension
 
 if [ -n "${VELUM_PROFILE_HOST:-}" ]; then
   xcodebuild -project VelumExtension.xcodeproj -scheme VelumTunnel -configuration Release -derivedDataPath build/dd \
-    VELUM_VERSION="$version" CURRENT_PROJECT_VERSION="$build" CODE_SIGNING_ALLOWED=NO build >build/build.log 2>&1 \
+    VELUM_VERSION="$version" CURRENT_PROJECT_VERSION="$build" CODE_SIGNING_ALLOWED=NO \
+    ARCHS="arm64 x86_64" ONLY_ACTIVE_ARCH=NO build >build/build.log 2>&1 \
     || { grep -E "error:" build/build.log >&2; exit 1; }
   ext="$out/$ext_name"
   ditto "build/dd/Build/Products/Release/$ext_name" "$ext"
@@ -60,10 +85,18 @@ if [ -n "${VELUM_PROFILE_HOST:-}" ]; then
 EOF
   codesign --force --options runtime --timestamp --entitlements build/Tunnel.entitlements -s "$APPLE_SIGNING_IDENTITY" "$ext"
   # 扩展要单独公证并装订票据：Tauri 只装订外层 App，而 macOS 13 的 sysextd 只认扩展自身装订的票据（不在线查询，-67050）
+  # 公证凭据：API 密钥（CI），或本机钥匙串里 notarytool store-credentials 存的配置（VELUM_NOTARY_PROFILE）
   if [ -n "${APPLE_API_KEY_PATH:-}" ]; then
+    set -- --key "$APPLE_API_KEY_PATH" --key-id "$APPLE_API_KEY" --issuer "$APPLE_API_ISSUER"
+  elif [ -n "${VELUM_NOTARY_PROFILE:-}" ]; then
+    set -- --keychain-profile "$VELUM_NOTARY_PROFILE"
+  else
+    set --
+  fi
+  if [ $# -gt 0 ]; then
     ditto -c -k --keepParent "$ext" build/extension.zip
-    xcrun notarytool submit build/extension.zip --key "$APPLE_API_KEY_PATH" --key-id "$APPLE_API_KEY" --issuer "$APPLE_API_ISSUER" \
-      --wait --timeout 30m >build/notarize.log 2>&1 || { tail -5 build/notarize.log >&2; exit 1; }
+    xcrun notarytool submit build/extension.zip "$@" --wait --timeout 30m >build/notarize.log 2>&1 || { tail -5 build/notarize.log >&2; exit 1; }
+    grep -q "status: Accepted" build/notarize.log || { tail -8 build/notarize.log >&2; exit 1; }
     xcrun stapler staple "$ext" >/dev/null
   fi
   cp "$VELUM_PROFILE_HOST" "$out/embedded.provisionprofile"
@@ -115,6 +148,14 @@ TAURI_ENV_TARGET_TRIPLE=$triple VELUM_TEAM_ID=$team sh "$root/desktop/scripts/si
 mkdir -p "$out/bin"
 for b in velumd velum-helper vlu; do
   cp "$root/desktop/src-tauri/binaries/$b-$triple" "$out/bin/$b"
+done
+# Rust 核心：velumd、vlu 换成 velum-engine 的（velum-helper 仍是 Go 的，Rust 的 velumd 不用它）
+if [ "$core" = rust ]; then
+  (cd "$engine" && VELUM_VERSION="$version" MACOSX_DEPLOYMENT_TARGET=12.0 cargo build -q --release --target "$triple" -p velum-daemon --bins)
+  cp "$engine/target/$triple/release/velumd" "$engine/target/$triple/release/vlu" "$out/bin/"
+fi
+cp build/core-en.json "$out/bin/core-en.json"
+for b in velumd velum-helper vlu; do
   codesign --force --options runtime --timestamp -s "$APPLE_SIGNING_IDENTITY" "$out/bin/$b"
 done
 echo "extension: $version ($build) → $out"
