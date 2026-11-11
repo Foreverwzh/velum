@@ -12,7 +12,8 @@ tmp=$(mktemp)
 trap 'rm -f "$tmp"' EXIT
 GOPROXY="${GOPROXY:-https://goproxy.cn,direct}" go run ./internal/i18ndump > "$tmp"
 src="${VELUM_ENGINE_DIR:-$(cd ../.. && pwd)/velum-engine}"
-python3 - "$core" "$src" "$tmp" "$out" <<'PY'
+# PYTHONUTF8：Windows 上 Python 默认按 cp1252 读写文件
+PYTHONUTF8=1 python3 - "$core" "$src" "$tmp" "$out" <<'PY'
 import glob, json, os, re, sys
 core, src, gofile, out = sys.argv[1:5]
 cat = json.load(open(gofile))
