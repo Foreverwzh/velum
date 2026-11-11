@@ -46,8 +46,10 @@ if [ "$core" = rust ]; then
     cp "$root/desktop/src-tauri/binaries/rust-$triple/$b" "$root/desktop/src-tauri/binaries/$b-$triple$ext"
   done
 fi
-# App 包的 Resources：核心报告的版本（与 App 相同，App 据此判断后台核心是否要重启）与核心的英文表
+# macOS App 包的 Resources：核心报告的版本（与 App 相同，App 据此判断后台核心是否要重启）与核心的英文表
 version="${VELUM_VERSION:-$(sed -n 's/^  "version": "\(.*\)",$/\1/p' "$root/desktop/src-tauri/tauri.conf.json")}"
-printf '%s\n' "$version" > "$res/VERSION"
-sh "$root/core/scripts/core-i18n.sh" "$res/core-en.json" >/dev/null
+if [ "$goos" = darwin ]; then
+  printf '%s\n' "$version" > "$res/VERSION"
+  sh "$root/core/scripts/core-i18n.sh" "$res/core-en.json" >/dev/null
+fi
 echo "sidecars: ${triple}（核心 ${core}，版本 ${version}）"

@@ -5,7 +5,7 @@
 # 有 velum-engine 源码时（VELUM_ENGINE_DIR）检查它的 t("…") / tf("…") 是否都有译文、占位符是否一致，不一致就失败。
 set -eu
 out="${1:?用法：$0 <输出的 JSON>}"
-case "$out" in /*) ;; *) out="$(pwd)/$out" ;; esac
+case "$out" in /* | [A-Za-z]:*) ;; *) out="$(pwd)/$out" ;; esac # Windows 的 D:/… 也是绝对路径
 cd "$(dirname "$0")/.."
 core=$(pwd)
 tmp=$(mktemp)
