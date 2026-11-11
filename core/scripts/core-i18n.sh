@@ -27,11 +27,11 @@ if bad:
 os.makedirs(os.path.dirname(out), exist_ok=True)
 json.dump(cat, open(out, "w"), ensure_ascii=False, sort_keys=True)
 if os.path.isdir(f"{src}/crates"):
-    pat = re.compile(r'\b(?:i18n::)?tf?\(\s*"((?:[^"\\]|\\.)*)"')
+    pat = re.compile(r'\b(?:i18n::)?(?:tf?|gof)\(\s*"((?:[^"\\]|\\.)*)"')
     keys = set()
     for f in glob.glob(f"{src}/crates/*/src/**/*.rs", recursive=True):
         for m in pat.finditer(open(f, encoding="utf-8").read()):
-            k = json.loads(f'"{m.group(1)}"')
+            k = json.loads(f'"{m.group(1)}"', strict=False)
             if re.search(r"[一-鿿]", k):
                 keys.add(k)
     missing = sorted(k for k in keys if k not in cat)
