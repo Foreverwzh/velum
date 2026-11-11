@@ -38,13 +38,21 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
     private var writtenAt = Date.distantPast
     private let pathMonitor = NWPathMonitor()
     private let netQueue = DispatchQueue(label: "velum.net")
+    /// 最近一次的网络（类型、Wi-Fi 名称、网卡）。引擎启动前就开始监听：启动时就交给引擎，
+    /// 否则在第一次网络回调之前，引擎不知道物理网卡，按系统 DNS 的解析会失败（刚连上时的连接报错）。
+    private let netLock = NSLock()
+    private var lastNet: (String, String, String)?
+    private var goRunning = false
+    private let firstNet = DispatchSemaphore(value: 0)
 
-    /// 按网络切换策略组（ssid-policy）。在扩展里做：换网时 App 通常不在前台。
+    /// 按网络切换策略组（ssid-policy）、系统 DNS 按物理网卡查询。在扩展里做：换网时 App 通常不在前台。
+    /// 在引擎启动之前开始，并等第一次结果（最多 1 秒）：这时隧道还没建立，报告的就是物理网络。
     private func watchNetwork() {
         pathMonitor.pathUpdateHandler = { [weak self] path in
             self?.reportNetwork(path, retries: 3)
         }
         pathMonitor.start(queue: netQueue)
+        _ = firstNet.wait(timeout: .now() + 1)
     }
 
     private func reportNetwork(_ path: Network.NWPath, retries: Int) {
@@ -73,7 +81,13 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
 
     /// 交给核心，并记下来给设置页显示：切换不对时要能看出隧道认为自己在什么网络。
     private func report(_ kind: String, _ ssid: String, _ ifname: String) {
-        if let velum { velum.setNetwork(kind: kind, ssid: ssid, ifname: ifname) } else { goNetworkChanged(kind, ssid) }
+        let first = netLock.withLock { () -> Bool in
+            defer { lastNet = (kind, ssid, ifname) }
+            return lastNet == nil
+        }
+        if let velum { velum.setNetwork(kind: kind, ssid: ssid, ifname: ifname) }
+        else if netLock.withLock({ goRunning }) { goNetworkChanged(kind, ssid) }
+        if first { firstNet.signal() }
         guard let group = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroup) else { return }
         try? "\(kind)\n\(ssid)\n".write(to: group.appendingPathComponent("velum/tunnel/network.txt"), atomically: true, encoding: .utf8)
     }
@@ -129,6 +143,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         let home = group.appendingPathComponent("velum")
         self.home = home
         DispatchQueue.global().async {
+            self.watchNetwork()
             let err = self.startEngine(home)
             if let err { log.error("内核启动失败：\(err, privacy: .public)") }
             else {
@@ -136,7 +151,6 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
                     self.memPath = home.appendingPathComponent("tunnel/memory.txt")
                     self.startMemoryTimer()
                 }
-                self.watchNetwork()
                 TunnelMetrics.shared.start(home: home)
             }
             completionHandler(err)
@@ -147,6 +161,8 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
     private func startEngine(_ home: URL) -> NSError? {
         if VelumFiles.selected(VelumFiles.Paths(dir: home.appendingPathComponent("tunnel"))) {
             let v = VelumTunnel(provider: self, home: home)
+            // 已知的网络先交给它：引擎一启动就用（在恢复用户的选择之后执行 ssid-policy）
+            if let n = netLock.withLock({ lastNet }) { v.setNetwork(kind: n.0, ssid: n.1, ifname: n.2) }
             do {
                 try v.start()
                 velum = v
@@ -155,7 +171,12 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
                 return error as NSError
             }
         }
-        return goStart(home, self)
+        let err = goStart(home, self)
+        if err == nil {
+            netLock.withLock { goRunning = true }
+            if let n = netLock.withLock({ lastNet }) { goNetworkChanged(n.0, n.1) }
+        }
+        return err
     }
 
     /// 重新加载时配置换了内核（设置里切换 velum-engine）：停掉当前的，启动另一个。没换时返回 nil，照常交给内核。
@@ -170,6 +191,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
             v.stop()
             velum = nil
         } else {
+            netLock.withLock { goRunning = false }
             goStop()
         }
         let err = startEngine(home)
