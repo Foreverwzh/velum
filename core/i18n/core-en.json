@@ -80,6 +80,7 @@
  "节点声明不支持 UDP（订阅里 udp: false）": "The node does not support UDP (udp: false in the subscription)",
  "规则拒绝": "Rejected by rule",
  "规则集（%s）暂不支持：引擎不读 sing-box 的 .srs，需要换成可再分发的数据源": "Rule set (%s) is not supported yet: the engine does not read sing-box .srs files and needs a redistributable source",
+ "解析发布列表：%s": "Parsing the release list: %s",
  "解析订阅：%s": "Parsing the subscription: %s",
  "解析超时": "Resolving timed out",
  "订阅内容不是配置（顶层应为映射）": "The subscription is not a config (the top level should be a mapping)",
