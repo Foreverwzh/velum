@@ -3,6 +3,7 @@
 #   sh desktop/scripts/engine.sh core <目标三元组> <输出目录>   velumd、vlu（如 x86_64-apple-darwin、x86_64-unknown-linux-gnu）
 #   sh desktop/scripts/engine.sh macext <输出目录>             macOS 系统扩展的核心：lib/libvelum_macext.a、include/（arm64 + x86_64）
 #   sh desktop/scripts/engine.sh notices <文件>                velum-engine 的第三方声明
+#   sh desktop/scripts/engine.sh wire [--check]                 重新生成 desktop/src/wire.ts（本地接口的数据类型，只能从源码）
 # 来源：
 # - 本机有 velum-engine 源码（VELUM_ENGINE_DIR，默认与本仓库同级的 velum-engine）：从源码编译；
 # - 否则（CI），或设了 VELUM_ENGINE_DOWNLOAD=1：按 desktop/engine.lock 从私有仓库的 GitHub Release（desktop-v<版本>）
@@ -11,7 +12,7 @@ set -eu
 here="$(cd "$(dirname "$0")/.." && pwd)"
 root="$(cd "$here/.." && pwd)"
 src="${VELUM_ENGINE_DIR:-$(cd "$root/.." && pwd)/velum-engine}"
-what="${1:?用法：$0 core <三元组> <目录> | macext <目录> | notices <文件>}"
+what="${1:?用法：$0 core <三元组> <目录> | macext <目录> | notices <文件> | wire [--check]}"
 
 from_source() { [ -z "${VELUM_ENGINE_DOWNLOAD:-}" ] && [ -f "$src/crates/velum-macext/Cargo.toml" ]; }
 
@@ -75,5 +76,9 @@ case "$what" in
       cp "$(fetch THIRD_PARTY_RUST.txt THIRD_PARTY_RUST_txt)" "$out"
     fi
     ;;
-  *) echo "用法：$0 core <三元组> <目录> | macext <目录> | notices <文件>" >&2; exit 1 ;;
+  wire)
+    [ -f "$src/crates/velum-tools/Cargo.toml" ] || { echo "engine: wire 需要 velum-engine 源码（VELUM_ENGINE_DIR）" >&2; exit 1; }
+    (cd "$src" && cargo run -q -p velum-tools -- wire-ts "$here/src/wire.ts" ${2:-})
+    ;;
+  *) echo "用法：$0 core <三元组> <目录> | macext <目录> | notices <文件> | wire [--check]" >&2; exit 1 ;;
 esac

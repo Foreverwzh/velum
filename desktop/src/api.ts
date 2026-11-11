@@ -1,81 +1,54 @@
 import { t } from "./i18n";
-// velumd 本地接口的类型与客户端。与 core/pkg/rpc 保持一致。
+// velumd 本地接口的类型与客户端。数据类型由 velum-engine 从 velumd 的 wire.rs 生成（wire.ts）；
+// 这里只把几个字符串字段收窄成前端用的取值，并补上只有 Go 核心才发送的字段（标了「Go 核心」，移除 Go 核心时删掉）。
 // Tauri 中经 Rust 命令访问 Unix socket；浏览器开发模式下经 Vite 代理（/api）。
+import type * as W from "./wire";
 
-export interface Source { kind: string; file?: string; line?: number; text?: string }
-/** 按网络自动切换（订阅的 ssid-policy）。 */
-export interface NetPolicy { ssid?: Record<string, string>; cellular?: string; default?: string }
-export interface GroupStatus { tag: string; type: string; selected: string; members: string[]; delays?: Record<string, number>; policy?: NetPolicy }
-export interface VPN { iface: string; full: boolean; routes?: string[]; domains?: string[]; nameservers?: string[] }
-export interface NetworkStatus {
-  primary_interface: string; vpns?: VPN[]; split_dns_domains?: string[]; stale_dns?: string[];
-  captive?: string; captive_detail?: string; paused?: string;
-  /** App 报告的当前网络。 */
-  hint?: { kind: string; ssid?: string };
-}
-export interface TUNStatus { name?: string; address: string; address6?: string; routes: string[]; exclude?: string[]; system_dns?: string[] }
+import type { Source, Warning, HelperStatus, RepairStep } from "./wire";
+
+export type { Source, NetPolicy, GroupStatus, NetworkStatus, Warning, HelperStatus, RepairStep } from "./wire";
+export type VPN = W.Vpn;
 /** 订阅服务提供的流量额度与到期时间（subscription-userinfo 等响应头）。 */
-export interface SubInfo { upload: number; download: number; total: number; expire?: string; title?: string; web_page?: string; updated_at: string }
+export type SubInfo = W.Info;
+export interface TUNStatus extends W.TunStatus {
+  /** Go 核心 */
+  exclude?: string[];
+}
 /** 订阅列表中的一项（profiles.yaml）；active 为正在使用的订阅。 */
-export interface Profile { id: string; name: string; source: string; kind: "url" | "file"; active: boolean; fetched_at?: string; info?: SubInfo }
-
-export interface Status {
-  pid: number; version: string; running: boolean; mode: string; listen: string; home: string;
-  domain_first?: boolean;
-  system_proxy_on: boolean; tun_on: boolean; want_system_proxy: boolean; want_tun: boolean; overridden?: boolean;
-  /** 首次加载配置、启动引擎尚未完成（其余字段可能为空）。 */
-  starting?: boolean;
-  started_at: string; loaded_at: string; warnings: number; last_error?: string; groups?: GroupStatus[];
-  subscription: {
-    id?: string; name?: string; source: string; origin: string; fetched_at: string; fetch_error?: string;
-    nodes: number; groups: number; rules: number; rule_sets: number; info?: SubInfo;
-  };
+export interface Profile extends Omit<W.ProfileStatus, "kind"> { kind: "url" | "file" }
+export interface Status extends Omit<W.Status, "profiles" | "update" | "tun"> {
   profiles?: Profile[];
-  sys_proxy: { supported: boolean; active: boolean; overridden?: boolean; effective?: string; primary_interface?: string };
-  tun?: TUNStatus; network?: NetworkStatus;
+  tun?: TUNStatus;
   /** 最近一次检查新版本的结果；尚未检查过时为空。 */
   update?: UpdateStatus;
 }
-export interface UpdateStatus {
-  current: string; channel: UpdateChannel; latest?: string; available: boolean; url?: string; download?: string;
-  /** 自动更新清单；为空时只能手动下载。 */
-  manifest?: string;
-  checked_at: string; error?: string;
-}
+export interface UpdateStatus extends Omit<W.UpdateStatus, "channel"> { channel: UpdateChannel }
 export type UpdateChannel = "stable" | "beta";
 /** 自动更新进度（App 内）。 */
 export interface UpdateProgress { stage: "download" | "install" | "error"; downloaded: number; total?: number; error?: string }
-export interface Connection {
-  id: number; start: string; end?: string; network: string; inbound: string; source: string; process?: string;
-  domain?: string; destination: string; resolved?: string[]; sniffed?: string; rule_index: number; rule: string;
-  provenance: Source; chain: string[]; upload: number; download: number; connect_ms?: number; first_byte_ms: number; duration_ms: number; canceled?: boolean;
-  errors?: string[]; untracked?: boolean;
+export interface Connection extends Omit<W.Connection, "connect_ms"> {
+  /** 没有连上时 Go 核心不发送，Rust 核心为 -1 */
+  connect_ms?: number;
+  /** Go 核心 */
+  process?: string; resolved?: string[]; sniffed?: string;
 }
-export interface RuleTrace { index: number; action: string; matched: boolean; unknown?: boolean; reason: string; source: Source }
-export interface WhyReport {
-  target: { raw: string; domain?: string; ip?: string; port: number };
-  sys_proxy: { enabled: boolean; bypassed: boolean; pattern?: string; source?: Source };
-  dns: { applicable: boolean; server?: string; answer?: string[]; source?: Source };
+/** 逐条推演中的一条规则（Go 核心；Rust 核心由运行中的引擎直接给出结论，不逐条推演）。 */
+export interface RuleTrace { index: number; action: string; matched: boolean; unknown?: boolean; reason: string; source: W.Source }
+export interface WhyReport extends Omit<W.WhyReport, "rules" | "decision"> {
   rules: RuleTrace[];
-  decision: { rule_index: number; action: string; outbound?: string; override_address?: string; source: Source; uncertain?: boolean };
-  notes?: string[];
+  /** uncertain：Go 核心 */
+  decision: W.WhyDecision & { uncertain?: boolean };
 }
-export interface WhyResponse { report: WhyReport; chain?: string[]; resolved?: string[]; resolved_by?: string; resolve_error?: string; rule_set_errors?: Record<string, string> }
-export interface Warning { category: string; kind: string; level: string; reason: string; subject?: string; source: Source }
-export interface HelperStatus { socket: string; reachable: boolean; version: string; outdated?: boolean; error?: string }
-export interface Traffic {
-  up: number; down: number; up_rate: number; down_rate: number; active: number;
-  /** 同一秒内各进程的速率，各项之和等于总速率；process 为空表示未识别出进程。 */
-  clients?: { process: string; up_rate: number; down_rate: number; active: number }[];
+export interface WhyResponse extends Omit<W.WhyResponse, "report"> {
+  report: WhyReport;
+  /** Go 核心 */
+  rule_set_errors?: Record<string, string>;
 }
-export interface RepairStep { name: string; ok: boolean; detail?: string; warn?: boolean }
+export interface Traffic extends W.Traffic {}
 /** overlay 条目。domain 的 value 用 overlay 写法：x = 根域 + 子域，.x = 仅子域，=x = 仅此域名。 */
 export type OverlayKind = "domain" | "cidr" | "host" | "process" | "bypass";
-export interface OverlayEntry { kind: OverlayKind; value: string; ip?: string; line?: number }
-export interface OverlayItems {
-  path: string; entries: OverlayEntry[];
-  system_hosts: { name: string; addrs: string[] }[]; system_hosts_total: number; system_hosts_off?: boolean;
-}
+export interface OverlayEntry extends Omit<W.OverlayEntry, "kind"> { kind: OverlayKind }
+export interface OverlayItems extends Omit<W.OverlayItems, "entries"> { entries: OverlayEntry[] }
 
 const inTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
