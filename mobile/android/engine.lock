@@ -1,6 +1,5 @@
 # 预编译的 Android 核心（私有仓库 Foreverwzh/velum-engine 的 GitHub Release android-v<version>）。
 # 由 velum-engine 的 scripts/release-android.sh 发布并打印 version、sha256；scripts/core.sh 下载时校验 sha256。
-# 还没有发布过：本机有 velum-engine 源码时从源码编译，CI 要等第一次发布后填上。
 repo=Foreverwzh/velum-engine
-version=
-sha256=
+version=0.1.0
+sha256=08d5befca70f33c29c4008323d9ed792f63dcbc8f61b33274f787595c865d1b4
