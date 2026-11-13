@@ -29,9 +29,6 @@ func (fakeHost) FindOwner(proto int32, src string, sport int32, dst string, dpor
 }
 
 func TestStartStop(t *testing.T) {
-	if !fullEngine {
-		t.Skip("velumonly 构建不支持 Start")
-	}
 	if runtime.GOOS == "windows" {
 		t.Skip("mobilebind 只用于移动端；Windows 上本地接口为 Named Pipe")
 	}
@@ -64,9 +61,6 @@ func TestStartStop(t *testing.T) {
 
 // macOS 系统扩展：本地接口为回环 TCP + 令牌，令牌错误的客户端连不上。
 func TestStartTCP(t *testing.T) {
-	if !fullEngine {
-		t.Skip("velumonly 构建不支持 Start")
-	}
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -140,9 +134,6 @@ func (f *fakeProxyHost) calls() []string {
 
 // macOS 系统扩展：系统代理交给宿主放进隧道参数；打开时下发地址，关闭时清除，相同设置不重复下发。
 func TestSystemProxyViaHost(t *testing.T) {
-	if !fullEngine {
-		t.Skip("velumonly 构建不支持 Start")
-	}
 	if runtime.GOOS == "windows" {
 		t.Skip("mobilebind 只用于移动端与 macOS 系统扩展")
 	}

@@ -9,14 +9,11 @@ package mobilebind
 import (
 	"bytes"
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"github.com/Foreverwzh/velum/core/pkg/i18n"
 	"io"
 	"log"
-	"net"
 	"net/http"
 	"net/netip"
 	"path/filepath"
@@ -26,7 +23,6 @@ import (
 	"github.com/Foreverwzh/velum/core/pkg/config"
 	"github.com/Foreverwzh/velum/core/pkg/daemon"
 	"github.com/Foreverwzh/velum/core/pkg/engine"
-	"github.com/Foreverwzh/velum/core/pkg/ipc"
 	"github.com/Foreverwzh/velum/core/pkg/logfile"
 	"github.com/Foreverwzh/velum/core/pkg/netsense"
 	"github.com/Foreverwzh/velum/core/pkg/rpc"
@@ -129,44 +125,6 @@ func Start(home string, host Host) error {
 	})
 }
 
-// StartSplit 是 iOS 的入口：daemon 在 App 进程，内核在隧道扩展里（core/iostunnel）。
-// 本地接口用回环 TCP + 令牌：App Group 路径可能超过 Unix socket 的长度限制。界面经 Call 访问。
-func StartSplit(home string, host TunnelHost) error {
-	if host == nil {
-		return i18n.New("host 不能为空")
-	}
-	mu.Lock()
-	if socket == "" {
-		a, err := loopbackAddr()
-		if err != nil {
-			mu.Unlock()
-			return err
-		}
-		socket = a
-	}
-	mu.Unlock()
-	return start(home, func(paths config.Paths, lf io.Writer, logger *log.Logger) (*daemon.Daemon, error) {
-		se := newSplitEngine(home, host, newLocalEngine(home, host, lf))
-		se.onAdopt = TunRequested
-		d := daemon.New(paths, se, logger)
-		d.Render = renderer
-		d.SystemConnectivity = true
-		d.NetSnapshot = func() (netsense.Snapshot, error) { return snapshot(host.Network()) }
-		return d, nil
-	})
-}
-
-// Call 发送一次本地接口请求，返回响应正文。接口报错（如校验失败）时 error 是给用户看的原因。
-func Call(method, path string, body []byte) ([]byte, error) {
-	mu.Lock()
-	inst := cur
-	mu.Unlock()
-	if inst == nil {
-		return nil, i18n.New("核心未运行")
-	}
-	return inst.call(method, path, body)
-}
-
 // call 在进程内调用本地接口，不经过端口：App 挂起时系统会回收监听端口。
 func (i *instance) call(method, path string, body []byte) ([]byte, error) {
 	req, err := http.NewRequest(method, "http://velumd"+path, bytes.NewReader(body))
@@ -195,19 +153,6 @@ type recorder struct {
 func (r *recorder) Header() http.Header         { return r.header }
 func (r *recorder) Write(b []byte) (int, error) { return r.body.Write(b) }
 func (r *recorder) WriteHeader(code int)        { r.code = code }
-
-func loopbackAddr() (string, error) {
-	l, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		return "", err
-	}
-	defer l.Close()
-	b := make([]byte, 24)
-	if _, err := rand.Read(b); err != nil {
-		return "", err
-	}
-	return ipc.TCPAddr(l.Addr().String(), hex.EncodeToString(b)), nil
-}
 
 func start(home string, build func(config.Paths, io.Writer, *log.Logger) (*daemon.Daemon, error)) error {
 	mu.Lock()

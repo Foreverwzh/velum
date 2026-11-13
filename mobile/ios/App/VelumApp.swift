@@ -9,10 +9,6 @@ struct VelumApp: App {
             return AppModel(core: DemoCore(DemoCore.Scenario(rawValue: name) ?? .protected))
         }
         #endif
-        #if !VELUM_ONLY
-        // 对照用：启动参数 -VelumGoCore YES 改用 Go 核心（上架构建不含 Go）
-        if UserDefaults.standard.bool(forKey: "VelumGoCore") { return AppModel(core: RealCore()) }
-        #endif
         return AppModel(core: RustCore())
     }()
 

@@ -2,6 +2,11 @@
 
 > 对应 ARCHITECTURE §3.4 / §7 M3。内存验证见 `spikes/ios-memory/README.md`。
 
+> **2026-11-13 起 iOS 不含 Go**：App 用 Rust 控制面（velum-engine 的 velum-core，`VelumCore.xcframework`），
+> 隧道扩展只用 velum-engine（`VelumEngine.xcframework`），由 `scripts/engine.sh` 准备。Go 的 iOS 入口（`core/iostunnel`、
+> `mobilebind.StartSplit`、`core/pkg/engine/tunnelproto`）和 sing-box 内核开关已删除。下文里讲 Go 核心切分的部分是当时的设计，
+> 进程切分、App Group 文件和消息格式由 velum-core 按同样的方式实现。
+
 ## 已确认（2026-11-06）
 
 | 问题 | 结论 |
@@ -90,7 +95,7 @@ iOS 与 Android 的根本区别：界面和隧道必须是两个进程，隧道�
 模拟器上验证过：界面和交互（演示数据，7 条流程）；真实核心的订阅转换、Explain、切换节点、本地内核（2 条流程）；转发引擎和扩展入口的单元测试。**模拟器运行不了隧道，隧道本身只能在真机验证。**
 
 ```sh
-cd mobile/ios && sh scripts/core.sh && xcodegen generate
+cd mobile/ios && sh scripts/engine.sh && xcodegen generate
 xcodebuild test -project Velum.xcodeproj -scheme Velum -destination 'platform=iOS Simulator,name=iPhone 17' CODE_SIGNING_ALLOWED=NO
 ```
 

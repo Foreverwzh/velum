@@ -75,8 +75,6 @@ struct Status: Codable, Hashable {
     var wantTun: Bool
     var starting: Bool?
     var domainFirst: Bool?
-    /// 隧道内核：空为 sing-box，velum 为 velum-engine（对照测试期间可切换）。
-    var tunEngine: String?
     var warnings: Int
     var lastError: String?
     var groups: [GroupStatus]?
@@ -211,7 +209,6 @@ protocol VelumCore: AnyObject, Sendable {
     func warnings() async throws -> [Warning]
     func setTunnel(on: Bool) async throws -> Status
     func setDomainFirst(_ on: Bool) async throws -> Status
-    func setTunEngine(_ engine: String) async throws -> Status
     func select(group: String, member: String) async throws -> Status
     func test(group: String) async throws -> [String: Int]
     func why(target: String) async throws -> WhyResponse

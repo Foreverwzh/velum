@@ -1,5 +1,5 @@
-// velum-engine 内核（tun.engine: velum）：配置由 App 编译成路由文件，这里 mmap 加载；App 消息按 tunnelproto 的 JSON
-// 交给引擎处理（reload 在这里重启引擎）。与 sing-box 内核二选一，见 PacketTunnelProvider。
+// velum-engine 内核（tun.engine: velum）：配置由 App 编译成路由文件，这里 mmap 加载；App 消息是 velum-core 发来的 JSON
+// 交给引擎处理（reload 在这里重启引擎）。
 import Darwin
 import Foundation
 import NetworkExtension
@@ -115,7 +115,7 @@ final class VelumTunnel {
                 _ = callLocked(["op": "select", "group": g, "member": m])
             }
         }
-        // 之后按当前网络执行 ssid-policy（同 sing-box 内核：手动选择在下一次换网前不会被改回）
+        // 之后按当前网络执行 ssid-policy（手动选择在下一次换网前不会被改回）
         if !net.0.isEmpty || !net.2.isEmpty {
             velum_engine_set_network(h, net.0, net.1, net.2)
         }

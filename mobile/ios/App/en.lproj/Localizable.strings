@@ -73,7 +73,6 @@
 "撤销" = "Undo";
 "数据" = "Data";
 "无法推演" = "Cannot trace";
-"时间格式无效：%@" = "Invalid time format: %@";
 "更换或更新订阅" = "Replace or update the subscription";
 "更新" = "Update";
 "更新于 %@" = "Updated %@";
@@ -104,7 +103,6 @@
 "正在连接…" = "Connecting…";
 "没有 VPN 权限：再次连接时，在系统弹窗中点“允许”" = "No VPN permission: connect again and tap Allow in the system prompt";
 "没有 VPN 配置：再次连接时，在系统弹窗中点“允许”" = "No VPN configuration: connect again and tap Allow in the system prompt";
-"没有 provider" = "No provider";
 "没有匹配的线路" = "No matching route";
 "没有名字包含 “%@” 的节点或策略组。" = "No node or group has “%@” in its name.";
 "没有失败的连接" = "No failed connections";
@@ -205,9 +203,6 @@
 "内核未运行" = "The engine is not running";
 "编译路由失败：%@" = "Failed to compile routes: %@";
 "配置不是 velum-engine 的" = "The configuration is not for velum-engine";
-"使用 velum-engine 内核" = "Use the velum-engine core";
-"内核（测试）" = "Core (testing)";
-"隧道改用 velum-engine。切换后隧道会重新加载，现有连接会断开。" = "The tunnel uses velum-engine instead. Switching reloads the tunnel and drops current connections.";
 "第三方组件" = "Third-party components";
 "重新拉取订阅和规则、检查隧道、测速，再实际访问一次互联网。" = "Fetches the subscription and rules again, checks the tunnel, tests nodes, then actually reaches the internet once.";
 "还没有连接：这是连接后会怎么走（与隧道里的规则相同）" = "Not connected: this is how it would go once connected (same rules as the tunnel)";

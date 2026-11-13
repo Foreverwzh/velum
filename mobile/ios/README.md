@@ -1,9 +1,9 @@
 # Velum iOS（SwiftUI）
 
-设计、架构与进度见 [`docs/IOS-PLAN.md`](../../docs/IOS-PLAN.md)。隧道还没有在真机上验证。
+设计、架构与进度见 [`docs/IOS-PLAN.md`](../../docs/IOS-PLAN.md)。不含 Go：App 用 Rust 控制面（velum-core），隧道扩展用 velum-engine。
 
 ```sh
-sh scripts/core.sh       # Go 核心 → build/*.xcframework
+sh scripts/engine.sh     # velum-engine（Rust）→ build/VelumCore.xcframework、build/VelumEngine.xcframework
 xcodegen generate        # 生成 Velum.xcodeproj（不入库）
 xcodebuild test -project Velum.xcodeproj -scheme Velum \
   -destination 'platform=iOS Simulator,name=iPhone 17' CODE_SIGNING_ALLOWED=NO
@@ -11,8 +11,8 @@ xcodebuild test -project Velum.xcodeproj -scheme Velum \
 
 ## 发 TestFlight
 
-推送 `v*` 标签时，`release.yml` 调用 `ios.yml`，在 `macos-26` 上跑 `scripts/build-ios.sh --upload --store`
-（上架构建，不含 sing-box；预编译的 velum-engine 按 `engine.lock` 从私有仓库的 Release 下载并校验 sha256）：
+推送 `v*` 标签时，`release.yml` 调用 `ios.yml`，在 `macos-26` 上跑 `scripts/build-ios.sh --upload`
+（预编译的 velum-engine 按 `engine.lock` 从私有仓库的 Release 下载并校验 sha256）：
 版本号是标签去掉 `-rc.N`，构建号是 UTC 时间（`%y%j%H%M`）。传完在 App Store Connect 处理好后出现在 TestFlight，
 只发内部测试组。本地出包：`sh scripts/build-ios.sh`（用 Xcode 里登录的账号签名，产物在 `build/ipa/`）。
 

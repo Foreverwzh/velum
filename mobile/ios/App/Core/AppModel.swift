@@ -102,10 +102,6 @@ final class AppModel {
         }
     }
 
-    func setTunEngine(_ velum: Bool) async {
-        do { status = try await core.setTunEngine(velum ? "velum" : "") } catch { actionError = error.localizedDescription }
-    }
-
     func setDomainFirst(_ on: Bool) async {
         do { status = try await core.setDomainFirst(on) } catch { actionError = error.localizedDescription }
     }

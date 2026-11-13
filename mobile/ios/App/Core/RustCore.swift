@@ -58,7 +58,6 @@ final class RustCore: VelumCore, @unchecked Sendable {
     func deleteProfile(id: String) async throws -> Status { Self.map(try await run { try $0.deleteProfile(id: id) }) }
 
     // 隧道里只有 velum-engine，没有可切换的内核
-    func setTunEngine(_ engine: String) async throws -> Status { try await status() }
 
     func traffic() async throws -> Traffic {
         let t = try await run { $0.traffic() }
@@ -106,7 +105,7 @@ final class RustCore: VelumCore, @unchecked Sendable {
                     fetchedAt: date(p.fetchedAt), info: map(p.info))
         }
         return Status(version: s.version, running: true, tunOn: s.tunnel.on, wantTun: s.tunnel.wanted, starting: s.tunnel.busy,
-                      domainFirst: s.domainFirst, tunEngine: "velum", warnings: Int(s.warnings), lastError: s.lastError,
+                      domainFirst: s.domainFirst, warnings: Int(s.warnings), lastError: s.lastError,
                       groups: groups, subscription: sub, profiles: profiles, network: nil)
     }
 

@@ -1,5 +1,5 @@
 // 真机：Rust 控制面（默认的核心）开关隧道。只在设了 VELUM_DEVICE 时运行（TEST_RUNNER_VELUM_DEVICE=1）。
-// 订阅沿用 Go 版保存的（第一次启动时 velum-core 从 profiles.yaml / config.yaml 导入）；没有时用 SUB_URL 添加。
+// 订阅沿用已保存的（早期版本留下的 profiles.yaml / config.yaml 会在第一次启动时导入）；没有时用 SUB_URL 添加。
 // 用系统浏览器打开网址产生经隧道的流量（测试进程自己可能没有「无线数据」权限），结束时断开。
 import XCTest
 

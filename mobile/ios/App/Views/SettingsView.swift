@@ -39,21 +39,6 @@ struct SettingsView: View {
                 } footer: {
                     Text("先匹配所有域名规则，都没命中才解析 DNS 并匹配 IP 规则，可以少查 DNS。排在前面的 IP 规则不再优先于后面的域名规则。")
                 }
-                #if !VELUM_ONLY
-                // 只有 Go 核心（对照用）能在 sing-box 与 velum-engine 之间切换；Rust 控制面只有 velum-engine
-                if model.core is RealCore {
-                Section {
-                    Toggle(isOn: Binding(get: { model.status?.tunEngine == "velum" },
-                                         set: { v in Task { await model.setTunEngine(v) } })) {
-                        Label("使用 velum-engine 内核", systemImage: "cpu")
-                    }
-                } header: {
-                    Text("内核（测试）")
-                } footer: {
-                    Text("隧道改用 velum-engine。切换后隧道会重新加载，现有连接会断开。")
-                }
-                }
-                #endif
                 Section {
                     Button {
                         Task {

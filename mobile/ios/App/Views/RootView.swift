@@ -34,9 +34,6 @@ struct RootView: View {
         .fullScreenCover(isPresented: $model.onboarding) { OnboardingView() }
         .task(id: phase) {
             guard phase == .active else { return }
-            #if !VELUM_ONLY
-            (model.core as? RealCore)?.tunnel.reconcile()
-            #endif
             (model.core as? RustCore)?.tunnel.reconcile()
             (model.core as? RustCore)?.foreground()
             // 只读文件，与用哪个核心无关（演示数据时不做）
