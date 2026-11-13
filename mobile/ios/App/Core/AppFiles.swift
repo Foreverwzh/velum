@@ -58,6 +58,20 @@ enum AppFiles {
         }
     }
 
+    /// 最近的连接（域名、命中的规则、出站链）写到 Documents/logs/connections.json，调试分流时从设备上取。
+    /// 前台轮询时调用，最多每 5 秒写一次。
+    @MainActor private static var connectionsSavedAt = Date.distantPast
+    @MainActor static func saveConnections(_ c: [Connection]) {
+        guard Date.now.timeIntervalSince(connectionsSavedAt) >= 5 else { return }
+        connectionsSavedAt = .now
+        let dest = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("logs/connections.json")
+        let enc = JSONEncoder()
+        enc.dateEncodingStrategy = .iso8601
+        enc.outputFormatting = [.prettyPrinted, .sortedKeys]
+        if let d = try? enc.encode(c) { try? d.write(to: dest) }
+    }
+
     /// 隧道扩展的内存读数（扩展最多隔一分钟写一行，休眠时不写）：当前、峰值、系统上限，单位 MB。
     static func tunnelMemory() -> (current: Double, peak: Double, limit: Double)? {
         guard let line = try? String(contentsOf: Self.home().appendingPathComponent("tunnel/memory.txt"), encoding: .utf8) else { return nil }

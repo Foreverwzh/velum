@@ -80,7 +80,10 @@ final class AppModel {
     }
 
     func refreshActivity() async {
-        if let c = try? await core.connections() { connections = c }
+        if let c = try? await core.connections() {
+            connections = c
+            if isRealCore { AppFiles.saveConnections(c) }
+        }
     }
 
     func refreshWarnings() async {
