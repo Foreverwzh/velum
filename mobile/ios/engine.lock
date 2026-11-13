@@ -1,8 +1,8 @@
 # 上架构建使用的预编译 velum-engine（私有仓库 Foreverwzh/velum-engine 的 GitHub Release ios-v<version>）。
 # 由 velum-engine 的 scripts/release-ios.sh 发布并打印这几行；scripts/engine.sh 下载时校验 sha256。
 repo=Foreverwzh/velum-engine
-version=0.3.1
-sha256=d82a4e4b87a4cdd84d3eba18e52fed111649368f76e24d54a280011b4690f271
-core_sha256=d42a8b4bd6c460564a04b233577882bc83e0e5692c0ff001e8319c224f87cbf8
-core_swift_sha256=d2813c79242359d93fbfcd1b8acc37f7b9348518d946c1bbc5c7160f327e1b85
+version=0.3.2
+sha256=ecd7d731876d5bff2d4783322988b5e43912aa6f6ada936621d63c04dba3759c
+core_sha256=8f753b27f5611a27d0d355805023dffdf03989db861bb3fcc708695eee6e0355
+core_swift_sha256=624c89232e4523fd352365b07155eda34834634fd5186b6303c8b2a8e87b0f59
 notices_sha256=838662414f365e6a6b90f1ed76af3e4a6e9d979b1439f9248d68a029162430b3
