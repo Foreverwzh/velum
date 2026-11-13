@@ -1,6 +1,6 @@
 #!/bin/sh
 # 桌面端与 Linux 用的 Rust 核心（velum-engine，闭源，不在本仓库）：
-#   sh desktop/scripts/engine.sh core <目标三元组> <输出目录>   velumd、vlu（如 x86_64-apple-darwin、x86_64-unknown-linux-gnu）
+#   sh desktop/scripts/engine.sh core <目标三元组> <输出目录>   velumd、vlu，macOS 另有 velum-helper（如 x86_64-apple-darwin）
 #   sh desktop/scripts/engine.sh macext <输出目录>             macOS 系统扩展的核心：lib/libvelum_macext.a、include/（arm64 + x86_64）
 #   sh desktop/scripts/engine.sh notices <文件>                velum-engine 的第三方声明
 #   sh desktop/scripts/engine.sh wire [--check]                 重新生成 desktop/src/wire.ts（本地接口的数据类型，只能从源码）
@@ -39,10 +39,12 @@ case "$what" in
     if from_source; then
       case "$triple" in
         *-linux-*) (cd "$src" && cargo zigbuild -q --release --target "$triple.2.31" -p velum-daemon --bins 2>/dev/null) ;;
-        *-apple-darwin) (cd "$src" && MACOSX_DEPLOYMENT_TARGET=12.0 cargo build -q --release --target "$triple" -p velum-daemon --bins) ;;
+        *-apple-darwin) (cd "$src" && MACOSX_DEPLOYMENT_TARGET=12.0 cargo build -q --release --target "$triple" -p velum-daemon --bins &&
+          MACOSX_DEPLOYMENT_TARGET=12.0 cargo build -q --release --target "$triple" -p velum-helper) ;;
         *) echo "engine: 还不支持 $triple" >&2; exit 1 ;;
       esac
       cp "$src/target/$triple/release/velumd" "$src/target/$triple/release/vlu" "$out/"
+      case "$triple" in *-apple-darwin) cp "$src/target/$triple/release/velum-helper" "$out/" ;; esac
       echo "engine: velumd、vlu（${triple}，从源码编译）" >&2
     else
       key=$(echo "velum-core-$triple" | sed -E 's/[^A-Za-z0-9]+/_/g')
@@ -51,6 +53,8 @@ case "$what" in
       rm -rf "$tmp" && mkdir -p "$tmp"
       tar -xzf "$f" -C "$tmp"
       cp "$tmp"/*/velumd "$tmp"/*/vlu "$out/"
+      # macOS 的发布包里有 velum-helper（desktop-v0.2.0 起）
+      if [ -f "$tmp"/*/velum-helper ]; then cp "$tmp"/*/velum-helper "$out/"; fi
       rm -rf "$tmp"
       echo "engine: velumd、vlu（${triple}，下载，已校验 sha256）" >&2
     fi

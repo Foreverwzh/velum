@@ -72,8 +72,8 @@ jobs:
       - run: bun install --frozen-lockfile
       - name: typecheck + build frontend
         run: bun run typecheck && bun run check:i18n && bun run build
-      # tauri-build 会检查 externalBin 是否存在，需先准备核心（sidecars.sh；默认 Go，VELUM_CORE=rust 时按 desktop/engine.lock
-      # 从 velum-engine 的私有 Release 下载 Rust 的 velumd、vlu，VELUM_ENGINE_TOKEN 只读那个仓库）
+      # tauri-build 会检查 externalBin 是否存在，需先准备核心（sidecars.sh）：macOS 是 Rust 的 velumd、vlu、velum-helper
+      # （按 desktop/engine.lock 从 velum-engine 的私有 Release 下载，VELUM_ENGINE_TOKEN 只读那个仓库）；Windows 是 Go
       - name: sidecars
         env:
           GH_TOKEN: ${{ secrets.VELUM_ENGINE_TOKEN }}
@@ -155,8 +155,6 @@ jobs:
               printf '%s' "$PROFILE_HOST" | base64 --decode > "$RUNNER_TEMP/host.provisionprofile"
               printf '%s' "$PROFILE_TUNNEL" | base64 --decode > "$RUNNER_TEMP/tunnel.provisionprofile"
               brew install xcodegen
-              (cd ../core && v=$(go list -m -f '{{.Version}}' golang.org/x/mobile) &&
-                go install golang.org/x/mobile/cmd/gomobile@$v golang.org/x/mobile/cmd/gobind@$v)
               VELUM_PROFILE_HOST="$RUNNER_TEMP/host.provisionprofile" VELUM_PROFILE_TUNNEL="$RUNNER_TEMP/tunnel.provisionprofile" \
                 sh extension/build.sh
               conf="$(cat src-tauri/tauri.ne.conf.json)"
