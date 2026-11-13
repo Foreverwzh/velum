@@ -134,7 +134,23 @@ final class VelumTunnel {
     func stop() {
         watchdog?.cancel()
         watchdog = nil
-        lock.withLock { stopLocked() }
+        lock.withLock {
+            snapshotLocked("stop")
+            stopLocked()
+        }
+    }
+
+    /// 引擎停止前（重新加载、断开）把连接列表和策略组状态存到 tunnel/last-engine.json：重启会清空它们，
+    /// 而排查「刚才那一阵为什么都直连」正需要它们。App 同步日志时导出（AppFiles.syncLogs）。
+    private func snapshotLocked(_ why: String) {
+        guard let conns = callLocked(["op": "connections"]), let state = callLocked(["op": "state"]) else { return }
+        let c = (try? JSONSerialization.jsonObject(with: conns)) ?? NSNull()
+        let st = (try? JSONSerialization.jsonObject(with: state)) ?? NSNull()
+        let doc: [String: Any] = ["at": ISO8601DateFormatter().string(from: Date()), "why": why,
+                                  "net": [net.0, net.2], "connections": c, "state": st]
+        if let d = try? JSONSerialization.data(withJSONObject: doc) {
+            try? d.write(to: paths.dir.appendingPathComponent("last-engine.json"), options: .atomic)
+        }
     }
 
     /// 设备休眠 / 唤醒：休眠时自动组暂停测速。
@@ -161,6 +177,7 @@ final class VelumTunnel {
         return lock.withLock {
             if op == "reload" {
                 note("reload")
+                snapshotLocked("reload")
                 stopLocked()
                 do {
                     try startLocked()

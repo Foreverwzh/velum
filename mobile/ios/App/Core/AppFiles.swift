@@ -30,7 +30,8 @@ enum AppFiles {
 
     /// 把日志复制到 App 自己的 Documents/logs：App Group 里的文件 devicectl 取不到，Documents 可以
     /// （xcrun devicectl device copy from --domain-type appDataContainer --domain-identifier io.github.foreverwzh.velum --source Documents/logs）。
-    /// 包括隧道扩展的内核日志（含轮转出的 .1）、App 内 daemon 的日志，以及隧道配置里的 dns 部分
+    /// 包括隧道扩展的内核日志（含轮转出的 .1）、引擎上次停止前的连接与策略组状态（last-engine.json）、
+    /// App 内 daemon 的日志，以及隧道配置里的 dns 部分
     /// （查 DNS 规则用；不导出整份配置，里面有节点密码）。源文件不存在时删掉旧副本，免得拿到过期日志。
     static func syncLogs() {
         let fm = FileManager.default
@@ -42,6 +43,7 @@ enum AppFiles {
             (tunnelLog, "tunnel.log"),
             (URL(fileURLWithPath: tunnelLog.path + ".1"), "tunnel.log.1"),
             (home.appendingPathComponent("tunnel/velum.log"), "velum.log"),
+            (home.appendingPathComponent("tunnel/last-engine.json"), "last-engine.json"),
         ]
         for (src, name) in sources {
             let to = dest.appendingPathComponent(name)
