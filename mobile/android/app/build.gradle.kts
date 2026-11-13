@@ -47,7 +47,7 @@ android {
         }
     }
 
-    // 原生库压缩存放、安装时解压：Go 核心较大（每个架构约 46MB），侧载分发时下载体积更重要
+    // 原生库压缩存放、安装时解压：核心（libvelum_android.so）较大，侧载分发时下载体积更重要
     packaging {
         jniLibs {
             useLegacyPackaging = true
@@ -71,7 +71,4 @@ flutter {
     source = "../.."
 }
 
-dependencies {
-    // Go 核心（gomobile bind 生成，见 mobile/scripts/core.sh）
-    implementation(files("libs/velum.aar"))
-}
+// 核心：src/main/jniLibs/<abi>/libvelum_android.so，由 mobile/scripts/core.sh 从 velum-engine 编译

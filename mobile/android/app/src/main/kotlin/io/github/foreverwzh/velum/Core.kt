@@ -9,24 +9,19 @@ import android.net.NetworkRequest
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
-import android.os.Process
 import android.util.Log
-import io.github.foreverwzh.velum.core.mobilebind.Host
-import io.github.foreverwzh.velum.core.mobilebind.Mobilebind
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.net.Inet4Address
-import java.net.InetAddress
-import java.net.InetSocketAddress
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.concurrent.thread
 
 /**
- * Go 核心（daemon）在 App 进程内的入口：启动核心，并实现 Go 回调的 Host 接口。
- * 业务逻辑全部在 Go 中；界面经 HTTP over UDS（[socket]）访问核心，与桌面端相同。
+ * 核心（Rust，见 [RustCore]）在 App 进程内的入口：启动核心，并实现核心回调的 [RustCore.Host]。
+ * 业务逻辑全部在核心里；界面经 HTTP over UDS（[socket]）访问核心，与桌面端相同。
  */
-object Core : Host {
+object Core : RustCore.Host {
     private const val TAG = "Velum"
 
     private lateinit var app: Context
@@ -41,7 +36,7 @@ object Core : Host {
     @Volatile private var networkJSON = ""
 
     val home: String get() = File(app.filesDir, "velum").absolutePath
-    val socket: String get() = Mobilebind.socket(home)
+    val socket: String get() = File(home, "velumd.sock").absolutePath
 
     fun init(ctx: Context) {
         app = ctx.applicationContext
@@ -53,8 +48,10 @@ object Core : Host {
         if (running || !starting.compareAndSet(false, true)) return
         thread(name = "velum-core") {
             try {
-                Mobilebind.setLocale(java.util.Locale.getDefault().toLanguageTag())
-                Mobilebind.start(home, this)
+                val err = RustCore.start(
+                    home, socket, java.util.Locale.getDefault().toLanguageTag(), translations(), version(), this,
+                )
+                if (err != null) throw IllegalStateException(err)
                 running = true
                 startError = null
             } catch (e: Exception) {
@@ -66,42 +63,30 @@ object Core : Host {
         }
     }
 
+    /**
+     * 核心文字的英文表（assets/core-en.json，构建时由 scripts/core.sh 生成）：核心要的是文件路径，复制到 App 目录。
+     * 中文环境不需要（文字的原文就是中文）。
+     */
+    private fun translations(): String? {
+        if (java.util.Locale.getDefault().language == "zh") return null
+        return try {
+            val f = File(app.filesDir, "core-en.json")
+            app.assets.open("core-en.json").use { input -> f.outputStream().use { input.copyTo(it) } }
+            f.absolutePath
+        } catch (e: Exception) {
+            Log.w(TAG, "没有核心的英文表", e)
+            null
+        }
+    }
+
+    private fun version(): String =
+        app.packageManager.getPackageInfo(app.packageName, 0).versionName ?: ""
+
     override fun openTun(req: String): Int = VelumVpnService.open(app, JSONObject(req))
 
     override fun closeTun() = VelumVpnService.close()
 
     override fun network(): String = networkJSON
-
-    // uid → 包名（应用安装 / 卸载很少发生，进程内缓存即可；查不到的 uid 不缓存）
-    private val packages = android.util.LruCache<Int, List<String>>(256)
-
-    /** 查询 VPN 中一条连接所属的应用（只有当前生效的 VPN 应用可以调用 getConnectionOwnerUid）。 */
-    override fun findOwner(protocol: Int, srcAddr: String, srcPort: Int, dstAddr: String, dstPort: Int): String {
-        val cm = app.getSystemService(ConnectivityManager::class.java)
-        val uid = try {
-            cm.getConnectionOwnerUid(
-                protocol,
-                InetSocketAddress(InetAddress.getByName(srcAddr), srcPort),
-                InetSocketAddress(InetAddress.getByName(dstAddr), dstPort),
-            )
-        } catch (e: SecurityException) {
-            return "" // VPN 刚关闭 / 尚未生效
-        }
-        if (uid == Process.INVALID_UID) return ""
-        val pkgs = packages.get(uid) ?: ownerPackages(uid).also { if (it.isNotEmpty()) packages.put(uid, it) }
-        return JSONObject().put("uid", uid).put("packages", JSONArray(pkgs)).toString()
-    }
-
-    /**
-     * uid 对应的包名。共享 uid（如系统 uid 1000 下有上百个包）时把 uid 名称（如 android.uid.system:1000）放在最前，
-     * 核心以第一个作为连接的进程名，避免显示成其中任意一个包。
-     */
-    private fun ownerPackages(uid: Int): List<String> {
-        val pm = app.packageManager
-        val pkgs = pm.getPackagesForUid(uid)?.toList() ?: emptyList()
-        if (pkgs.size <= 1) return pkgs
-        return listOfNotNull(pm.getNameForUid(uid)) + pkgs
-    }
 
     /**
      * 跟踪物理网络（排除 VPN）。不能用默认网络回调：Velum 虽已从 VPN 中排除，回调仍会报告 VPN 网络，
@@ -146,7 +131,7 @@ object Core : Host {
         })
     }
 
-    /** 转换为 mobilebind.Network 的 JSON。IPv4 DNS 排在前面（核心取第一个作为系统 DNS）。 */
+    /** 转换为核心要的物理网络 JSON（velum-daemon 的 platform::HostNetwork）。IPv4 DNS 排在前面（核心取第一个作为系统 DNS）。 */
     private fun describe(lp: LinkProperties): String {
         val dns = lp.dnsServers.sortedBy { if (it is Inet4Address) 0 else 1 }.mapNotNull { it.hostAddress }
         val gw = lp.routes.firstOrNull { it.isDefaultRoute && it.gateway is Inet4Address }?.gateway?.hostAddress

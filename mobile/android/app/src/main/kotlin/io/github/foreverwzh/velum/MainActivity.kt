@@ -14,7 +14,7 @@ import io.flutter.plugin.common.MethodChannel
 import java.io.ByteArrayOutputStream
 import kotlin.concurrent.thread
 
-/** Flutter 界面的宿主。界面经 UDS 直接访问核心；这里只提供 Go 做不到的平台操作（VPN 授权、通知权限、应用列表）。 */
+/** Flutter 界面的宿主。界面经 UDS 直接访问核心；这里只提供核心做不到的平台操作（VPN 授权、通知权限、应用列表）。 */
 class MainActivity : FlutterActivity() {
     companion object {
         private const val REQ_VPN = 1

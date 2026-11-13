@@ -28,7 +28,7 @@ jobs:
       GOPROXY: https://proxy.golang.org,direct
       VELUM_VERSION: ${{ inputs.version }} # 仅发布时非空
     steps:
-      # 运行器磁盘有限：Go 核心编译三个架构、Gradle 打包都占空间，先删掉用不到的工具链
+      # 运行器磁盘有限：Gradle 打包占空间，先删掉用不到的工具链
       - name: free disk space
         working-directory: .
         run: |
@@ -36,6 +36,7 @@ jobs:
           sudo docker image prune --all --force >/dev/null || true
           df -h /
       - uses: actions/checkout@v7
+      # Go 只用来导出核心文字的英文表（core/scripts/core-i18n.sh）
       - uses: actions/setup-go@v7
         with:
           go-version-file: core/go.mod
@@ -49,25 +50,33 @@ jobs:
           channel: stable
           flutter-version: 3.47.3
           cache: true
-      # gomobile / gobind 与 core/go.mod 中的 golang.org/x/mobile 同一版本
-      - name: gomobile
-        working-directory: core
+      # 核心（Rust）是预编译的：私有仓库 velum-engine 的 Release，版本与 sha256 见 mobile/android/engine.lock。
+      # 用 VELUM_ENGINE_TOKEN 下载（只读那个仓库内容的 fine-grained 令牌，与 iOS 共用）
+      - name: core
+        env:
+          GH_TOKEN: ${{ secrets.VELUM_ENGINE_TOKEN }}
         run: |
-          v=$(go list -m -f '{{.Version}}' golang.org/x/mobile)
-          go install golang.org/x/mobile/cmd/gomobile@$v golang.org/x/mobile/cmd/gobind@$v
-      # 运行器自带 Android SDK 与 NDK（$ANDROID_HOME/ndk 下取最新版本）
-      - name: core AAR
-        run: sh scripts/core.sh && go clean -cache && df -h /
+          # 还没有发布过 Android 核心（engine.lock 没有版本）：只检查 Dart，不打包；发版时必须有
+          if ! grep -q '^version=.' android/engine.lock; then
+            [[ -z "$VELUM_VERSION" ]] || { echo "✗ android/engine.lock 没有版本：先用 velum-engine 的 scripts/release-android.sh 发布核心"; exit 1; }
+            echo "::warning::android/engine.lock 没有版本，跳过核心与 APK 打包"
+            echo "NO_CORE=1" >> "$GITHUB_ENV"
+            exit 0
+          fi
+          [[ -n "$GH_TOKEN" ]] || { echo "✗ 没配置 VELUM_ENGINE_TOKEN（读 velum-engine 的 Release）"; exit 1; }
+          sh scripts/core.sh && go clean -cache && df -h /
       - run: flutter pub get
       - name: analyze + test
         run: flutter analyze && flutter test
       # 未配置 key.properties 时为调试签名，仅供测试安装
       - name: build APK
+        if: env.NO_CORE != '1'
         run: |
           flutter build apk --release --split-per-abi ${VELUM_VERSION:+--build-name=$VELUM_VERSION --build-number=$GITHUB_RUN_NUMBER}
           cd build/app/outputs/flutter-apk
           for f in app-*-release.apk; do abi=${f#app-}; mv "$f" "Velum-${VELUM_VERSION:-dev}-android-${abi%-release.apk}.apk"; done
       - uses: actions/upload-artifact@v7
+        if: env.NO_CORE != '1'
         with:
           name: velum-android
           path: mobile/build/app/outputs/flutter-apk/Velum-*.apk

@@ -49,3 +49,5 @@ app.*.map.json
 
 # Go 核心 AAR（scripts/core.sh 生成）
 /android/app/libs/
+/android/app/src/main/jniLibs/
+/android/app/src/main/assets/core-en.json

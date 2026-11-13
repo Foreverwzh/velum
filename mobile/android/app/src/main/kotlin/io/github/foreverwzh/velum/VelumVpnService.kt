@@ -10,7 +10,6 @@ import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.net.VpnService
 import android.os.Build
-import io.github.foreverwzh.velum.core.mobilebind.Mobilebind
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.CompletableFuture
@@ -18,7 +17,7 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
 
 /**
- * 建立 VPN 的平台层（对应 macOS 的 velum-helper）：由 Go 核心经 [Core.openTun] 调用，
+ * 建立 VPN 的平台层（对应 macOS 的 velum-helper）：由核心经 [Core.openTun] 调用，
  * 按编译器给出的地址、路由、DNS 建立 VPN，把 TUN 的 FD 交给核心。服务以前台服务运行，保持进程存活。
  */
 class VelumVpnService : VpnService() {
@@ -61,7 +60,7 @@ class VelumVpnService : VpnService() {
         if (intent?.action != ACTION_START) {
             // 由系统直接拉起（「始终开启的 VPN」、开机自动连接）：启动核心并请求开启 TUN，核心随后经 open 建立 VPN
             Core.startAsync()
-            Mobilebind.tunRequested()
+            RustCore.tunRequested()
         }
         return START_NOT_STICKY
     }
@@ -74,7 +73,7 @@ class VelumVpnService : VpnService() {
 
     /** 用户在系统设置中断开，或被其他 VPN 取代：通知核心关闭 TUN 开关，核心随后调用 close。 */
     override fun onRevoke() {
-        if (Core.running) Mobilebind.tunRevoked() else shutdown()
+        if (Core.running) RustCore.tunRevoked() else shutdown()
     }
 
     private fun establish(req: JSONObject): Int {

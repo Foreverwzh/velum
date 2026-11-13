@@ -29,6 +29,7 @@ jobs:
     uses: ./.github/workflows/mobile.yml
     with:
       version: ${{ needs.version.outputs.version }}
+    secrets: inherit
 
   # 传 TestFlight，不产出 Release 附件，publish 不等它
   ios:
