@@ -36,11 +36,6 @@ jobs:
           sudo docker image prune --all --force >/dev/null || true
           df -h /
       - uses: actions/checkout@v7
-      # Go 只用来导出核心文字的英文表（core/scripts/core-i18n.sh）
-      - uses: actions/setup-go@v7
-        with:
-          go-version-file: core/go.mod
-          cache-dependency-path: core/go.sum
       - uses: actions/setup-java@v6
         with:
           distribution: temurin

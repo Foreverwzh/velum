@@ -33,11 +33,6 @@ jobs:
           xcode=$(ls -d /Applications/Xcode_[0-9]*.app | grep -vi beta | sort -V | tail -1)
           sudo xcode-select -s "$xcode"
           xcodebuild -version
-      - uses: actions/setup-go@v7
-        with:
-          go-version-file: core/go.mod
-          cache-dependency-path: core/go.sum
-      # iOS 不含 Go；Go 只用来导出核心文字的英文表（scripts/core-i18n.sh），不用 gomobile
       - name: xcodegen
         run: brew install xcodegen
       # 签名分两段，都是自动签名：

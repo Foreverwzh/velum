@@ -39,11 +39,6 @@ jobs:
       VELUM_VERSION: ${{ inputs.version }}
     steps:
       - uses: actions/checkout@v7
-      # Go 只用来生成核心的英文表（core/scripts/core-i18n.sh 导出 Go 版的条目）
-      - uses: actions/setup-go@v7
-        with:
-          go-version-file: core/go.mod
-          cache-dependency-path: core/go.sum
       # bun 版本由 mise.toml 固定
       - uses: jdx/mise-action@v5
       - name: build web ui

@@ -7,7 +7,7 @@
 #   需要 Rust（带 Android 目标）、Android SDK + NDK（ANDROID_HOME / ANDROID_NDK_HOME）；
 # - 否则（CI），或设了 VELUM_ENGINE_DOWNLOAD=1：按 android/engine.lock 从私有仓库的 GitHub Release 下载并校验 sha256，
 #   需要 gh 与能读那个仓库的令牌（GH_TOKEN）。
-# 英文表由 Go 导出（core/scripts/core-i18n.sh）。
+# 英文表由 core/scripts/core-i18n.sh 合并生成。
 #   ABIS  从源码编译时的 ABI，默认 "arm64-v8a armeabi-v7a x86_64"（32 / 64 位 ARM 真机、x86_64 模拟器）
 set -eu
 cd "$(dirname "$0")/.."

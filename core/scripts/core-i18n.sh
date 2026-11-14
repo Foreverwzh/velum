@@ -1,22 +1,19 @@
 #!/bin/sh
 # 生成 Rust 核心（velum-core、velumd、引擎）返回的文字的英文表（iOS App、桌面安装包共用）：
 #   sh core/scripts/core-i18n.sh <输出的 JSON>
-# = Go 版的英文表（core/pkg/i18n/en.go，经 core/internal/i18ndump 导出）+ 只有 Rust 用到的条目（core/i18n/core-en.json）。
+# = Go 版也在用的英文表（core/pkg/i18n/en.json）+ 只有 Rust 用到的条目（core/i18n/core-en.json）。不需要 Go。
 # 有 velum-engine 源码时（VELUM_ENGINE_DIR）检查它的 t("…") / tf("…") 是否都有译文、占位符是否一致，不一致就失败。
 set -eu
 out="${1:?用法：$0 <输出的 JSON>}"
 case "$out" in /* | [A-Za-z]:*) ;; *) out="$(pwd)/$out" ;; esac # Windows 的 D:/… 也是绝对路径
 cd "$(dirname "$0")/.."
 core=$(pwd)
-tmp=$(mktemp)
-trap 'rm -f "$tmp"' EXIT
-GOPROXY="${GOPROXY:-https://goproxy.cn,direct}" go run ./internal/i18ndump > "$tmp"
 src="${VELUM_ENGINE_DIR:-$(cd ../.. && pwd)/velum-engine}"
 # PYTHONUTF8：Windows 上 Python 默认按 cp1252 读写文件
-PYTHONUTF8=1 python3 - "$core" "$src" "$tmp" "$out" <<'PY'
+PYTHONUTF8=1 python3 - "$core" "$src" "$out" <<'PY'
 import glob, json, os, re, sys
-core, src, gofile, out = sys.argv[1:5]
-cat = json.load(open(gofile))
+core, src, out = sys.argv[1:4]
+cat = json.load(open(f"{core}/pkg/i18n/en.json"))
 own = json.load(open(f"{core}/i18n/core-en.json"))
 cat.update(own)
 # 译文要保留原文的占位符（个数、顺序都一样：tf 按顺序替换）
