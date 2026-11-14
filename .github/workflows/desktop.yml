@@ -60,7 +60,9 @@ jobs:
       GOPROXY: https://proxy.golang.org,direct
     steps:
       - uses: actions/checkout@v7
+      # Go 只有 Windows 的核心要用（sidecars.sh）
       - uses: actions/setup-go@v7
+        if: runner.os == 'Windows'
         with:
           go-version-file: core/go.mod
           cache-dependency-path: core/go.sum
@@ -73,7 +75,7 @@ jobs:
       - name: typecheck + build frontend
         run: bun run typecheck && bun run check:i18n && bun run build
       # tauri-build 会检查 externalBin 是否存在，需先准备核心（sidecars.sh）：macOS 是 Rust 的 velumd、vlu、velum-helper
-      # （按 desktop/engine.lock 从 velum-engine 的私有 Release 下载，VELUM_ENGINE_TOKEN 只读那个仓库）；Windows 是 Go
+      # （按 desktop/engine.lock 从 velum-engine 的私有 Release 下载，VELUM_ENGINE_TOKEN 只读那个仓库）；Windows 还是 Go
       - name: sidecars
         env:
           GH_TOKEN: ${{ secrets.VELUM_ENGINE_TOKEN }}
@@ -106,7 +108,9 @@ jobs:
       VELUM_VERSION: ${{ inputs.version }} # 仅发布（或手动触发时填写了版本号）时非空
     steps:
       - uses: actions/checkout@v7
+      # Go 只有 Windows 的核心要用（sidecars.sh）
       - uses: actions/setup-go@v7
+        if: runner.os == 'Windows'
         with:
           go-version-file: core/go.mod
           cache-dependency-path: core/go.sum

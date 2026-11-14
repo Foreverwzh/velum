@@ -1,14 +1,9 @@
-// 在系统扩展里运行完整的 Velum 核心：Go 版（core/mobilebind，与 Android 相同的入口），
-// 或 Rust 版（velum-engine 的 velum-macext，编译条件 VELUM_RUST_CORE，见 build.sh 的 VELUM_CORE=rust）。
-// 两者的宿主能力相同：核心经 Host.openTun 申请 TUN（这里设置隧道网络参数，再把系统建好的 utun 的 FD 交给核心），
+// 在系统扩展里运行完整的 Velum 核心（velum-engine 的 velum-macext，见 build.sh）。
+// 核心经 Host.openTun 申请 TUN（这里设置隧道网络参数，再把系统建好的 utun 的 FD 交给核心），
 // 经 Host.setProxy 设置系统代理，经 Host.network 取物理网络。
 // 验证过程与各条约束的来历（F1～F10）见 spikes/mn-netext/README.md。
 import Foundation
-#if VELUM_RUST_CORE
 import VelumMacExt
-#else
-import Mobilebind
-#endif
 import NetworkExtension
 import SystemConfiguration
 import os
@@ -267,9 +262,8 @@ final class Host: NSObject {
     }
 }
 
-// 两种核心的入口。
+// 核心（velum-engine 的 velum-macext）的入口。
 enum Core {
-    #if VELUM_RUST_CORE
     static func version() -> String { take(velum_core_version()) }
     static func logPath(_ home: String) -> String { take(velum_core_log_path(home)) }
     static func stop() { velum_core_stop() }
@@ -318,38 +312,7 @@ enum Core {
         defer { velum_free(p) }
         return String(cString: p)
     }
-    #else
-    static func version() -> String { MobilebindVersion() }
-    static func logPath(_ home: String) -> String { MobilebindLogPath(home) }
-    static func stop() { MobilebindStop() }
-
-    static func start(home: String, socket: String, host: Host) -> Error? {
-        var e: NSError?
-        MobilebindSetSocket(socket)
-        let gh = GoHost(host)
-        MobilebindSetProxyHost(gh)
-        MobilebindStart(home, gh, &e)
-        return e
-    }
-    #endif
 }
-
-#if !VELUM_RUST_CORE
-/// Go 核心的回调接口（gomobile 生成的协议）转给 Host。
-final class GoHost: NSObject, MobilebindHostProtocol, MobilebindProxyHostProtocol {
-    let host: Host
-    init(_ host: Host) { self.host = host }
-    func openTun(_ req: String?, ret0_: UnsafeMutablePointer<Int32>?) throws {
-        ret0_?.pointee = try host.openTun(req)
-    }
-    func closeTun() { host.closeTun() }
-    func setProxy(_ req: String?) throws { try host.setProxy(req) }
-    func network() -> String { host.network() }
-    func findOwner(_ proto: Int32, srcAddr: String?, srcPort: Int32, dstAddr: String?, dstPort: Int32, error: NSErrorPointer) -> String {
-        ""
-    }
-}
-#endif
 
 func err(_ s: String) -> NSError {
     NSError(domain: "dev.velum.desktop.tunnel", code: 1, userInfo: [NSLocalizedDescriptionKey: s])

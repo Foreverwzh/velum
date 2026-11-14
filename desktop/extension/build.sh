@@ -26,35 +26,16 @@ group=$team.dev.velum
 : "${APPLE_SIGNING_IDENTITY:?需要 APPLE_SIGNING_IDENTITY（Developer ID Application）}"
 cd "$here"
 
-# 核心：VELUM_CORE=rust（默认）为 velum-engine 的 velum-macext 静态库（desktop/scripts/engine.sh：本机有源码就编译，
-# 否则按 desktop/engine.lock 下载）；go 为 Go 的 Mobilebind.xcframework。与 sidecars.sh 的默认一致。
-# build/core.xcconfig 给出头文件、链接参数与编译条件。
-core="${VELUM_CORE:-rust}"
+# 核心：velum-engine 的 velum-macext 静态库（desktop/scripts/engine.sh：本机有源码就编译，否则按 desktop/engine.lock 下载）。
+# build/core.xcconfig 给出头文件与链接参数。
 mkdir -p build
-case "$core" in
-  go)
-    tags="$(sed -n 's/^TAGS ?= //p' "$root/core/Makefile")"
-    ldflags="-s -w"
-    [ -n "${VELUM_VERSION:-}" ] && ldflags="$ldflags -X github.com/Foreverwzh/velum/core/pkg/daemon.Version=$VELUM_VERSION"
-    (cd "$root/core" && PATH="$(go env GOPATH)/bin:$PATH" gomobile bind -target macos -tags "$tags" -trimpath -ldflags "$ldflags" \
-      -o "$here/build/Mobilebind.xcframework" ./mobilebind)
-    cat >build/core.xcconfig <<EOF
-FRAMEWORK_SEARCH_PATHS = \$(PROJECT_DIR)/build/Mobilebind.xcframework/macos-arm64_x86_64
-OTHER_LDFLAGS = -framework Mobilebind -lresolv
-EOF
-    ;;
-  rust)
-    sh "$root/desktop/scripts/engine.sh" macext "$here/build/macext"
-    cat >build/core.xcconfig <<EOF
+sh "$root/desktop/scripts/engine.sh" macext "$here/build/macext"
+cat >build/core.xcconfig <<EOF
 SWIFT_INCLUDE_PATHS = \$(PROJECT_DIR)/build/macext/include
 LIBRARY_SEARCH_PATHS = \$(PROJECT_DIR)/build/macext/lib
 OTHER_LDFLAGS = -lvelum_macext -lresolv -lc++ -framework Security -framework SystemConfiguration -framework CoreFoundation
-SWIFT_ACTIVE_COMPILATION_CONDITIONS = \$(inherited) VELUM_RUST_CORE
 EOF
-    ;;
-  *) echo "VELUM_CORE 只能是 go 或 rust" >&2; exit 1 ;;
-esac
-# 核心的英文表（Rust 核心随扩展打包、按语言加载）
+# 核心的英文表（随扩展打包、按语言加载）
 sh "$root/core/scripts/core-i18n.sh" "$here/build/core-en.json" >/dev/null
 
 xcodegen generate -q
@@ -144,8 +125,7 @@ fi
 # sidecar：与 Tauri 打包时相同的构建（velum-helper 只接受同一团队签名的 velumd），以 hardened runtime 签名、不带 entitlements
 # 目标架构与 tauri build --target 一致（TAURI_ENV_TARGET_TRIPLE，如 x86_64-apple-darwin），默认本机；扩展本身总是 arm64 + x86_64
 triple="${TAURI_ENV_TARGET_TRIPLE:-$(rustc -vV | sed -n 's/^host: //p')}"
-# sidecars.sh 按同一个 VELUM_CORE 取 velumd、vlu（Rust 或 Go），velum-helper 是 Go 的
-TAURI_ENV_TARGET_TRIPLE=$triple VELUM_TEAM_ID=$team VELUM_CORE=$core sh "$root/desktop/scripts/sidecars.sh" >/dev/null
+TAURI_ENV_TARGET_TRIPLE=$triple VELUM_TEAM_ID=$team sh "$root/desktop/scripts/sidecars.sh" >/dev/null
 mkdir -p "$out/bin"
 for b in velumd velum-helper vlu; do
   cp "$root/desktop/src-tauri/binaries/$b-$triple" "$out/bin/$b"
