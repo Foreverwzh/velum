@@ -12,7 +12,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 版本号，如 0.1.0-rc.29
+        description: 版本号，如 2026.1115.1（见 scripts/next-version.sh）
         type: string
         required: true
 

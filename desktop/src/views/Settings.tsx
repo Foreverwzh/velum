@@ -184,7 +184,7 @@ function Release({ status: s, refresh }: { status: Status; refresh: Refresh }) {
           {u?.available && u.url && !installing && <Button variant="ghost" onClick={() => run("open", () => native.openRelease(u.url!))}>{t("发布说明")}</Button>}
           {action}
         </Row>
-        <Row label={t("更新通道")} hint={channel === "beta" ? t("测试版：同时接收预发布版本（rc），更早用上新功能，可能不够稳定") : t("正式版：只接收正式版本")}>
+        <Row label={t("更新通道")} hint={channel === "beta" ? t("测试版：同时接收预发布版本，更早用上新功能，可能不够稳定") : t("正式版：只接收正式版本")}>
           <div className="inline-flex rounded-md border border-line p-0.5">
             {([["stable", t("正式版")], ["beta", t("测试版")]] as const).map(([id, label]) => (
               <button key={id} disabled={!!busy || !!installing} onClick={() => id !== channel && run("channel", () => api.setChannel(id))}

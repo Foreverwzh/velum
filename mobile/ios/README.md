@@ -13,7 +13,7 @@ xcodebuild test -project Velum.xcodeproj -scheme Velum \
 
 推送 `v*` 标签时，`release.yml` 调用 `ios.yml`，在 `macos-26` 上跑 `scripts/build-ios.sh --upload`
 （预编译的 velum-engine 按 `engine.lock` 从私有仓库的 Release 下载并校验 sha256）：
-版本号是标签去掉 `-rc.N`，构建号是 UTC 时间（`%y%j%H%M`）。传完在 App Store Connect 处理好后出现在 TestFlight，
+版本号是标签去掉 `-` 后缀（如 `2026.1115.1`），构建号是 UTC 时间（`%y%j%H%M`）。传完在 App Store Connect 处理好后出现在 TestFlight，
 只发内部测试组。本地出包：`sh scripts/build-ios.sh`（用 Xcode 里登录的账号签名，产物在 `build/ipa/`）。
 
 一次性准备：

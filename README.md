@@ -4,7 +4,7 @@
 
 > An explainable cross-platform proxy client (macOS / Windows / Linux / iOS / Android) that uses Clash-style subscriptions.
 
-> ⚠️ 项目处于预发布阶段（`v0.1.0-rc`），安装包未签名，适合愿意反馈问题的用户试用。
+> ⚠️ 项目处于早期阶段，适合愿意反馈问题的用户试用。版本号是发布日期：年.月日.当天序号（如 `2026.1115.1`）。
 
 ## 特点
 

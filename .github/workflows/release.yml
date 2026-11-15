@@ -1,6 +1,7 @@
 name: release
 
-# 推送版本标签（如 v0.1.0-rc.1）时打包各平台安装包并创建 GitHub Release；带 - 的标签发布为预发布版本。
+# 推送版本标签（如 v2026.1115.1，由 scripts/next-version.sh 生成：年.月日.当天序号）时打包各平台安装包并创建 GitHub Release；
+# 带 - 的标签（如 v2026.1115.1-beta）发布为预发布版本，只推给测试版通道。
 on:
   push:
     tags: ["v*"]

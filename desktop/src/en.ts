@@ -218,7 +218,7 @@ export const en = {
   "活动": "Activity",
   "流量": "Traffic",
   "测试版": "Beta",
-  "测试版：同时接收预发布版本（rc），更早用上新功能，可能不够稳定": "Beta: also receives prereleases (rc), with new features earlier but possibly less stable",
+  "测试版：同时接收预发布版本，更早用上新功能，可能不够稳定": "Beta: also receives prereleases, with new features earlier but possibly less stable",
   "测速": "Test",
   "测速 延迟 test": "Test latency",
   "测速全部节点": "Test all nodes",

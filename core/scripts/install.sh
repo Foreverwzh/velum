@@ -2,7 +2,7 @@
 # 安装 Velum 系统服务（Linux，需要 root 和 systemd）。重复执行就是升级，配置不变。
 #   sudo sh install.sh                     与 velumd、vlu 同目录时：安装这份
 #   sudo sh install.sh <压缩包>            安装本地压缩包（无法访问 GitHub 时用）；同目录有 SHA256SUMS 时校验
-#   sudo sh install.sh --version 0.1.0     下载指定版本并校验；不带参数时下载最新版本（含预发布版本）
+#   sudo sh install.sh --version 2026.1115.1   下载指定版本并校验；不带参数时下载最新版本（含预发布版本）
 set -eu
 repo=Foreverwzh/velum
 here="$(cd "$(dirname "$0")" 2>/dev/null && pwd || pwd)"

@@ -6,8 +6,8 @@
 #
 # App 用 Rust 控制面（VelumCore），隧道用 velum-engine：从本机的 velum-engine 编译或按 engine.lock 下载，附第三方声明。
 #
-# 版本号取 VELUM_VERSION，没设就取当前提交上的 v* 标签。Apple 只认纯数字的 x.y.z，所以去掉 -rc.N：
-# 同一版本的 rc 和正式版共用一个版本号，在 TestFlight 里靠构建号区分。构建号默认取 UTC 时间
+# 版本号取 VELUM_VERSION，没设就取当前提交上的 v* 标签（年.月日.当天序号，如 2026.1115.1）。
+# Apple 只认纯数字的 x.y.z，所以去掉 - 后缀（预发布），同一版本的预发布与正式版在 TestFlight 里靠构建号区分。构建号默认取 UTC 时间
 # （两位年、一年中的第几天、时、分），只增不减，又在 32 位整数以内；要指定就设 VELUM_IOS_BUILD_NUMBER。
 #
 # 签名是自动签名：本地用 Xcode 里登录的账号；没登录账号的机器（CI）设 ASC_KEY_PATH、ASC_KEY_ID、
@@ -33,7 +33,7 @@ if [ -z "$version" ]; then
 fi
 export VELUM_VERSION="$version"
 marketing="${version%%-*}"
-[[ "$marketing" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "版本号要是 x.y.z（可带 -rc.N）：$version"
+[[ "$marketing" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "版本号要是 x.y.z（可带 - 后缀）：$version"
 build_number="${VELUM_IOS_BUILD_NUMBER:-$(date -u +%y%j%H%M)}"
 [[ "$build_number" =~ ^[0-9]+$ ]] || die "构建号要是整数：$build_number"
 
