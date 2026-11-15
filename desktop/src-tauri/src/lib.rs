@@ -251,6 +251,9 @@ pub fn run() {
                     if let Err(e) = ensure_core() {
                         tray::refresh(&app, None, &e);
                     }
+                    // Windows：App 更新后，已装的 Velum 服务（TUN 组件）还是旧版本，替换它要管理员权限：启动时自动更新一次
+                    #[cfg(windows)]
+                    system::update_service_if_outdated();
                     // 网络扩展起不来、已退回 velumd：打开窗口，界面显示原因（开机启动时窗口默认不显示）
                     #[cfg(target_os = "macos")]
                     if netext::has_notice() {

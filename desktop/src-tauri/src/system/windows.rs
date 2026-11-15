@@ -117,6 +117,20 @@ pub fn helper_install() -> Result<(), String> {
     res
 }
 
+/// App 启动时：Velum 服务已安装但与 App 内置的 velumd 不一致（App 刚更新过），自动更新一次。
+/// 普通账号会弹一次 UAC 确认；取消或失败时保持原样，由界面提示「TUN 组件需要更新」。开发构建不做（免得覆盖装好的服务）。
+pub fn update_service_if_outdated() {
+    if cfg!(debug_assertions) {
+        return;
+    }
+    let Ok(st) = service_status() else { return };
+    if st["installed"].as_bool() == Some(true) && st["outdated"].as_bool() == Some(true) {
+        if let Err(e) = helper_install() {
+            eprintln!("自动更新 Velum 服务没有完成：{e}");
+        }
+    }
+}
+
 /// 卸载 Velum 服务，然后以用户身份重新启动 velumd（只有系统代理），App 继续可用。
 pub fn helper_uninstall() -> Result<(), String> {
     let home = velum::home();
