@@ -1,4 +1,4 @@
-// Velum 核心本地接口的客户端：HTTP over UDS，与桌面端 desktop/src/api.ts、core/pkg/rpc 保持一致。
+// Velum 核心本地接口的客户端：HTTP over UDS，与桌面端 desktop/src/api.ts、velumd 的本地接口（velum-engine 的 wire.rs）保持一致。
 // 核心运行在 App 进程内（Kotlin 的 Core 启动），socket 路径由原生层提供。
 
 import 'dart:async';

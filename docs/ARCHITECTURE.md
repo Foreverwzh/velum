@@ -7,7 +7,7 @@
 > **现状（2026-11，与下文的差异）**：下文是以「Go 核心 + sing-box」为前提写的设计，核心后来改成了 Rust：
 > velumd、vlu、velum-helper、macOS 系统扩展的核心、iOS 与 Android 的核心都来自私有仓库 velum-engine（自研引擎，不含 sing-box），
 > 本仓库按 `desktop/engine.lock`、`mobile/ios/engine.lock`、`mobile/android/engine.lock` 取预编译产物。
-> **只有 Windows 桌面端还在用本仓库的 Go 核心**（`core/`，含 sing-box），迁到 Rust 后 `core/` 整体退役。
+> Windows 桌面端也已迁到 Rust（velumd 以服务运行、wintun 建 TUN），**Go 核心（含 sing-box）已于 2026-11 删除**，历史见 git log。
 > 下文讲 sing-box、gomobile、Go 包结构的部分是当时的设计，Clash 语义、Overlay、NetworkSense、Explain 等行为约定仍然有效（Rust 核心按同样的约定实现）。
 
 ---
@@ -39,7 +39,7 @@
    - 开启企业 VPN（AnyConnect / EasyConnect 等）时，与代理争抢 DNS 与路由导致内网断联；
    - 进程异常退出后，系统代理设置残留指向已死端口，导致全机断网。
 4. **进程臃肿、语言栈复杂**：例如 Stash 混用 Swift + Go (`c-archive`) + Rust + 双 JS 引擎，单架构二进制 55MB+。
-   > Velum 自身也是多语言（Go / Rust / TS / Dart / Swift / Kotlin），但我们约束**业务逻辑只在核心中实现一次**（原为 Go 核心，现为 Rust 的 velum-engine；Windows 暂时仍是 Go），其余语言只做 UI 与极薄的平台胶水层（见 §3）。
+   > Velum 自身也是多语言（Go / Rust / TS / Dart / Swift / Kotlin），但我们约束**业务逻辑只在核心中实现一次**（原为 Go 核心，现为 Rust 的 velum-engine），其余语言只做 UI 与极薄的平台胶水层（见 §3）。
 
 ---
 
@@ -181,7 +181,7 @@ type PlatformHooks interface {
 | macOS | `velumd` | 用户（LaunchAgent） | Rust 核心（velum-engine）；开启网络扩展时核心改在系统扩展里运行 |
 | macOS | `velum-helper` | root（SMAppService LaunchDaemon） | utun、路由表、`SCPreferences` 系统代理、崩溃兜底（Rust，velum-engine） |
 | Windows | Tauri App | 用户 | UI、托盘、安装服务（UAC） |
-| Windows | `velumd` | SYSTEM（Windows Service） | Go 核心 + sing-box，wintun + 路由（唯一还在用 Go 核心的平台） |
+| Windows | `velumd` | SYSTEM（Windows Service） | Rust 核心（velum-engine），wintun + 路由 |
 | Linux 服务器（§3.7） | `velumd` | 专用用户 `velum` + `CAP_NET_ADMIN` 等（systemd 系统服务） | Rust 核心（velum-engine），本地端口；TUN 需明确开启 |
 | Linux 桌面（规划，§3.7） | Tauri App | 用户 | UI、托盘、安装服务（pkexec） |
 | Linux 桌面（规划，§3.7） | `velumd` | 安装用户 + `CAP_NET_ADMIN` 等（systemd 系统服务） | 同服务器 |
@@ -512,7 +512,7 @@ system_proxy:
 
 ## 6. 仓库目录结构
 
-> 下面是最初规划的目录结构。现状：`core/` 只剩 Windows 在用（`mobilebind/` 已删除）；macOS helper 不是 Swift，而是 velum-engine 里的 Rust；
+> 下面是最初规划的目录结构。现状：Go 的 `core/` 已删除（只剩英文表与 Linux 打包脚本）；macOS helper 不是 Swift，而是 velum-engine 里的 Rust；
 > macOS 系统扩展在 `desktop/extension/`；iOS 是 SwiftUI 原生（`mobile/ios`），Android 是 Flutter。
 
 ```text

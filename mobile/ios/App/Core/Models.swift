@@ -1,4 +1,4 @@
-// 核心本地接口的数据类型，与 core/pkg/rpc 保持一致（JSON 字段为蛇形命名）。
+// 核心本地接口的数据类型，与 velumd 的本地接口（velum-engine 的 wire.rs）保持一致（JSON 字段为蛇形命名）。
 import Foundation
 
 struct Source: Codable, Hashable {

@@ -22,7 +22,7 @@
 | 平台 | 状态 | TUN 实现 |
 | :--- | :--- | :--- |
 | macOS（Apple 芯片） | 预发布，日常使用中 | 特权 helper 创建 utun，文件描述符交给用户态核心；可选 NetworkExtension 系统扩展 |
-| Windows（x64） | 预发布，待真机验收 | 核心以 Windows 服务运行，使用 wintun |
+| Windows（x64） | 预发布，真机验证中 | 核心以 Windows 服务运行，使用 wintun |
 | Android 10+ | 预发布，模拟器验证通过 | VpnService，支持按应用分流 |
 | iOS | TestFlight 测试中 | NetworkExtension（Packet Tunnel） |
 | Linux（x64、arm64） | 服务器版预发布：systemd 服务、本地端口、TUN；桌面端计划中 | 核心自建 TUN 与策略路由 |
@@ -51,17 +51,14 @@ Linux 服务器：解压 Release 里的压缩包，运行 `sudo sh install.sh` �
 
 ## 从源码构建
 
-macOS、Linux、iOS、Android 的核心（velumd / vlu / velum-helper 等）来自独立仓库 velum-engine 的预编译产物，版本与校验和见各端的 `engine.lock`，
-构建时自动下载（需要能读取该仓库的 GitHub 令牌）。Windows 的核心仍是本仓库 `core/` 里的 Go 代码。
+各端的核心（velumd / vlu / velum-helper 等）来自独立仓库 velum-engine 的预编译产物，版本与校验和见各端的 `engine.lock`，
+构建时自动下载（需要能读取该仓库的 GitHub 令牌）。
 
-需要 Rust、[mise](https://mise.jdx.dev)（用于安装固定版本的 bun）；构建 Windows 版另外需要 Go（版本见 `core/go.mod`）。Android 另外需要 Flutter、Android SDK / NDK、JDK 17+。
+需要 Rust、[mise](https://mise.jdx.dev)（用于安装固定版本的 bun）。Android 另外需要 Flutter、Android SDK / NDK、JDK 17+。
 
 ```sh
 # 桌面 App（会先准备核心）
 cd desktop && mise install && bun install && bun tauri build
-
-# Windows 的 Go 核心
-cd core && make test
 
 # Android
 cd mobile && sh scripts/core.sh && flutter build apk --release --split-per-abi
@@ -78,4 +75,4 @@ cd mobile && sh scripts/core.sh && flutter build apk --release --split-per-abi
 
 Velum 以 [GPL-3.0-or-later](LICENSE) 发布。
 
-Windows 版的核心使用 [sing-box](https://github.com/SagerNet/sing-box)（GPL-3.0-or-later）作为数据面内核，但它是独立项目，与 sing-box 及其作者没有关联，也没有得到其认可。第三方组件及其许可证见 [NOTICE.md](NOTICE.md)。
+第三方组件及其许可证见 [NOTICE.md](NOTICE.md)。

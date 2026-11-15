@@ -1,5 +1,5 @@
-// velum-engine 的文件，App 与隧道扩展共用。约定见 core/pkg/engine/tunnelproto：
-// App（Go）写 meta.json（engine 为 velum 时）与 velum-ir.json / velum-rule-sets.json / velum-meta.json；
+// velum-engine 的文件，App 与隧道扩展共用：
+// App 的控制面（VelumCore）写 meta.json（engine 为 velum 时）与 velum-ir.json / velum-rule-sets.json / velum-meta.json；
 // 这里把它们编译成路由文件（App 进程里编译，扩展只加载；扩展发现产物缺失或过期时自己编译兜底）。
 import Foundation
 import VelumEngine
