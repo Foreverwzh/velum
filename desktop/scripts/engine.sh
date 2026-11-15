@@ -17,6 +17,9 @@ what="${1:?用法：$0 core <三元组> <目录> | macext <目录> | notices <�
 
 from_source() { [ -z "${VELUM_ENGINE_DOWNLOAD:-}" ] && [ -f "$src/crates/velum-macext/Cargo.toml" ]; }
 
+# sha256（Windows 的 Git Bash 没有 shasum，有 sha256sum；macOS 反过来）
+sha256() { if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1"; else shasum -a 256 "$1"; fi | cut -d' ' -f1; }
+
 # 下载并校验一个 Release 附件，打印本地路径
 fetch() { # 附件名 engine.lock 里的键
   lock() { sed -n "s/^$1=//p" "$here/engine.lock"; }
@@ -28,7 +31,7 @@ fetch() { # 附件名 engine.lock 里的键
   if [ ! -f "$dl/$name" ]; then
     gh release download "desktop-v$v" --repo "$repo" --dir "$dl" --pattern "$name" >&2
   fi
-  [ "$(shasum -a 256 "$dl/$name" | cut -d' ' -f1)" = "$sum" ] ||
+  [ "$(sha256 "$dl/$name")" = "$sum" ] ||
     { echo "$name 的 sha256 与 engine.lock 不符" >&2; rm -f "$dl/$name"; exit 1; }
   echo "$dl/$name"
 }
