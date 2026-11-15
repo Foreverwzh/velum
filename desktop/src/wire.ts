@@ -273,7 +273,7 @@ export interface WhyRequest {
 export interface WhyTarget {
   raw: string;
   domain?: string;
-  /** Go 的 netip.Addr 不会被 omitempty 省略：没有时也写空串 */
+  /** 没有时也写空串（不省略） */
   ip: string;
   port: number;
 }

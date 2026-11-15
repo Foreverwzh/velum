@@ -73,7 +73,7 @@ export default function Connections({ go, refresh, initialQuery }: { go: Go; ref
       if (onlyErr && !(c.errors?.length && !isRejected(c))) return false;
       if (hideRej && isRejected(c)) return false;
       if (!keys.length) return true;
-      const hay = [c.domain, c.destination, c.process, c.chain.join(" "), c.provenance.text, ruleLabel(c)].join(" ").toLowerCase();
+      const hay = [c.domain, c.destination, c.chain.join(" "), c.provenance.text, ruleLabel(c)].join(" ").toLowerCase();
       return keys.every((k) => hay.includes(k));
     });
   }, [all, q, onlyErr, hideRej]);
@@ -81,9 +81,7 @@ export default function Connections({ go, refresh, initialQuery }: { go: Go; ref
   const rejCount = useMemo(() => list.filter(isRejected).length, [list]);
   // 详情跟随实时数据（进行中的连接每秒更新）
   const cur = sel && (active.find((c) => c.id === sel.id) ?? list.find((c) => c.id === sel.id) ?? sel);
-  // 拿不到进程信息时（如部分 TUN 连接）不占一列
-  // 详情面板打开时，进程与首包只在面板中显示，给目标列留出宽度
-  const hasProc = useMemo(() => !cur && shown.some((c) => c.process), [shown, cur]);
+  // 详情面板打开时，首包只在面板中显示，给目标列留出宽度
 
   return (
     <div className="flex min-h-0 flex-1">
@@ -139,7 +137,6 @@ export default function Connections({ go, refresh, initialQuery }: { go: Go; ref
                 <tr className="[&>th]:h-8 [&>th]:border-b [&>th]:border-line [&>th]:px-3 [&>th]:font-medium">
                   <th className="w-[88px] !pl-4">{t("时间")}</th>
                   <th>{t("目标")}</th>
-                  {hasProc && <th className="w-[110px]">{t("进程")}</th>}
                   <th className="w-[32%]">{t("规则与出站")}</th>
                   <th className="w-[84px] text-right">{t("速率")}</th>
                   <th className={cx("w-[68px] text-right", cur && "!pr-4")}>{t("下行")}</th>
@@ -161,7 +158,6 @@ export default function Connections({ go, refresh, initialQuery }: { go: Go; ref
                       <td className="truncate">
                         <span className={cx("font-medium", bad && "text-err")}>{c.domain || c.destination}</span>
                       </td>
-                      {hasProc && <td className="truncate text-fg-3">{c.process?.split(/[\\/]/).pop() ?? "—"}</td>}
                       <td className="overflow-hidden"><Chain size="sm" className="overflow-hidden" steps={chainSteps(c.chain, { label: ruleLabel(c), title: srcText(c.provenance) })} /></td>
                       <td className="text-right font-mono text-[11.5px] tnum" title={sp ? `↓ ${rate(sp.down)}  ↑ ${rate(sp.up)}` : undefined}>
                         {live && sp && sp.down + sp.up >= 1 ? <span className={sp.down >= 1 << 20 ? "text-accent" : "text-fg"}>{rate(Math.max(sp.down, sp.up))}</span> : <span className="text-fg-3">—</span>}
@@ -195,14 +191,11 @@ export default function Connections({ go, refresh, initialQuery }: { go: Go; ref
             </div>
             <KV rows={[
               [t("目标"), <span className="selectable font-mono text-[12px] break-all">{cur.destination}</span>],
-              ...(cur.resolved?.length ? [[t("解析"), <span className="selectable font-mono text-[12px] break-all">{cur.resolved.join(", ")}</span>] as [string, React.ReactNode]] : []),
-              [t("进程"), <span className="selectable break-all">{cur.process ?? "—"}</span>],
               [t("流量"), <span className="font-mono text-[12px] tnum">↑ {human(cur.upload)}　↓ {human(cur.download)}</span>],
               ...(!cur.end ? [[t("速率"), <span className="font-mono text-[12px] tnum">↑ {rate(speeds.get(cur.id)?.up ?? 0)}　↓ {rate(speeds.get(cur.id)?.down ?? 0)}</span>] as [string, React.ReactNode]] : []),
-              ...(cur.connect_ms != null && cur.connect_ms >= 0 ? [[t("连上对端"), <span className="font-mono text-[12px] tnum">{cur.connect_ms}ms</span>] as [string, React.ReactNode]] : []),
+              ...(cur.connect_ms >= 0 ? [[t("连上对端"), <span className="font-mono text-[12px] tnum">{cur.connect_ms}ms</span>] as [string, React.ReactNode]] : []),
               [t("首包"), <span className="font-mono text-[12px] tnum">{cur.first_byte_ms >= 0 ? `${cur.first_byte_ms} ms` : t("无")}</span>],
               [t("时长"), <span className="font-mono text-[12px] tnum">{cur.end ? `${cur.duration_ms} ms` : t("进行中")}</span>],
-              ...(cur.sniffed ? [[t("嗅探"), cur.sniffed] as [string, React.ReactNode]] : []),
             ]} />
             {isRejected(sel) ? (
               <Tag>{t("按规则拦截，属于预期行为")}</Tag>
@@ -220,7 +213,7 @@ export default function Connections({ go, refresh, initialQuery }: { go: Go; ref
           </div>
         </aside>
       )}
-      {rule && <RuleDialog initial={rule.domain || rule.destination} process={rule.process} refresh={refresh} onClose={() => setRule(undefined)} />}
+      {rule && <RuleDialog initial={rule.domain || rule.destination} refresh={refresh} onClose={() => setRule(undefined)} />}
     </div>
   );
 }

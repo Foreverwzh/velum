@@ -25,7 +25,6 @@ jobs:
         working-directory: mobile
         shell: bash
     env:
-      GOPROXY: https://proxy.golang.org,direct
       VELUM_VERSION: ${{ inputs.version }} # 仅发布时非空
     steps:
       # 运行器磁盘有限：Gradle 打包占空间，先删掉用不到的工具链

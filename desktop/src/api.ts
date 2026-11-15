@@ -1,6 +1,6 @@
 import { t } from "./i18n";
 // velumd 本地接口的类型与客户端。数据类型由 velum-engine 从 velumd 的 wire.rs 生成（wire.ts）；
-// 这里只把几个字符串字段收窄成前端用的取值，并补上只有 Go 核心才发送的字段（标了「Go 核心」，移除 Go 核心时删掉）。
+// 这里只把几个字符串字段收窄成前端用的取值。
 // Tauri 中经 Rust 命令访问 Unix socket；浏览器开发模式下经 Vite 代理（/api）。
 import type * as W from "./wire";
 
@@ -10,10 +10,7 @@ export type { Source, NetPolicy, GroupStatus, NetworkStatus, Warning, HelperStat
 export type VPN = W.Vpn;
 /** 订阅服务提供的流量额度与到期时间（subscription-userinfo 等响应头）。 */
 export type SubInfo = W.Info;
-export interface TUNStatus extends W.TunStatus {
-  /** Go 核心 */
-  exclude?: string[];
-}
+export type TUNStatus = W.TunStatus;
 /** 订阅列表中的一项（profiles.yaml）；active 为正在使用的订阅。 */
 export interface Profile extends Omit<W.ProfileStatus, "kind"> { kind: "url" | "file" }
 export interface Status extends Omit<W.Status, "profiles" | "update" | "tun"> {
@@ -26,24 +23,9 @@ export interface UpdateStatus extends Omit<W.UpdateStatus, "channel"> { channel:
 export type UpdateChannel = "stable" | "beta";
 /** 自动更新进度（App 内）。 */
 export interface UpdateProgress { stage: "download" | "install" | "error"; downloaded: number; total?: number; error?: string }
-export interface Connection extends Omit<W.Connection, "connect_ms"> {
-  /** 没有连上时 Go 核心不发送，Rust 核心为 -1 */
-  connect_ms?: number;
-  /** Go 核心 */
-  process?: string; resolved?: string[]; sniffed?: string;
-}
-/** 逐条推演中的一条规则（Go 核心；Rust 核心由运行中的引擎直接给出结论，不逐条推演）。 */
-export interface RuleTrace { index: number; action: string; matched: boolean; unknown?: boolean; reason: string; source: W.Source }
-export interface WhyReport extends Omit<W.WhyReport, "rules" | "decision"> {
-  rules: RuleTrace[];
-  /** uncertain：Go 核心 */
-  decision: W.WhyDecision & { uncertain?: boolean };
-}
-export interface WhyResponse extends Omit<W.WhyResponse, "report"> {
-  report: WhyReport;
-  /** Go 核心 */
-  rule_set_errors?: Record<string, string>;
-}
+export type Connection = W.Connection;
+export type WhyReport = W.WhyReport;
+export type WhyResponse = W.WhyResponse;
 export interface Traffic extends W.Traffic {}
 /** overlay 条目。domain 的 value 用 overlay 写法：x = 根域 + 子域，.x = 仅子域，=x = 仅此域名。 */
 export type OverlayKind = "domain" | "cidr" | "host" | "process" | "bypass";

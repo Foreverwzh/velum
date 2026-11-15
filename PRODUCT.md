@@ -14,7 +14,7 @@ People who already have a Clash / Stash / mihomo subscription and want a proxy c
 
 ## Product Purpose
 
-Run a sing-box–based proxy core (`velumd`) from an existing Clash-style subscription, and keep it working when the network changes, without the user having to understand routing. Success: protection stays on through Wi-Fi switches, sleep/wake and corporate VPNs; when a site misbehaves, the user can see in seconds which rule and outbound it took and why.
+Run Velum's own proxy core (`velumd`, written in Rust) from an existing Clash-style subscription, and keep it working when the network changes, without the user having to understand routing. Success: protection stays on through Wi-Fi switches, sleep/wake and corporate VPNs; when a site misbehaves, the user can see in seconds which rule and outbound it took and why.
 
 ## Positioning
 
@@ -41,7 +41,7 @@ Velum is the explainable client. Every connection carries the rule that matched 
 ## Brand Commitments
 
 - Name: Velum. App icon at `desktop/app-icon.png`; monochrome template tray icon at `desktop/src-tauri/tray-template.png`.
-- Must not imitate or claim association with sing-box, Clash, Stash or Surge (README states Velum is independent of sing-box and its authors).
+- Must not imitate or claim association with sing-box, Clash, Stash or Surge.
 - The user asked for a recognisable visual identity of Velum's own, not a stock macOS look (2026-10-21).
 
 ## Evidence on Hand

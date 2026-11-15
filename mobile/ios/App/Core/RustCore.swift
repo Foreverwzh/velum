@@ -1,6 +1,6 @@
-// Rust 控制面（velum-engine 的 velum-core，经 VelumCore.xcframework）：取代 App 进程里的 Go daemon。
+// Rust 控制面（velum-engine 的 velum-core，经 VelumCore.xcframework）。
 // 订阅拉取、编译、生成隧道文件都在 Rust 里完成；这里只把 velum-core 的类型换成界面现在用的模型。
-// 默认的核心（开发构建可用 -VelumGoCore YES 改用 Go 版对照）。规则解释由运行中的引擎回答（与真实连接同一段决策），不再逐条推演。
+// 规则解释由运行中的引擎回答（与真实连接同一段决策），不逐条推演。
 import Foundation
 import Network
 import NetworkExtension

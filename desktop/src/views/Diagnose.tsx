@@ -1,9 +1,9 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { ArrowRightLeft, Check, CircleHelp, Globe2, ListPlus, ListTree, RefreshCw, Route, ScanSearch, Server, X } from "lucide-react";
+import { ArrowRightLeft, Check, Globe2, ListPlus, ListTree, Route, ScanSearch, Server } from "lucide-react";
 import { api, errText, human, srcText, type Connection, type Source, type WhyResponse } from "../api";
 import type { Refresh } from "../App";
 import { RuleDialog } from "../components/RuleDialog";
-import { Button, Chain, Empty, Notice, Panel, Section, Tag, chainSteps, cx } from "../components/ui";
+import { Button, Chain, Empty, Notice, Panel, Section, Tag, chainSteps } from "../components/ui";
 import { t } from "../i18n";
 
 const examples = ["https://www.google.com/", "claude.ai", "github.com"];
@@ -65,7 +65,6 @@ export default function Diagnose({ initialTarget, refresh }: { initialTarget?: s
               <header>
                 <div className="flex items-center gap-2">
                   <h1 className="selectable truncate text-[18px] font-semibold tracking-[-0.015em]">{r.target.domain ?? r.target.ip}<span className="text-fg-3">:{r.target.port}</span></h1>
-                  {r.decision.uncertain ? <Tag tone="warn">{t("结论不确定")}</Tag> : <Tag tone="accent">{t("结论确定")}</Tag>}
                   <Button size="sm" className="ml-auto" icon={ListPlus} onClick={() => setRule(true)}>{t("加入本地规则")}</Button>
                 </div>
                 <div className="mt-2">
@@ -85,7 +84,7 @@ export default function Diagnose({ initialTarget, refresh }: { initialTarget?: s
                   {res.resolve_error && <div className="mt-1 text-warn">{t("解析失败：")}{res.resolve_error}</div>}
                 </Step>
                 <Step icon={ListTree} title={t("规则")}>
-                  <RuleTrace res={res} />
+                  <RuleHit r={r} />
                 </Step>
                 <Step icon={Server} title={t("出站")} last>
                   <span className="font-medium">{res.chain?.length ? res.chain.join(" → ") : r.decision.action === "reject" ? t("拦截") : r.decision.outbound}</span>
@@ -138,38 +137,17 @@ function Src({ s }: { s?: Source }) {
   return s ? <span className="selectable ml-1 font-mono text-[11.5px] text-fg-3">{srcText(s)}</span> : null;
 }
 
-function RuleTrace({ res }: { res: WhyResponse }) {
-  const [all, setAll] = useState(false);
-  const r = res.report;
-  const rows = r.rules.filter((t) => all || t.matched || t.unknown || t.action === "resolve");
+/** 命中的规则：由运行中的引擎给出（与真实连接同一段决策），附规则原文与出处。 */
+function RuleHit({ r }: { r: WhyResponse["report"] }) {
+  const d = r.decision;
   return (
-    <div>
-      <div className="overflow-hidden rounded-md border border-line">
-        {rows.map((t) => {
-          const Icon = t.action === "resolve" ? RefreshCw : t.matched ? Check : t.unknown ? CircleHelp : X;
-          const tone = t.action === "resolve" ? "text-info" : t.matched ? "text-accent" : t.unknown ? "text-warn" : "text-fg-3";
-          return (
-            <div key={t.index} className={cx("grid grid-cols-[40px_16px_1fr] items-start gap-2 border-b border-line px-2.5 py-1.5 last:border-0", t.matched && t.action !== "resolve" && "bg-accent-soft")}>
-              <span className="text-right font-mono text-[11.5px] text-fg-3 tnum">#{t.index}</span>
-              <Icon className={cx("mt-[2px] size-3.5", tone)} strokeWidth={2.2} />
-              <div className="min-w-0">
-                <div className="selectable truncate font-mono text-[12px]" title={srcText(t.source)}>{t.source.text ?? srcText(t.source)}</div>
-                <div className="text-[11.5px] text-fg-3">{t.reason}<span className="ml-2 font-mono">{srcText({ ...t.source, text: undefined })}</span></div>
-              </div>
-            </div>
-          );
-        })}
-        {r.decision.rule_index < 0 && (
-          <div className="grid grid-cols-[40px_16px_1fr] items-start gap-2 bg-accent-soft px-2.5 py-1.5">
-            <span className="text-right font-mono text-[11.5px] text-fg-3">final</span>
-            <Check className="mt-[2px] size-3.5 text-accent" strokeWidth={2.2} />
-            <span className="selectable font-mono text-[12px]">{srcText(r.decision.source)}</span>
-          </div>
-        )}
+    <div className="grid grid-cols-[40px_16px_1fr] items-start gap-2 rounded-md border border-line bg-accent-soft px-2.5 py-1.5">
+      <span className="text-right font-mono text-[11.5px] text-fg-3 tnum">{d.rule_index < 0 ? "final" : `#${d.rule_index}`}</span>
+      <Check className="mt-[2px] size-3.5 text-accent" strokeWidth={2.2} />
+      <div className="min-w-0">
+        <div className="selectable truncate font-mono text-[12px]" title={srcText(d.source)}>{d.source.text ?? srcText(d.source)}</div>
+        <div className="text-[11.5px] text-fg-3">{t("运行中的引擎的结论")}<span className="ml-2 font-mono">{srcText({ ...d.source, text: undefined })}</span></div>
       </div>
-      <button className="mt-1.5 text-[12px] text-accent hover:underline" onClick={() => setAll(!all)}>
-        {all ? t("只看命中与未知") : t("显示全部 {0} 条规则（含未命中原因）", r.rules.length)}
-      </button>
     </div>
   );
 }

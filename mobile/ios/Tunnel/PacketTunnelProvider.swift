@@ -1,4 +1,4 @@
-// 隧道扩展：只运行内核（velum-engine，见 VelumTunnel），配置由 App 写到 App Group。内存上限约 50MB，见 spikes/ios-memory。
+// 隧道扩展：只运行内核（velum-engine，见 VelumTunnel），配置由 App 写到 App Group。内存上限约 50MB，见 docs/IOS-PLAN.md。
 // 路由和 DNS 的写法来自 macOS 扩展（desktop/extension），各条约束的来历见 spikes/mn-netext/README.md。
 import Darwin
 import Foundation

@@ -15,7 +15,7 @@ enum Fmt {
     }
 
     static func ago(_ d: Date, now: Date = .now) -> String {
-        if d.timeIntervalSince1970 < 0 { return String(localized: "未知") } // Go 的零值时间
+        if d.timeIntervalSince1970 < 0 { return String(localized: "未知") } // 零值时间（没有记录）
         let s = Int(now.timeIntervalSince(d))
         if s < 5 { return String(localized: "刚刚") }
         if s < 60 { return String(localized: "\(s) 秒前") }

@@ -1,4 +1,4 @@
-//! Velum 桌面壳：界面 + 托盘 + velumd 进程管理。业务逻辑全部在 velumd（Go 核心）中。
+//! Velum 桌面壳：界面 + 托盘 + velumd 进程管理。业务逻辑全部在 velumd（velum-engine 的 Rust 核心）中。
 
 use crate::i18n::{t, tf};
 mod i18n;

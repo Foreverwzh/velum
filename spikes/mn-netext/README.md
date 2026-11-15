@@ -1,5 +1,7 @@
 # MN Spike：macOS 改用 NetworkExtension（系统扩展 + NEPacketTunnelProvider）
 
+> 实验代码基于已删除的 Go 核心（gomobile），已一并删除（见 git log）；这里保留验证过程与结论（F1～F11），正式实现在 `desktop/extension/`。
+
 > 对应 ARCHITECTURE §3.2 / D4，路线图 MN。
 > 阶段一（公司网络下）已完成；阶段二（与企业 NE VPN 共存、全局接管）待测。
 

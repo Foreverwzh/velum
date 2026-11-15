@@ -23,7 +23,6 @@ jobs:
       run:
         working-directory: mobile/ios
     env:
-      GOPROXY: https://proxy.golang.org,direct
       VELUM_VERSION: ${{ inputs.version }}
     steps:
       - uses: actions/checkout@v7
