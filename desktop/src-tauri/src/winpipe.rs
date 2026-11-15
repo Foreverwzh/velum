@@ -1,7 +1,7 @@
 //! Windows：velumd 的 Named Pipe 命名、服务端身份校验、当前用户 SID、I/O 取消。
 //!
 //! Pipe 名字是全局的，任何进程都可以抢先创建同名 Pipe 冒充 velumd，因此连接后检查 Pipe 对象的所有者：
-//! 只接受 SYSTEM / Administrators（Velum 服务）或当前用户（以用户身份运行的 velumd）。与 core/pkg/ipc 一致。
+//! 只接受 SYSTEM / Administrators（Velum 服务）或当前用户（以用户身份运行的 velumd）。与 velumd（velum-engine 的 winpipe.rs）一致。
 
 use std::ffi::c_void;
 use std::fs::File;

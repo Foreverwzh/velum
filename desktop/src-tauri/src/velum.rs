@@ -23,7 +23,7 @@ pub fn home() -> PathBuf {
 }
 
 /// macOS：velumd 的 Unix socket；核心在系统扩展里运行时 socket 不存在，改用 extension.addr 记录的回环 TCP + 令牌
-/// （docs/MN-PLAN.md Q2，与 core/pkg/ipc 的 tcp:// 地址相同：连接后先发送一行令牌）。
+/// （docs/MN-PLAN.md Q2，tcp:// 地址：连接后先发送一行令牌）。
 #[cfg(unix)]
 enum Conn {
     Unix(std::os::unix::net::UnixStream),
@@ -290,7 +290,7 @@ pub fn alive() -> bool {
     call("GET", "/v1/status", None).is_ok()
 }
 
-/// 查找 velumd：$VELUMD → 与本程序同目录（App 内携带）→ 开发目录 core/bin。
+/// 查找 velumd：$VELUMD → 与本程序同目录（App 内携带）→ 开发时 sidecars.sh 准备的 src-tauri/binaries/rust-<三元组>。
 pub fn velumd_path() -> Option<PathBuf> {
     if let Ok(p) = std::env::var("VELUMD") {
         return Some(PathBuf::from(p));
@@ -298,7 +298,7 @@ pub fn velumd_path() -> Option<PathBuf> {
     bin_path("velumd")
 }
 
-/// 内置程序的路径：App 包内与主程序同目录（Contents/MacOS）；开发时回落到仓库的 core/bin。
+/// 内置程序的路径：App 包内与主程序同目录（Contents/MacOS）；开发时回落到 sidecars.sh 准备的 binaries/rust-<三元组>。
 pub fn bin_path(name: &str) -> Option<PathBuf> {
     let name = &format!("{name}{}", std::env::consts::EXE_SUFFIX);
     let exe = std::env::current_exe().ok()?;
@@ -307,10 +307,15 @@ pub fn bin_path(name: &str) -> Option<PathBuf> {
     if bundled.exists() {
         return Some(bundled);
     }
-    // 开发：desktop/src-tauri/target/debug/velum-desktop → core/bin/<name>
+    // 开发：desktop/src-tauri/target/debug/velum-desktop → desktop/src-tauri/binaries/rust-<三元组>/<name>
     for anc in dir.ancestors() {
-        let p = anc.join("core/bin").join(name);
-        if p.exists() {
+        let Ok(rd) = std::fs::read_dir(anc.join("binaries")) else { continue };
+        if let Some(p) = rd
+            .flatten()
+            .filter(|e| e.file_name().to_string_lossy().starts_with("rust-"))
+            .map(|e| e.path().join(name))
+            .find(|p| p.exists())
+        {
             return Some(p);
         }
     }

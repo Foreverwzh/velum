@@ -1,6 +1,7 @@
 #!/bin/sh
 # 桌面端与 Linux 用的 Rust 核心（velum-engine，闭源，不在本仓库）：
-#   sh desktop/scripts/engine.sh core <目标三元组> <输出目录>   velumd、vlu，macOS 另有 velum-helper（如 x86_64-apple-darwin）
+#   sh desktop/scripts/engine.sh core <目标三元组> <输出目录>   velumd、vlu，macOS 另有 velum-helper（如 x86_64-apple-darwin），
+#                                                             Windows 是 velumd.exe、vlu.exe 与 wintun.dll、wintun-LICENSE.txt
 #   sh desktop/scripts/engine.sh macext <输出目录>             macOS 系统扩展的核心：lib/libvelum_macext.a、include/（arm64 + x86_64）
 #   sh desktop/scripts/engine.sh notices <文件>                velum-engine 的第三方声明
 #   sh desktop/scripts/engine.sh wire [--check]                 重新生成 desktop/src/wire.ts（本地接口的数据类型，只能从源码）
@@ -41,9 +42,21 @@ case "$what" in
         *-linux-*) (cd "$src" && cargo zigbuild -q --release --target "$triple.2.31" -p velum-daemon --bins 2>/dev/null) ;;
         *-apple-darwin) (cd "$src" && MACOSX_DEPLOYMENT_TARGET=12.0 cargo build -q --release --target "$triple" -p velum-daemon --bins &&
           MACOSX_DEPLOYMENT_TARGET=12.0 cargo build -q --release --target "$triple" -p velum-helper) ;;
+        # 在 macOS 上交叉编译（cargo-xwin，工具见 velum-engine 的 scripts/release-desktop.sh）；在 Windows 上直接编译
+        *-windows-msvc) if [ "$(uname -s)" = Darwin ]; then
+            (cd "$src" && PATH="${VELUM_XWIN_PATH:-$HOME/.local/share/xwin-shims}:$PATH" cargo xwin build -q --release --target "$triple" -p velum-daemon --bins)
+          else
+            (cd "$src" && cargo build -q --release --target "$triple" -p velum-daemon --bins)
+          fi ;;
         *) echo "engine: 还不支持 $triple" >&2; exit 1 ;;
       esac
-      cp "$src/target/$triple/release/velumd" "$src/target/$triple/release/vlu" "$out/"
+      case "$triple" in
+        *-windows-*)
+          cp "$src/target/$triple/release/velumd.exe" "$src/target/$triple/release/vlu.exe" "$src/third_party/wintun/wintun.dll" "$out/"
+          cp "$src/third_party/wintun/LICENSE.txt" "$out/wintun-LICENSE.txt"
+          ;;
+        *) cp "$src/target/$triple/release/velumd" "$src/target/$triple/release/vlu" "$out/" ;;
+      esac
       case "$triple" in *-apple-darwin) cp "$src/target/$triple/release/velum-helper" "$out/" ;; esac
       echo "engine: velumd、vlu（${triple}，从源码编译）" >&2
     else
@@ -52,7 +65,10 @@ case "$what" in
       tmp="$here/build/engine-download/x"
       rm -rf "$tmp" && mkdir -p "$tmp"
       tar -xzf "$f" -C "$tmp"
-      cp "$tmp"/*/velumd "$tmp"/*/vlu "$out/"
+      case "$triple" in
+        *-windows-*) cp "$tmp"/*/velumd.exe "$tmp"/*/vlu.exe "$tmp"/*/wintun.dll "$tmp"/*/wintun-LICENSE.txt "$out/" ;;
+        *) cp "$tmp"/*/velumd "$tmp"/*/vlu "$out/" ;;
+      esac
       # macOS 的发布包里有 velum-helper（desktop-v0.2.0 起）
       if [ -f "$tmp"/*/velum-helper ]; then cp "$tmp"/*/velum-helper "$out/"; fi
       rm -rf "$tmp"
