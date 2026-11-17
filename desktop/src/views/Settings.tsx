@@ -167,16 +167,23 @@ function Release({ status: s, refresh }: { status: Status; refresh: Refresh }) {
   const pct = progress?.total ? Math.floor((progress.downloaded / progress.total) * 100) : undefined;
   const hint = installing ? (progress.stage === "install" ? t("正在安装，完成后 Velum 会自动重启…") : t("正在下载新版本 {0}{1}", u?.latest ?? "", pct !== undefined ? ` · ${pct}%` : "…"))
     : !u ? t("尚未检查新版本")
-    : u.available ? <>{t("新版本")}{" "}<span className="font-mono">{u.latest}</span>{" "}{t("已发布")}{!u.manifest && (u.download ? t("，需要手动下载安装") : t("，当前平台没有安装包，请在发布页查看"))}</>
+    : u.available ? <>{t("新版本")}{" "}<span className="font-mono">{u.latest}</span>{" "}{t("已发布")}{!u.manifest && (u.download ? t("，需要手动下载安装") : t("，当前平台没有安装包，请在发布页查看"))}{" · "}{t("检查于 {0}", checked)}</>
     : u.error ? <span className="text-warn">{t("检查失败：")}{u.error}</span>
     : channel === "stable" && /-/.test(s.version) ? t("当前是测试版：正式版高于 {0} 后会提示更新 · 检查于 {1}", s.version, checked)
     : t("已是最新版本 · 检查于 {0}", checked);
+  // 安装前先重新检查：上次检查后又有新版本时直接装最新的（清单指向具体版本）；检查失败时装已知的版本
+  const install = async () => {
+    const fresh = await api.checkRelease().catch(() => undefined);
+    const manifest = fresh?.available && fresh.manifest ? fresh.manifest : u!.manifest!;
+    await native.installUpdate(manifest);
+  };
+  const check = <Button variant={u?.available ? "ghost" : undefined} icon={RefreshCw} loading={busy === "check"} disabled={!!busy} onClick={() => run("check", api.checkRelease)}>{t("检查更新")}</Button>;
   const action = installing ? null
     : u?.available && u.manifest && native.available
-      ? <Button variant="primary" icon={Download} disabled={!!busy} onClick={() => run("install", () => native.installUpdate(u.manifest!))}>{t("立即更新")}</Button>
+      ? <>{check}<Button variant="primary" icon={Download} disabled={!!busy} onClick={() => run("install", install)}>{t("立即更新")}</Button></>
     : u?.available && u.download
-      ? <Button variant="primary" icon={Download} onClick={() => run("open", () => native.openRelease(u.download!))}>{t("下载")}</Button>
-    : <Button icon={RefreshCw} loading={busy === "check"} disabled={!!busy} onClick={() => run("check", api.checkRelease)}>{t("检查更新")}</Button>;
+      ? <>{check}<Button variant="primary" icon={Download} onClick={() => run("open", () => native.openRelease(u.download!))}>{t("下载")}</Button></>
+    : check;
   return (
     <>
       <Panel>

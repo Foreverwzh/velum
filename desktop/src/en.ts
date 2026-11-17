@@ -120,6 +120,7 @@ export const en = {
   "已安装 · 协议 {0}": "Installed · protocol {0}",
   "已接管：{0}": "Managing: {0}",
   "已是最新版本 · 检查于 {0}": "Up to date · checked {0}",
+  "检查于 {0}": "checked {0}",
   "已暂停": "Paused",
   "已暂停接管": "Takeover paused",
   "已暂停：": "Paused: ",
