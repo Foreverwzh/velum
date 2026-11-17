@@ -53,6 +53,7 @@ pub fn lookup(src: &str) -> Option<&'static str> {
         "无法请求管理员权限：{0}" => "Could not request administrator rights: {0}",
         "无法连接 Velum 网络扩展：{0}" => "Could not connect to the Velum network extension: {0}",
         "无法连接 velumd：{0}" => "Could not connect to velumd: {0}",
+        "正在切换核心，请稍候…" => "Switching the core, one moment…",
         "更新到 {0}…" => "Update to {0}…",
         "更新订阅" => "Update subscription",
         "替换已安装的扩展 {0} → {1}" => "Replacing the installed extension {0} → {1}",

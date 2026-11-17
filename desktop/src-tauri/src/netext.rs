@@ -460,33 +460,24 @@ fn fall_back_inner(reason: &str) -> String {
     let home = crate::velum::home();
     let _ = std::fs::remove_file(home.join("extension.enabled"));
     let _ = std::fs::remove_file(home.join("extension.addr"));
-    wait_listen_port(&home);
     match crate::velum::ensure_running() {
         Ok(()) => tf("网络扩展未能启动，已退回 TUN 组件：{0}", &[&reason]),
         Err(e) => tf("网络扩展未能启动（{0}），启动 velumd 也失败：{1}", &[&reason, &e]),
     }
 }
 
-/// 切回 helper：停止隧道（系统撤销其路由与 DNS），去掉标记，启动 velumd。扩展容器里的设置不会带回用户目录。
+/// 切回 helper：停止隧道（系统撤销其路由与 DNS），去掉标记，立即启动 velumd。扩展容器里的设置不会带回用户目录。
+/// 扩展里的核心（root）停止后，入口端口上的 TIME_WAIT 连接约 30 秒内仍归 root，普通用户绑定不了：
+/// 不在这里等（以前等端口时界面一直显示「velumd 未运行」），由引擎在端口空出来后自己开始监听（引擎 0.3.9 起）。
 pub fn disable() -> Result<(), String> {
     let _busy = Busy::hold();
     stop_tunnel()?;
     let home = crate::velum::home();
     let _ = std::fs::remove_file(home.join("extension.enabled"));
-    wait_listen_port(&home);
     crate::velum::ensure_running()
 }
 
-/// 等入口端口可以绑定。扩展里的核心（root）停止后，其入口端口上的 TIME_WAIT 连接（核心经自身端口拉取规则集等）
-/// 约 30 秒内仍归 root 所有；macOS 不允许普通用户绑定其他用户的套接字占着的端口（SO_REUSEADDR 也不行），
-/// 此时启动的 velumd 会 address already in use，引擎起不来。
-fn wait_listen_port(home: &Path) {
-    let listen = std::fs::read_to_string(home.join("config.yaml"))
-        .ok()
-        .and_then(|c| c.lines().find_map(|l| l.strip_prefix("listen:").map(|v| v.trim().trim_matches('"').to_string())));
-    let Some(addr) = listen else { return };
-    let deadline = Instant::now() + Duration::from_secs(60);
-    while std::net::TcpListener::bind(&addr).is_err() && Instant::now() < deadline {
-        std::thread::sleep(Duration::from_millis(500));
-    }
+/// 正在切换核心（开关网络扩展、启停隧道）：界面连不上核心时显示「正在切换」而不是错误。
+pub fn switching() -> bool {
+    BUSY.load(std::sync::atomic::Ordering::SeqCst)
 }

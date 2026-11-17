@@ -68,6 +68,10 @@ fn connect(timeout: Option<Duration>) -> Result<Conn, String> {
         Err(e) => e,
     };
     let Some((hostport, token)) = extension_addr() else {
+        #[cfg(target_os = "macos")]
+        if crate::netext::switching() {
+            return Err(t("正在切换核心，请稍候…").into());
+        }
         return Err(tf("无法连接 velumd：{0}", &[&uds_err]));
     };
     let mut s = std::net::TcpStream::connect_timeout(
