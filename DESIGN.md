@@ -57,6 +57,7 @@ SwiftUI, system components and materials; the brand lives in the tint and the ro
 
 - **Structure.** Three tabs (状态, 活动, 设置) with a persistent ask field above them (`tabViewBottomAccessory`), opening a search sheet with the field at the bottom. Inset grouped lists throughout, large titles on tabs, inline on pushed pages. See `docs/IOS-PLAN.md` for the interaction spec.
 - **RouteChain** (`Views/Components.swift`) is the iOS form of `Chain`: rule (info, mono), group (neutral), node (teal), direct, reject. Tinted chips in the regular form, plain text in the compact form used in list rows. Wraps instead of truncating, since node names are long.
+- **Status tab routes.** Every selectable group is a row on the status tab (name, latency, the node it actually reaches); the first is the main line with the full route chain. Long-press switches in place, tap opens the members. Auto (urltest) groups collapse into one 自动选择的组 row; 测速 sits in the section header. Attention items come before the routes.
 - **LatencyLabel** colour plus number; timeouts say 超时 with an icon.
 - **Status.** Symbol, title and detail together (`checkmark.shield.fill`, `pause.circle.fill`, `exclamationmark.triangle.fill`, `shield.slash`); the switch is teal when on, amber when on but paused.
 - **Type.** System text styles only, so Dynamic Type works; monospaced for rule text and addresses, monospaced digits for data. SF Symbols only; emoji appear only inside subscription-provided names.

@@ -10,24 +10,6 @@ struct StatusView: View {
             List {
                 Section {
                     StatusHeader()
-                    if let g = model.primaryGroup {
-                        NavigationLink(value: Route.group(g.tag)) {
-                            VStack(alignment: .leading, spacing: 6) {
-                                HStack {
-                                    // 没有接管流量时，这只是选择，不是正在走的线路。
-                                    let live = model.status?.tunOn == true && model.status?.network?.captive != "captive" && model.status?.network?.captive != "offline"
-                                    Text(live ? "当前线路" : "已选线路").font(.subheadline).foregroundStyle(.secondary)
-                                    Spacer()
-                                    LatencyLabel(ms: model.delay(of: g.tag), muted: !live)
-                                }
-                                RouteChain(steps: ChainStep.from(model.chain(from: g.tag)))
-                            }
-                            .padding(.vertical, 2)
-                        }
-                        NavigationLink(value: Route.groups) {
-                            LabeledContent("全部策略组", value: "\(model.groups.count)")
-                        }
-                    }
                 } footer: {
                     if let t = model.traffic {
                         // 大字号放不下一行时竖排，不把数字折断
@@ -49,6 +31,7 @@ struct StatusView: View {
                         .accessibilityElement(children: .combine)
                     }
                 }
+                // 需要处理的事排在线路之前，不被一长串策略组挤到下面
                 if !model.attentions.isEmpty {
                     Section("需要留意") {
                         ForEach(model.attentions) { a in
@@ -65,11 +48,50 @@ struct StatusView: View {
                         }
                     }
                 }
+                if !model.groups.isEmpty { routesSection }
             }
             .navigationTitle("Velum")
             .refreshable { await model.refresh(); await model.refreshActivity() }
             .velumRoutes()
             .onAppear(perform: demoPush)
+        }
+    }
+
+    /// 没有接管流量时，这些只是选择，不是正在走的线路。
+    private var live: Bool {
+        model.status?.tunOn == true && model.status?.network?.captive != "captive" && model.status?.network?.captive != "offline"
+    }
+
+    /// 线路：订阅里每个可以手动选的策略组一行，直接看到各自走哪个节点；第一行是主线路，显示完整的路由链。
+    /// 点一行进入成员列表；长按直接切换。按测速自动选择的组收在最后一行。
+    private var routesSection: some View {
+        let selectable = model.groups.filter(\.isSelectable)
+        let auto = model.groups.count - selectable.count
+        let rows = selectable.isEmpty ? Array(model.groups.prefix(1)) : selectable
+        return Section {
+            ForEach(Array(rows.enumerated()), id: \.element.tag) { i, g in
+                NavigationLink(value: Route.group(g.tag)) {
+                    GroupRow(group: g, primary: i == 0, live: live)
+                }
+                .contextMenu { if g.isSelectable { QuickPick(group: g) } }
+            }
+            if auto > 0 {
+                NavigationLink(value: Route.groups) {
+                    LabeledContent("自动选择的组", value: "\(auto)")
+                }
+            }
+        } header: {
+            HStack {
+                Text(live ? "当前线路" : "已选线路")
+                Spacer()
+                if model.testing {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Button("测速") { Task { await model.test(group: "") } }
+                        .font(.footnote)
+                        .textCase(nil)
+                }
+            }
         }
     }
 
@@ -150,5 +172,50 @@ struct StatusHeader: View {
         }
         .padding(.vertical, 4)
         .sensoryFeedback(.success, trigger: model.status?.tunOn == true) { _, on in on }
+    }
+}
+
+/// 状态页的一个策略组：组名与延迟，下面是它实际走到的节点。主线路用完整的路由链，其余用一行紧凑文字。
+struct GroupRow: View {
+    var group: GroupStatus
+    var primary: Bool
+    var live: Bool
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: primary ? 6 : 3) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(group.tag)
+                    .font(primary ? .body.weight(.semibold) : .body)
+                    .lineLimit(1)
+                Spacer(minLength: 8)
+                LatencyLabel(ms: model.delay(of: group.tag), muted: !live)
+            }
+            let rest = Array(model.chain(from: group.tag).dropFirst())
+            if primary {
+                RouteChain(steps: ChainStep.from(rest))
+            } else if !rest.isEmpty {
+                RouteChain(steps: ChainStep.from(rest), compact: true)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.vertical, primary ? 2 : 0)
+    }
+}
+
+/// 长按策略组直接切换成员，不必进入成员列表。
+struct QuickPick: View {
+    var group: GroupStatus
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        Picker(group.tag, selection: Binding(
+            get: { group.selected ?? "" },
+            set: { m in Task { await model.select(group: group.tag, member: m) } }
+        )) {
+            ForEach(group.members, id: \.self) { m in
+                Text(m == "DIRECT" ? String(localized: "直连") : m).tag(m)
+            }
+        }
     }
 }

@@ -49,7 +49,7 @@ final class DeviceRustCoreTests: XCTestCase {
         }
 
         // 隧道没开时由 Rust 核心里的本地引擎提供策略组状态（开着时来自隧道里的引擎；文字是「当前线路」）
-        XCTAssertTrue(see(app, "全部策略组", timeout: 60), "没有策略组状态")
+        XCTAssertTrue(see(app, "已选线路", timeout: 60), "没有策略组状态")
         let toggle = app.switches["连接"].firstMatch
         XCTAssertTrue(toggle.waitForExistence(timeout: 20))
         if toggle.value as? String == "1" {
