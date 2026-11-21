@@ -88,6 +88,11 @@ jobs:
         include:
           - os: macos-latest # Apple 芯片
             artifact: velum-macos-arm64
+            arch: arm64
+          - os: macos-latest # Intel：在 Apple 芯片的机器上交叉编译（核心按目标下载；网络扩展本身是通用二进制）
+            artifact: velum-macos-x64
+            arch: x64
+            target: x86_64-apple-darwin
           - os: windows-latest
             artifact: velum-windows-x64
     runs-on: ${{ matrix.os }}
@@ -97,13 +102,18 @@ jobs:
         shell: bash
     env:
       VELUM_VERSION: ${{ inputs.version }} # 仅发布（或手动触发时填写了版本号）时非空
+      TARGET: ${{ matrix.target }} # 交叉编译的目标三元组；空为本机
     steps:
       - uses: actions/checkout@v7
       - uses: jdx/mise-action@v5
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: desktop/src-tauri
+          key: ${{ matrix.artifact }}
       - run: bun install --frozen-lockfile
+      - name: rust target
+        if: matrix.target
+        run: rustup target add ${{ matrix.target }}
       # beforeBuildCommand 会准备核心（sidecars）与前端。
       # 发布时写入版本号，并生成自动更新包（macOS .app.tar.gz、Windows setup.exe）及其签名（需要仓库 Secrets 中的更新签名私钥）
       - name: build
@@ -124,6 +134,8 @@ jobs:
           PROFILE_TUNNEL: ${{ secrets.APPLE_PROFILE_TUNNEL }}
         run: |
           conf='{}'
+          # 交叉编译：Tauri 在 beforeBuildCommand 里设 TAURI_ENV_TARGET_TRIPLE，extension/build.sh 在 Tauri 之前跑，要先给它
+          if [ -n "$TARGET" ]; then export TAURI_ENV_TARGET_TRIPLE="$TARGET"; fi
           if [ "$RUNNER_OS" = macOS ] && [ -n "$VELUM_VERSION" ] && [ -n "$SIGN_CERTIFICATE" ] && [ -n "$SIGN_IDENTITY" ]; then
             export APPLE_SIGNING_IDENTITY="$SIGN_IDENTITY"
             export VELUM_TEAM_ID=H3H5ULV8KR # 与签名证书的团队一致
@@ -154,16 +166,18 @@ jobs:
           if [ -n "$VELUM_VERSION" ]; then
             conf="$(printf '%s' "$conf" | jq -c --arg v "$VELUM_VERSION" '. * {version: $v, bundle: {createUpdaterArtifacts: true}}')"
           fi
-          bun tauri build --config "$conf"
+          bun tauri build --config "$conf" ${TARGET:+--target "$TARGET"}
       # upload-artifact 打 zip 时会丢掉可执行权限：.app 先用 ditto 打包（保留权限与签名）
       - name: collect (macOS)
         if: runner.os == 'macOS'
         run: |
           mkdir -p ../dist-pkg
-          ditto -c -k --keepParent src-tauri/target/release/bundle/macos/Velum.app ../dist-pkg/Velum-${VELUM_VERSION:-dev}-macos-arm64.zip
+          b=src-tauri/target/${TARGET:+$TARGET/}release/bundle/macos
+          a=${{ matrix.arch }}
+          ditto -c -k --keepParent $b/Velum.app ../dist-pkg/Velum-${VELUM_VERSION:-dev}-macos-$a.zip
           if [ -n "$VELUM_VERSION" ]; then
-            cp src-tauri/target/release/bundle/macos/Velum.app.tar.gz ../dist-pkg/Velum-$VELUM_VERSION-macos-arm64.app.tar.gz
-            cp src-tauri/target/release/bundle/macos/Velum.app.tar.gz.sig ../dist-pkg/Velum-$VELUM_VERSION-macos-arm64.app.tar.gz.sig
+            cp $b/Velum.app.tar.gz ../dist-pkg/Velum-$VELUM_VERSION-macos-$a.app.tar.gz
+            cp $b/Velum.app.tar.gz.sig ../dist-pkg/Velum-$VELUM_VERSION-macos-$a.app.tar.gz.sig
           fi
       - name: collect (Windows)
         if: runner.os == 'Windows'

@@ -62,12 +62,15 @@ jobs:
           v="${GITHUB_REF_NAME#v}"
           base="https://github.com/$GITHUB_REPOSITORY/releases/download/$GITHUB_REF_NAME"
           mac="Velum-$v-macos-arm64.app.tar.gz"
+          macx="Velum-$v-macos-x64.app.tar.gz"
           win="Velum-$v-windows-x64-setup.exe"
           jq -n --arg v "$v" --arg date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
             --arg macsig "$(cat "dist/$mac.sig")" --arg macurl "$base/$mac" \
+            --arg macxsig "$(cat "dist/$macx.sig")" --arg macxurl "$base/$macx" \
             --arg winsig "$(cat "dist/$win.sig")" --arg winurl "$base/$win" \
             '{version: $v, pub_date: $date, platforms: {
               "darwin-aarch64": {signature: $macsig, url: $macurl},
+              "darwin-x86_64": {signature: $macxsig, url: $macxurl},
               "windows-x86_64": {signature: $winsig, url: $winurl}}}' > dist/latest.json
           rm dist/*.sig
           cat dist/latest.json
